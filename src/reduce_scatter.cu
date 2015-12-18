@@ -414,16 +414,16 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
 
   args.ThisInput = (const T*)sendbuff;
   args.ThisOutput = (volatile T*)recvbuff;
-  args.ThisBuffer = (volatile T*)comm->local[prevId]->buff;
-  args.NextBuffer = (volatile T*)comm->remote[nextId]->buff;
+  args.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff;
+  args.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff;
 
   // we need 2 * NUM_SUBCHUNKS flags, so use the first NUM_SUBCHUNKS flags
   // to signal the next GPU that new data is available and the following
   // NUM_SUBCHUNKS to signal the previous GPU that a chunk is finished
-  args.ThisNewDataAvailableFlag = comm->local[prevId]->flags;
-  args.NextNewDataAvailableFlag = comm->remote[nextId]->flags;
-  args.ThisChunkDoneFlag = comm->local[nextId]->flags + 1;
-  args.PrevChunkDoneFlag = comm->remote[prevId]->flags + 1;
+  args.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags;
+  args.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags;
+  args.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + 1;
+  args.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + 1;
 
   ReduceScatterKernel<NUM_THREADS, UNROLL_COUNT, FUNC, T>
       <<<1, NUM_THREADS + NUM_SUBCHUNKS * WARP_SIZE, 0, stream>>>(args);
