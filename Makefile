@@ -31,7 +31,9 @@ PREFIX ?= /usr/local
 VERBOSE ?= 0
 
 CUDACODE := -gencode=arch=compute_35,code=sm_35 \
-            -gencode=arch=compute_52,code=sm_52
+            -gencode=arch=compute_50,code=sm_50 \
+            -gencode=arch=compute_52,code=sm_52 \
+            -gencode=arch=compute_60,code=sm_60
 
 BUILDDIR := build
 
@@ -56,7 +58,9 @@ TSTINC     := -Ibuild/include -Itest/include
 INCEXPORTS  := nccl.h
 LIBSRCFILES := libwrap.cu core.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
 LIBNAME     := libnccl.so
-APIVER      := 0
+VER_MAJOR   := 1
+VER_MINOR   := 0
+VER_PATCH   := 2
 TESTS       := all_gather_test all_reduce_test broadcast_test reduce_test reduce_scatter_test
 MPITESTS    := mpi_test
 
@@ -67,7 +71,8 @@ TSTDIR := $(BUILDDIR)/test/single
 MPITSTDIR := $(BUILDDIR)/test/mpi
 
 INCTARGETS := $(patsubst %, $(INCDIR)/%, $(INCEXPORTS))
-LIBTARGET  := $(patsubst %, $(LIBDIR)/%.$(APIVER), $(LIBNAME))
+LIBSONAME  := $(patsubst %,%.$(VER_MAJOR),$(LIBNAME))
+LIBTARGET  := $(patsubst %,%.$(VER_MAJOR).$(VER_MINOR).$(VER_PATCH),$(LIBNAME))
 LIBLINK    := $(patsubst lib%.so, -l%, $(LIBNAME))
 LIBOBJ     := $(patsubst %.cu, $(OBJDIR)/%.o, $(filter %.cu, $(LIBSRCFILES)))
 TESTBINS   := $(patsubst %, $(TSTDIR)/%, $(TESTS))
@@ -81,8 +86,9 @@ lib : $(INCTARGETS) $(LIBTARGET)
 $(LIBTARGET) : $(LIBOBJ)
 	@printf "Linking   %-25s\n" $@
 	@mkdir -p $(LIBDIR)
-	@$(GPP) $(CPPFLAGS) $(CXXFLAGS) -shared -Wl,-soname,$(LIBNAME).$(APIVER) -o $@ $(LDFLAGS) $(LIBOBJ)
-	@ln -sf $(LIBNAME).$(APIVER) $(LIBDIR)/$(LIBNAME)
+	@$(GPP) $(CPPFLAGS) $(CXXFLAGS) -shared -Wl,-soname,$(LIBSONAME) -o $(LIBDIR)/$@ $(LDFLAGS) $(LIBOBJ)
+	@ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
+	@ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
 
 $(INCDIR)/%.h : src/%.h
 	@printf "Grabbing  %-25s > %-25s\n" $< $@
@@ -107,8 +113,8 @@ test : lib $(TESTBINS)
 $(TSTDIR)/% : test/single/%.cu lib
 	@printf "Building  %-25s > %-24s\n" $< $@
 	@mkdir -p $(TSTDIR)
-	@$(NVCC) $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< -Lbuild/lib $(LIBLINK) $(LDFLAGS) -lcuda -lcurand -lnvToolsExt -lnvidia-ml
-	@$(NVCC) -M $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -Lbuild/lib $(LIBLINK) $(LDFLAGS) -lcuda -lcurand -lnvToolsExt -lnvidia-ml > $(@:%=%.d.tmp)
+	@$(NVCC) $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< -Lbuild/lib $(LIBLINK) $(LDFLAGS) -lcuda -lcurand -lnvToolsExt
+	@$(NVCC) -M $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -Lbuild/lib $(LIBLINK) $(LDFLAGS) -lcuda -lcurand -lnvToolsExt > $(@:%=%.d.tmp)
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%=%.d.tmp) > $(@:%=%.d)
 	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%=%.d.tmp) | fmt -1 | \
                 sed -e 's/^ *//' -e 's/$$/:/' >> $(@:%=%.d)
