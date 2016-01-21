@@ -1,5 +1,5 @@
 /*************************************************************************
- * Copyright (c) 2015, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015-2016, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -425,7 +425,9 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       comm->ptrs[i].remoteCleanup = CLEANUP_NONE;
     } else if (iPid == myPid) {
       INFO("rank access %d -> %d via zero-copy host mem", rank, iRank);
-      comm->useRemoteRecv = 0;
+      if (j <= 2) {
+        comm->useRemoteRecv = 0;
+      }
       if (cudaHostGetDevicePointer(&comm->ptrs[i].local, ranks[myId].hostptr, 0) != cudaSuccess) {
         WARN("rank %d failed to map zero copy buffer to device", rank);
         commClearMaps(comm);
