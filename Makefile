@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2015, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2015-2016, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -79,14 +79,14 @@ TESTBINS   := $(patsubst %, $(TSTDIR)/%, $(TESTS))
 MPITESTBINS:= $(patsubst %, $(MPITSTDIR)/%, $(MPITESTS))
 DEPFILES   := $(patsubst %.o, %.d, $(LIBOBJ)) $(patsubst %, %.d, $(TESTBINS)) $(patsubst %, %.d, $(MPITESTBINS))
 
-lib : $(INCTARGETS) $(LIBTARGET)
+lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 
 -include $(DEPFILES)
 
-$(LIBTARGET) : $(LIBOBJ)
+$(LIBDIR)/$(LIBTARGET) : $(LIBOBJ)
 	@printf "Linking   %-25s\n" $@
 	@mkdir -p $(LIBDIR)
-	@$(GPP) $(CPPFLAGS) $(CXXFLAGS) -shared -Wl,-soname,$(LIBSONAME) -o $(LIBDIR)/$@ $(LDFLAGS) $(LIBOBJ)
+	@$(GPP) $(CPPFLAGS) $(CXXFLAGS) -shared -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ)
 	@ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
 	@ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
 
@@ -110,7 +110,7 @@ clean :
 
 test : lib $(TESTBINS)
 
-$(TSTDIR)/% : test/single/%.cu lib
+$(TSTDIR)/% : test/single/%.cu $(LIBDIR)/$(LIBTARGET)
 	@printf "Building  %-25s > %-24s\n" $< $@
 	@mkdir -p $(TSTDIR)
 	@$(NVCC) $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< -Lbuild/lib $(LIBLINK) $(LDFLAGS) -lcuda -lcurand -lnvToolsExt
@@ -122,11 +122,11 @@ $(TSTDIR)/% : test/single/%.cu lib
 
 mpitest : lib $(MPITESTBINS)
 
-$(MPITSTDIR)/% : test/mpi/%.cu lib
+$(MPITSTDIR)/% : test/mpi/%.cu $(LIBDIR)/$(LIBTARGET)
 	@printf "Building  %-25s > %-24s\n" $< $@
 	@mkdir -p $(MPITSTDIR)
-	@$(NVCC) $(MPIFLAGS) $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< -Lbuild/lib $(LIBLINK) $(LDFLAGS)
-	@$(NVCC) $(MPIFLAGS) -M $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -Lbuild/lib $(LIBLINK) $(LDFLAGS) > $(@:%=%.d.tmp)
+	@$(NVCC) $(MPIFLAGS) $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< -Lbuild/lib $(LIBLINK) $(LDFLAGS) -lcurand
+	@$(NVCC) $(MPIFLAGS) -M $(TSTINC) $(CPPFLAGS) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -Lbuild/lib $(LIBLINK) $(LDFLAGS) -lcurand > $(@:%=%.d.tmp)
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%=%.d.tmp) > $(@:%=%.d)
 	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%=%.d.tmp) | fmt -1 | \
                 sed -e 's/^ *//' -e 's/$$/:/' >> $(@:%=%.d)
