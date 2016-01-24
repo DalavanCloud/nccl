@@ -276,13 +276,13 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   if (count == 0)
     return ncclSuccess;
 
-  int index = comm->ncclId;
+  int index = comm->ringIdx[0];
 
   const int numUnroll = 4;
-  int rootId = comm->ringFromUser[root];
+  int rootId = comm->ringFromUser[0][root];
 
-  int nextId = (index + 1) % comm->nDev;
-  int prevId = (index + comm->nDev - 1) % comm->nDev;
+  int nextId = comm->ncclFromRing[0][(index + 1) % comm->nDev];
+  int prevId = comm->ncclFromRing[0][(index + comm->nDev - 1) % comm->nDev];
 
   // There is one slice per GPU, so a slice can be at most bufferN / numGPUs,
   // where bufferN is the number of elements of type T that fit into the buffer.

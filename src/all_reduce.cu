@@ -383,7 +383,7 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     const int count, ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
-  int index = comm->ncclId;
+  int index = comm->ringIdx[0];
 
   // There is one slice per GPU, so a slice can be at most bufferN / numGPUs,
   // where bufferN is the number of elements of type T that fit into the buffer.
@@ -392,8 +392,8 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   int bufferNPerSlice = bufferN / (NUM_SUBCHUNKS * comm->nDev);
   int sliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
 
-  int nextId = (index + 1) % comm->nDev;
-  int prevId = (index + comm->nDev - 1) % comm->nDev;
+  int nextId = comm->ncclFromRing[0][(index + 1) % comm->nDev];
+  int prevId = comm->ncclFromRing[0][(index + comm->nDev - 1) % comm->nDev];
 
   AllReduceKernelArgs<T> args;
 

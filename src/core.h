@@ -33,9 +33,10 @@
 #include <cstdio>
 #include <cuda_runtime.h>
 
-#define MAXFLAGS 8
+#define MAXRINGS 8
+#define MAXFLAGS 16
 #define MAXQUEUE 4 // Maximum number of queued collectives per communicator.
-#define DEFAULT_BUFFER_SIZE_BYTES (1UL << 21)
+#define DEFAULT_BUFFER_SIZE_BYTES (1UL << 25)
 
 // DIE on error
 #define CUDACHECK(cmd) do {                              \
@@ -69,14 +70,15 @@ struct ncclMem {
 struct ncclNodeRef {
   ncclMem* remote;
   ncclMem* local;
-  int remoteCleanup;
+  enum {DEVICE, HOST} type;
   void* cleanupHandle;
 };
 
 struct ncclComm {
   int nDev;    // number of devices in communicator
   int cudaDev; // cuda device index
-  int ncclId;  // nccl logical index
+  int nRings;
+  int ringIdx[MAXRINGS];
 
   // Device and Host allocated chunks. Stored here to correctly free() memory.
   ncclMem* devMem;
@@ -89,13 +91,16 @@ struct ncclComm {
   // Maps an internal nccl index to user-specified rank order. This is necessary
   // since we need to know how the user expects data to be ordered across
   // devices.
-  int* userFromRing;
+  int* userFromRing[MAXRINGS];
 
   // copy of the above stored on each device
-  int* devUserFromRing;
+  int* devUserFromRing[MAXRINGS];
 
   // Inverse of userFromRing. Maps user specified index to internal nccl index.
-  int* ringFromUser;
+  int* ringFromUser[MAXRINGS];
+
+  // Ring orders
+  int* ncclFromRing[MAXRINGS];
 
   // Size of temp buffer in bytes.
   size_t buffSize;

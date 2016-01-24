@@ -339,7 +339,7 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
   if (recvcount == 0) {
     return ncclSuccess;
   }
-  int index = comm->ncclId;
+  int index = comm->ringIdx[0];
 
   int blockSizeInBytes = recvcount * sizeof(T);
   int misalignedBytes = blockSizeInBytes % alignof(uint64_t);
@@ -361,8 +361,8 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
       (NUM_SUBCHUNKS * comm->nDev);
   int sliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
 
-  int nextId = (index + 1) % comm->nDev;
-  int prevId = (index + comm->nDev - 1) % comm->nDev;
+  int nextId = comm->ncclFromRing[0][(index + 1) % comm->nDev];
+  int prevId = comm->ncclFromRing[0][(index + comm->nDev - 1) % comm->nDev];
 
   ReduceScatterKernelArgs<T> args;
 
@@ -402,7 +402,7 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
    * comm->userFromRing traversed backwards and starting at index k-1 for GPU k.
    * These columns are what we put into args.BlockVsStep to tell the GPU which
    * block it needs to be processing at a particular step. */
-  args.UserFromRing = comm->devUserFromRing;
+  args.UserFromRing = comm->devUserFromRing[0];
 
   args.SliceSize = sliceSize;
   args.ChunkSize = NUM_SUBCHUNKS * args.SliceSize;

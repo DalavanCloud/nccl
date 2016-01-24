@@ -342,7 +342,7 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
   if (count == 0)
       return ncclSuccess;
 
-  int index = comm->ncclId;
+  int index = comm->ringIdx[0];
 
   int blockSizeInBytes = count * sizeof(T);
   int misalignedBytes = blockSizeInBytes % alignof(uint64_t);
@@ -362,8 +362,8 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
        / (comm->nDev * NUM_SUBCHUNKS);
   // For efficiency, we want the slice size to be a multiple of UNROLL_SIZE
   int maxSliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
-  int nextId = (index + 1) % comm->nDev;
-  int prevId = (index + comm->nDev - 1) % comm->nDev;
+  int nextId = comm->ncclFromRing[0][(index + 1) % comm->nDev];
+  int prevId = comm->ncclFromRing[0][(index + comm->nDev - 1) % comm->nDev];
 
   AllGatherKernelArgs<T> args;
 
@@ -402,7 +402,7 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
    * comm->userFromRing traversed backwards and starting at index k for GPU k.
    * These columns are what we put into args.BlockVsStep to tell the GPU which
    * block it needs to be processing at a particular step. */
-  args.UserFromRing = comm->devUserFromRing;
+  args.UserFromRing = comm->devUserFromRing[0];
 
   args.SliceSize = numUnroll * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   args.SliceSize = std::min(maxSliceSize, args.SliceSize);
