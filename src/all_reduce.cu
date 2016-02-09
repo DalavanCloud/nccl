@@ -77,38 +77,51 @@
 #define SIGNAL_NEW_DATA_AVAILABLE(chunk, subchunk, step)                      \
     do {                                                                      \
       __threadfence_system();                                                 \
-      args.NextNewDataAvailableFlag[0] =                                      \
-          NUM_SUBCHUNKS*((chunk) * (2 * args.NumGPUs - 2) + (step) + 1)+subchunk;         \
+      *ring.NextNewDataAvailableFlag =                                        \
+          NUM_SUBCHUNKS*((chunk) * (2*args.NumGPUs-2) + (step)) + subchunk+1; \
     } while (0)
 
 // This is called by all producer threads, but only thread 0 spins on the flag,
-#define WAIT_FOR_NEW_DATA(chunk, subchunk, step)                                \
-    do {                                                                        \
-      if (tid == 0) {                                                           \
-        Wait([=] {                                                              \
-          return ((volatile int *)args.ThisNewDataAvailableFlag)[0] >=          \
-              2*((chunk) * (2 * args.NumGPUs - 2) + (step))+subchunk;           \
-        });                                                                     \
-      }                                                                         \
-      BAR(sync, 1, NUM_THREADS);                                                \
+#define WAIT_FOR_NEW_DATA(chunk, subchunk, step)                              \
+    do {                                                                      \
+      if (tid == 0) {                                                         \
+        int val = NUM_SUBCHUNKS*((int)(chunk) * (2*args.NumGPUs-2) + (step))  \
+            + subchunk + 1;                                                   \
+        Wait([=] { return *ring.ThisNewDataAvailableFlag >= val; });          \
+      }                                                                       \
+      BAR(sync, 1, NUM_THREADS);                                              \
     } while (0)
 
-#define SIGNAL_CHUNK_DONE(chunk, subchunk)                                      \
-    do {                                                                        \
-      args.PrevChunkDoneFlag[0] = NUM_SUBCHUNKS*(chunk) + subchunk + 1;         \
+#define SIGNAL_CHUNK_DONE(chunk, subchunk)                                    \
+    do {                                                                      \
+      *ring.PrevChunkDoneFlag = NUM_SUBCHUNKS*(chunk) + subchunk + 1;         \
     } while (0)
 
-#define WAIT_FOR_CHUNK(chunk, subchunk)                                         \
-    do {                                                                        \
-      if (tid == 0) {                                                           \
-        Wait([=] {                                                              \
-          return ((volatile int *)args.ThisChunkDoneFlag)[0] >=                 \
-              NUM_SUBCHUNKS*(chunk) + subchunk + 1 - NUM_SUBCHUNKS;             \
-        });                                                                     \
-      }                                                                         \
-      BAR(sync, 1, NUM_THREADS);                                                \
+#define WAIT_FOR_CHUNK(chunk, subchunk)                                       \
+    do {                                                                      \
+      if (tid == 0) {                                                         \
+        int val = NUM_SUBCHUNKS * (chunk) + subchunk + 1;                     \
+        Wait([=] { return *ring.ThisChunkDoneFlag >= val; });                 \
+      }                                                                       \
+      BAR(sync, 1, NUM_THREADS);                                              \
     } while (0)
 
+
+// chunkAlign = UNROLL_SIZE * 2 * ndev;
+// maxNumChunks = N / chunkAlign;
+// nRings = min(comm->nRings, maxChunks);
+// maxChunkSize = (comm->buffSize/(nRings*sizeof(T)*chunkAlign)) * chunkAlign;
+// assert(maxChunkSize > 0);
+// minNumChunks = (N+maxChunkSize-1) / maxChunkSize;
+// numChunks = max(minNumChunks, nRings);
+
+// totAligns = (N+chunkAlign-1) / chunkAlign;
+// alignPerChunk = totAligns / numChunks;
+// extraAligns = totAligns % numChunks;
+// extraN = N % chunkAlign;
+
+// BigChunks = extraAligns;
+// BigChunkSize = (alignPerChunk+1) * chunkAlign;
 
 __device__ inline void getSliceSizeAndOffset(int *size, int *offset, int slice,
     int numSlices, int numBigSlices, int numSmallSlices, int bigSliceN,
@@ -124,23 +137,12 @@ __device__ inline void getSliceSizeAndOffset(int *size, int *offset, int slice,
 }
 
 template<typename T>
-struct AllReduceKernelArgs {
-  // general parameters
+struct AllReduceRingArgs {
   int ThisId;
-  int NumGPUs;
-  int N;
-
-  // some pre-computed sizes
-  int SliceSize;
-  int ChunkSize;
-  int NumChunks;
 
   T ** ThisPtrToNextOutput;
   T ** PrevPtrToThisOutput;
 
-  // local and remote input, output, and buffer
-  const T * __restrict__ ThisInput;
-  volatile T * __restrict__ ThisOutput;
   volatile T * __restrict__ ThisBuffer;
   volatile T * __restrict__ NextBuffer;
 
@@ -151,7 +153,24 @@ struct AllReduceKernelArgs {
   volatile int * __restrict__ PrevChunkDoneFlag;
 };
 
-__shared__ volatile void * nextOutput;
+template<typename T>
+struct AllReduceKernelArgs {
+  // general parameters
+  int NumGPUs;
+  int N;
+
+  // some pre-computed sizes
+  int SliceSize;
+  int ChunkSize;
+  int NumChunks;
+
+  // local and remote input, output, and buffer
+  const T * __restrict__ ThisInput;
+  volatile T * __restrict__ ThisOutput;
+
+  AllReduceRingArgs<T> rings[MAXRINGS];
+};
+
 
 
 template<int THREADS, int UNROLL, class FUNC, bool PUSHRECV, typename T>
@@ -159,28 +178,33 @@ __launch_bounds__(THREADS+WARP_SIZE, 1)
 __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   if (args.N == 0) return;
   const int tid = threadIdx.x;
+  const int bid = blockIdx.x;
+  __shared__ volatile void * nextOutput;
+  __shared__ AllReduceRingArgs<T> ring;
+  ring = args.rings[bid];
 
   // First wait for args.PrevPtrToThisOutput to become nullptr to ensure that
   // the previous GPU is done with a previous collective operation.
   if (tid == 0) {
     Wait([=] {
-      return *((T * volatile *)args.PrevPtrToThisOutput) == nullptr;
+      return *((T * volatile *)ring.PrevPtrToThisOutput) == nullptr;
     });
 
-    *((T * volatile *)args.PrevPtrToThisOutput) = (T*)args.ThisOutput;
+    *((T * volatile *)ring.PrevPtrToThisOutput) = (T*)args.ThisOutput;
 
     Wait([=] {
-      return *((T * volatile *)args.ThisPtrToNextOutput) != nullptr;
+      return *((T * volatile *)ring.ThisPtrToNextOutput) != nullptr;
     });
 
     if (PUSHRECV)
       nextOutput =
-        *((volatile void * volatile *)args.ThisPtrToNextOutput);
+        *((volatile void * volatile *)ring.ThisPtrToNextOutput);
   }
   __syncthreads();
 
 
-  for (int chunk = 0; chunk < args.NumChunks; ++chunk) {
+  int chunk;
+  for (chunk = bid; chunk < args.NumChunks; chunk+=gridDim.x) {
     // calculate slice size.  for all chunks except (possibly) the last one,
     // this will just be args.SliceSize. For the last one, it may be smaller
     int bigSliceN   = args.SliceSize;
@@ -204,7 +228,7 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
 
     // step 0: push data to next GPU
     int step = 0;
-    int slice = args.ThisId;
+    int slice = ring.ThisId;
     int offset;
     int sliceSize;
 
@@ -215,11 +239,11 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
             numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
         if (!PUSHRECV && chunk > 0) {
-          WAIT_FOR_CHUNK(chunk, s);
+          WAIT_FOR_CHUNK(chunk-gridDim.x, s);
         }
 
         Copy<UNROLL, THREADS>(
-            args.NextBuffer + offset,
+            ring.NextBuffer + offset,
             args.ThisInput + chunkOffset + offset,
             sliceSize);
 
@@ -242,11 +266,11 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
           getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
               numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
-          WAIT_FOR_NEW_DATA(chunk, s, step);
+          WAIT_FOR_NEW_DATA(chunk, s, step-1);
 
           Reduce<UNROLL, THREADS, FUNC>(
-              args.NextBuffer + offset,
-              args.ThisBuffer + offset,
+              ring.NextBuffer + offset,
+              ring.ThisBuffer + offset,
               args.ThisInput + chunkOffset + offset,
               sliceSize);
 
@@ -271,20 +295,20 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
         getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
             numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
-        WAIT_FOR_NEW_DATA(chunk, s, step);
+        WAIT_FOR_NEW_DATA(chunk, s, step-1);
 
         if (PUSHRECV) {
           ReduceAndCopy<UNROLL, THREADS, FUNC>(
               (volatile T *)nextOutput + chunkOffset + offset,
               args.ThisOutput + chunkOffset + offset,
-              args.ThisBuffer + offset,
+              ring.ThisBuffer + offset,
               args.ThisInput + chunkOffset + offset,
               sliceSize);
         } else {
           ReduceAndCopy<UNROLL, THREADS, FUNC>(
-              args.NextBuffer + offset,
+              ring.NextBuffer + offset,
               args.ThisOutput + chunkOffset + offset,
-              args.ThisBuffer + offset,
+              ring.ThisBuffer + offset,
               args.ThisInput + chunkOffset + offset,
               sliceSize);
         }
@@ -307,7 +331,7 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
           getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
               numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
-          WAIT_FOR_NEW_DATA(chunk, s, step);
+          WAIT_FOR_NEW_DATA(chunk, s, step-1);
 
           if( PUSHRECV ) {
             Copy<UNROLL, THREADS>(
@@ -316,9 +340,9 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
                 sliceSize);
           } else {
             DoubleCopy<UNROLL, THREADS>(
-                args.NextBuffer + offset,
+                ring.NextBuffer + offset,
                 args.ThisOutput + chunkOffset + offset,
-                args.ThisBuffer + offset,
+                ring.ThisBuffer + offset,
                 sliceSize);
           }
 
@@ -341,12 +365,12 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
           getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
               numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
-          WAIT_FOR_NEW_DATA(chunk, s, step);
+          WAIT_FOR_NEW_DATA(chunk, s, step-1);
 
           // Here we need to copy from buffer to this output.
           Copy<UNROLL, THREADS>(
               args.ThisOutput + chunkOffset + offset,
-              args.ThisBuffer + offset,
+              ring.ThisBuffer + offset,
               sliceSize);
 
           __syncthreads();
@@ -354,7 +378,7 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
       } else {
         for(int s=0; s<NUM_SUBCHUNKS; ++s) {
           __syncthreads();
-          if(chunk+1 < args.NumChunks) {
+          if(chunk+gridDim.x < args.NumChunks) {
             SIGNAL_CHUNK_DONE(chunk, s);
           }
         }
@@ -363,18 +387,16 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   }
 
   // wait for the last data to be pushed to us
-  if (tid < THREADS) {
-    if(PUSHRECV) {
-      WAIT_FOR_NEW_DATA(args.NumChunks, NUM_SUBCHUNKS-1, 0);
-    }
+  if (PUSHRECV && tid < THREADS) {
+    WAIT_FOR_NEW_DATA(chunk-gridDim.x, NUM_SUBCHUNKS-1, 2*args.NumGPUs-3);
+  }
 
-    if (tid == 0) {
-      args.ThisNewDataAvailableFlag[0] = 0;
-      if(!PUSHRECV) {
-        args.ThisChunkDoneFlag[0] = 0;
-      }
-      *args.ThisPtrToNextOutput = nullptr;
+  if (tid == 0) {
+    *ring.ThisNewDataAvailableFlag = 0;
+    if(!PUSHRECV) {
+      *ring.ThisChunkDoneFlag = 0;
     }
+    *ring.ThisPtrToNextOutput = nullptr;
   }
 }
 
@@ -383,21 +405,16 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     const int count, ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
-  int index = comm->ringIdx[0];
 
   // There is one slice per GPU, so a slice can be at most bufferN / numGPUs,
   // where bufferN is the number of elements of type T that fit into the buffer.
   // For efficiency, we want the slice size to be a multiple of UNROLL_SIZE
-  int bufferN = comm->buffSize / sizeof(T);
+  int bufferN = comm->buffSize / (comm->nRings*sizeof(T));
   int bufferNPerSlice = bufferN / (NUM_SUBCHUNKS * comm->nDev);
   int sliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
-
-  int nextId = comm->ncclFromRing[0][(index + 1) % comm->nDev];
-  int prevId = comm->ncclFromRing[0][(index + comm->nDev - 1) % comm->nDev];
+  int bufferOffset = sliceSize * NUM_SUBCHUNKS * comm->nDev;
 
   AllReduceKernelArgs<T> args;
-
-  args.ThisId = index;
   args.NumGPUs = comm->nDev;
   args.N = count;
 
@@ -420,26 +437,33 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     args.NumChunks = (args.N + args.ChunkSize - 1) / args.ChunkSize;
   }
 
-  args.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[0]);
-  args.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[0]);
-
   args.ThisInput = (const T*)sendbuff;
   args.ThisOutput = (volatile T*)recvbuff;
-  args.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff;
-  args.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff;
 
-  args.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags;
-  args.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags;
+  int nRings = min(comm->nRings, args.NumChunks);
+  for(int r=0; r<nRings; ++r) {
+    AllReduceRingArgs<T>& ring = args.rings[r];
+    int index = comm->ringIdx[r];
+    int nextId = comm->ncclFromRing[r][(index + 1) % comm->nDev];
+    int prevId = comm->ncclFromRing[r][(index + comm->nDev - 1) % comm->nDev];
 
-  args.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + 1;
-  args.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + 1;
+    ring.ThisId = index;
+    ring.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
+    ring.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
+    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferOffset;
+    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferOffset;
+    ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;
+    ring.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags + r;
+    ring.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + nRings + r;
+    ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
+  }
 
   if( comm->useRemoteRecv ) {
     AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, true, T>
-        <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+        <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
   } else {
     AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, false, T>
-        <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+        <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
   }
   return ncclSuccess;
 }

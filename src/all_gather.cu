@@ -66,41 +66,37 @@
 // for step STEP + 1, so we signal the next GPU that its data for step STEP + 1
 // is available. This is called by one particular consumer warp and so we select
 // the first thread in the warp to set the flag.
-#define SIGNAL_NEW_DATA_AVAILABLE(chunk, subchunk, step)                        \
-    do {                                                                        \
-      __threadfence_system();                                                   \
-      args.NextNewDataAvailableFlag[0] =                                        \
-            NUM_SUBCHUNKS*((chunk) * (args.NumGPUs - 1) + (step)) + subchunk+1; \
+#define SIGNAL_NEW_DATA_AVAILABLE(chunk, subchunk, step)         \
+    do {                                                         \
+      __threadfence_system();                                    \
+      *ring.NextNewDataAvailableFlag = subchunk + 1              \
+          + NUM_SUBCHUNKS*((chunk) * (args.NumGPUs-1) + (step)); \
     } while (0)
 
 // This is called by all producer threads, but only thread 0 spins on the flag,
-#define WAIT_FOR_NEW_DATA(chunk, subchunk, step)                               \
-    do {                                                                       \
-      if (tid == 0) {                                                          \
-        Wait([=] {                                                             \
-          return ((volatile int *)args.ThisNewDataAvailableFlag)[0] >=         \
-              NUM_SUBCHUNKS*((chunk) * (args.NumGPUs - 1) + (step))            \
-              + subchunk + 1 - NUM_SUBCHUNKS;                                  \
-        });                                                                    \
-      }                                                                        \
-      BAR(sync, 1, NUM_THREADS);                                               \
+#define WAIT_FOR_NEW_DATA(chunk, subchunk, step)                        \
+    do {                                                                \
+      if (tid == 0) {                                                   \
+        int val = subchunk + 1                                          \
+            + NUM_SUBCHUNKS*((int)(chunk) * (args.NumGPUs-1) + (step)); \
+        Wait([=] { return *ring.ThisNewDataAvailableFlag >= val; });   \
+      }                                                                 \
+      BAR(sync, 1, NUM_THREADS);                                        \
     } while (0)
 
-#define SIGNAL_CHUNK_DONE(chunk, subchunk)                                     \
-    do {                                                                       \
-      __threadfence_system();                                                  \
-      args.PrevChunkDoneFlag[0] = NUM_SUBCHUNKS*(chunk) + (subchunk) + 1;      \
+#define SIGNAL_CHUNK_DONE(chunk, subchunk)                              \
+    do {                                                                \
+      __threadfence_system();                                           \
+      *ring.PrevChunkDoneFlag = NUM_SUBCHUNKS*(chunk) + (subchunk) + 1; \
     } while (0)
 
-#define WAIT_FOR_PREV_CHUNK(chunk, subchunk)                       \
-    do {                                                           \
-      if (tid == 0) {                                              \
-        Wait([=] {                                                 \
-          return ((volatile int*)args.ThisChunkDoneFlag)[0] >=     \
-              NUM_SUBCHUNKS*(chunk) + subchunk + 1-NUM_SUBCHUNKS;  \
-        });                                                        \
-      }                                                            \
-      BAR(sync, 1, NUM_THREADS);                                   \
+#define WAIT_FOR_PREV_CHUNK(chunk, subchunk)                  \
+    do {                                                      \
+      if (tid == 0) {                                         \
+        int val = NUM_SUBCHUNKS*(chunk) + subchunk + 1;       \
+        Wait([=] { return *ring.ThisChunkDoneFlag >= val; }); \
+      }                                                       \
+      BAR(sync, 1, NUM_THREADS);                              \
     } while (0)
 
 __device__ inline void getSliceSizeAndChunkSize(int *sliceSize, int slice,
@@ -115,27 +111,13 @@ __device__ inline void getSliceSizeAndChunkSize(int *sliceSize, int slice,
 }
 
 template<typename T>
-struct AllGatherKernelArgs {
-  // general parameters
+struct AllGatherRingArgs {
   int ThisId;
-  int NumGPUs;
-  int N;
   int * UserFromRing;
-
-  // some pre-computed sizes
-  int SliceSize;
-  int ChunkSize;
-  int NumChunks;
-
-  int BufferSliceStride;
-  int BufferMisalignedN;
 
   T ** ThisPtrToNextOutput;
   T ** PrevPtrToThisOutput;
 
-  // local and remote input, output, and buffer
-  const T * __restrict__ ThisInput;
-  volatile T * __restrict__ ThisOutput;
   volatile T * __restrict__ ThisBuffer;
   volatile T * __restrict__ NextBuffer;
 
@@ -146,37 +128,61 @@ struct AllGatherKernelArgs {
   volatile int * __restrict__ PrevChunkDoneFlag;
 };
 
+template<typename T>
+struct AllGatherKernelArgs {
+  // general parameters
+  int NumGPUs;
+  int N;
+
+  // some pre-computed sizes
+  int SliceSize;
+  int ChunkSize;
+  int NumChunks;
+
+  int BufferSliceStride;
+  int BufferMisalignedN;
+
+  // local input and output
+  const T * __restrict__ ThisInput;
+  volatile T * __restrict__ ThisOutput;
+
+  AllGatherRingArgs<T> rings[MAXRINGS];
+};
+
 __device__ inline int GetBlock(const int index, const int step,
     const int * const userFromRing, const int numGPUs) {
   return userFromRing[(numGPUs + index - step) % numGPUs];
 }
 
-__shared__ volatile void * nextOutput;
-
 template<int THREADS, int UNROLL, bool PUSHRECV, typename T>
 __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
   if (args.N == 0) return;
   int tid = threadIdx.x;
+  int bid = blockIdx.x;
+  __shared__ volatile void * nextOutput;
+  __shared__ AllGatherRingArgs<T> ring;
+  ring = args.rings[bid];
 
   // First wait for args.PrevPtrToThisOutput to become nullptr to ensure that
   // the previous GPU is done with a previous collective operation.
   if (tid == 0) {
     Wait([=] {
-      return *((T * volatile *)args.PrevPtrToThisOutput) == nullptr;
+      return *((T * volatile *)ring.PrevPtrToThisOutput) == nullptr;
     });
 
-    *((T * volatile *)args.PrevPtrToThisOutput) = (T*)args.ThisOutput;
+    *((T * volatile *)ring.PrevPtrToThisOutput) = (T*)args.ThisOutput;
 
     Wait([=] {
-      return *((T * volatile *)args.ThisPtrToNextOutput) != nullptr;
+      return *((T * volatile *)ring.ThisPtrToNextOutput) != nullptr;
     });
 
     if(PUSHRECV)
-      nextOutput = *((volatile void * volatile *)args.ThisPtrToNextOutput);
+      nextOutput = *((volatile void * volatile *)ring.ThisPtrToNextOutput);
   }
   __syncthreads();
 
-  for (int chunk = 0; chunk < args.NumChunks; ++chunk) {
+  int chunk;
+  for (chunk = bid; chunk < args.NumChunks; chunk+=gridDim.x) {
     // calculate slice size.  for all chunks except (possibly) the last one,
     // this will just be args.SliceSize. For the last one, it may be smaller
     int bigSliceN   = args.SliceSize;
@@ -199,7 +205,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
     // step 0: copy the resident block from the ThisInput to ThisOutput and also
     // to NextOutput
     int step = 0;
-    int block = GetBlock(args.ThisId, step, args.UserFromRing, args.NumGPUs);
+    int block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
     int outputOffset = chunkOffset + block * args.N;
     int inputOffset = chunkOffset;
     int bufferOffset;
@@ -216,9 +222,6 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
         getSliceSizeAndChunkSize(&sliceSize, s, numSlices, numBigSlices,
             numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
-        if (!PUSHRECV)
-          WAIT_FOR_PREV_CHUNK(chunk, s);
-
         if (PUSHRECV) {
           DoubleCopy<UNROLL, THREADS>(
               args.ThisOutput + outputOffset,
@@ -226,9 +229,10 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
               args.ThisInput + inputOffset,
               sliceSize);
         } else {
+          WAIT_FOR_PREV_CHUNK(chunk-gridDim.x, s);
           DoubleCopy<UNROLL, THREADS>(
               args.ThisOutput + outputOffset,
-              args.NextBuffer + bufferOffset,
+              ring.NextBuffer + bufferOffset,
               args.ThisInput + inputOffset,
               sliceSize);
         }
@@ -249,7 +253,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
     // steps j with 0 < j < k - 1:
     // copy a block that was pushed to this GPU to the next GPU
     for (step = 1; step < args.NumGPUs - 1; ++step) {
-      block = GetBlock(args.ThisId, step, args.UserFromRing, args.NumGPUs);
+      block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
       outputOffset = chunkOffset + block * args.N;
       if (!PUSHRECV) {
         bufferOffset = block * NUM_SUBCHUNKS * args.BufferSliceStride +
@@ -260,7 +264,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
         for(int s=0; s<NUM_SUBCHUNKS; ++s) {
           getSliceSizeAndChunkSize(&sliceSize, s, numSlices, numBigSlices,
               numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
-          WAIT_FOR_NEW_DATA(chunk, s, step);
+          WAIT_FOR_NEW_DATA(chunk, s, step-1);
 
           if (PUSHRECV) {
             Copy<UNROLL, THREADS>(
@@ -269,9 +273,9 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
                 sliceSize);
           } else {
             DoubleCopy<UNROLL, THREADS>(
-                args.NextBuffer + bufferOffset,
+                ring.NextBuffer + bufferOffset,
                 args.ThisOutput + outputOffset,
-                args.ThisBuffer + bufferOffset,
+                ring.ThisBuffer + bufferOffset,
                 sliceSize);
           }
           __syncthreads();
@@ -290,7 +294,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
 
     if (!PUSHRECV) {
       step = args.NumGPUs - 1;
-      block = GetBlock(args.ThisId, step, args.UserFromRing, args.NumGPUs);
+      block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
       outputOffset = chunkOffset + block * args.N;
       bufferOffset = block * NUM_SUBCHUNKS * args.BufferSliceStride +
           block * args.BufferMisalignedN;
@@ -300,11 +304,11 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
         for(int s=0; s<NUM_SUBCHUNKS; ++s) {
           getSliceSizeAndChunkSize(&sliceSize, s, numSlices, numBigSlices,
               numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
-          WAIT_FOR_NEW_DATA(chunk, s, step);
+          WAIT_FOR_NEW_DATA(chunk, s, step-1);
 
           Copy<UNROLL, THREADS>(
               args.ThisOutput + outputOffset,
-              args.ThisBuffer + bufferOffset,
+              ring.ThisBuffer + bufferOffset,
               sliceSize);
 
           __syncthreads();
@@ -324,14 +328,14 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
   // wait for the last data to be pushed to us
   if (tid < THREADS) {
     if (PUSHRECV)
-      WAIT_FOR_NEW_DATA(args.NumChunks, NUM_SUBCHUNKS-1, 0);
+      WAIT_FOR_NEW_DATA(chunk-gridDim.x, NUM_SUBCHUNKS-1, args.NumGPUs-2);
     else
-      WAIT_FOR_PREV_CHUNK(args.NumChunks, NUM_SUBCHUNKS-1);
+      WAIT_FOR_PREV_CHUNK(chunk-gridDim.x, NUM_SUBCHUNKS-1);
 
     if (tid == 0) {
-      args.ThisNewDataAvailableFlag[0] = 0;
-      args.ThisChunkDoneFlag[0] = 0;
-      *args.ThisPtrToNextOutput = nullptr;
+      *ring.ThisNewDataAvailableFlag = 0;
+      *ring.ThisChunkDoneFlag = 0;
+      *ring.ThisPtrToNextOutput = nullptr;
     }
   }
 }
@@ -342,67 +346,26 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
   if (count == 0)
       return ncclSuccess;
 
-  int index = comm->ringIdx[0];
-
   int blockSizeInBytes = count * sizeof(T);
   int misalignedBytes = blockSizeInBytes % alignof(uint64_t);
-
   assert((int)((misalignedBytes / sizeof(T)) * sizeof(T)) == misalignedBytes);
-
   int misalignedN = misalignedBytes / sizeof(T);
   assert(misalignedN < (int)(sizeof(uint64_t) / sizeof(T)));
-
   int paddingN = (misalignedN > 0) ? sizeof(uint64_t) / sizeof(T) : 0;
 
   // There is one slice per GPU, so a slice can be at most bufferN / numGPUs,
   // where bufferN is the number of elements of type T that fit into the buffer.
-  int bufferN = comm->buffSize / sizeof(T);
+  int bufferN = comm->buffSize / (comm->nRings*sizeof(T));
   // we only need buffer for k slices and k paddings
   int bufferNPerSlice = (bufferN - comm->nDev * NUM_SUBCHUNKS * paddingN)
        / (comm->nDev * NUM_SUBCHUNKS);
   // For efficiency, we want the slice size to be a multiple of UNROLL_SIZE
   int maxSliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
-  int nextId = comm->ncclFromRing[0][(index + 1) % comm->nDev];
-  int prevId = comm->ncclFromRing[0][(index + comm->nDev - 1) % comm->nDev];
+  int bufferOffset = maxSliceSize * NUM_SUBCHUNKS * comm->nDev;
 
   AllGatherKernelArgs<T> args;
-
-  args.ThisId = index;
   args.NumGPUs = comm->nDev;
   args.N = count;
-
-  /* Block j is coming from sendbuff[j], which lives on device with logical
-   * index comm->ringFromUser[j]. But the block ordering does not necessarily
-   * follow the ring ordering. Hence the order in which a particular GPU
-   * processes the different blocks (the correspondence between the step in
-   * the reduction algorithm and the block on which a GPU operates in that
-   * particular step) is not the same as the ring order.
-   *
-   * Say we have 4 GPUs and comm->userFromRing = { 1, 2, 0, 3 }. Then there are 3
-   * step in the all-gather algorithm and block 0 comes from device 2, block 1
-   * from 0, block 2 from device 1, and block 3 comes from device 3. In the
-   * first step of the algorithm, each GPU must copy its own block from its
-   * sendbuff to the appropriate location in its recvbuff. The blocks that a
-   * GPU has to process in the next steps is determined by the previous step
-   * because each GPU only hands off data to the next GPU in the ring.
-   *
-   * In the above example, we get the following table of which block is
-   * processed by each GPU in a given step. The columns correspond to the
-   * different GPUs while the rows are the steps in the algorithm.
-   *
-   *      GPU 0   1   2   3
-   * step
-   *    0     1   2   0   3
-   *    1     3   1   2   0
-   *    2     0   3   1   2
-   *
-   * We note the the rows in the above table are just comm->userFromRing in the
-   * first step and the list is cyclicly permuted to the right for each next
-   * step. The columns, which are what the individual GPUs need to know, are
-   * comm->userFromRing traversed backwards and starting at index k for GPU k.
-   * These columns are what we put into args.BlockVsStep to tell the GPU which
-   * block it needs to be processing at a particular step. */
-  args.UserFromRing = comm->devUserFromRing[0];
 
   args.SliceSize = numUnroll * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   args.SliceSize = std::min(maxSliceSize, args.SliceSize);
@@ -429,25 +392,66 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
     args.NumChunks = (args.N + args.ChunkSize - 1) / args.ChunkSize;
   }
 
-  args.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[0]);
-  args.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[0]);
-
   args.ThisInput = (const T*)sendbuff;
   args.ThisOutput = (volatile T*)recvbuff;
-  args.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff;
-  args.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff;
 
-  args.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags;
-  args.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags;
-  args.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + 1;
-  args.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + 1;
+  int nRings =  min(comm->nRings, args.NumChunks);
+  for(int r=0; r<nRings; ++r) {
+    AllGatherRingArgs<T>& ring = args.rings[r];
+    int index = comm->ringIdx[r];
+    int nextId = comm->ncclFromRing[r][(index + 1) % comm->nDev];
+    int prevId = comm->ncclFromRing[r][(index + comm->nDev - 1) % comm->nDev];
+    ring.ThisId = index;
+
+    /* Block j is coming from sendbuff[j], which lives on device with logical
+     * index comm->ringFromUser[j]. But the block ordering does not necessarily
+     * follow the ring ordering. Hence the order in which a particular GPU
+     * processes the different blocks (the correspondence between the step in
+     * the reduction algorithm and the block on which a GPU operates in that
+     * particular step) is not the same as the ring order.
+     *
+     * Say we have 4 GPUs and comm->userFromRing = { 1, 2, 0, 3 }. Then there are 3
+     * step in the all-gather algorithm and block 0 comes from device 2, block 1
+     * from 0, block 2 from device 1, and block 3 comes from device 3. In the
+     * first step of the algorithm, each GPU must copy its own block from its
+     * sendbuff to the appropriate location in its recvbuff. The blocks that a
+     * GPU has to process in the next steps is determined by the previous step
+     * because each GPU only hands off data to the next GPU in the ring.
+     *
+     * In the above example, we get the following table of which block is
+     * processed by each GPU in a given step. The columns correspond to the
+     * different GPUs while the rows are the steps in the algorithm.
+     *
+     *      GPU 0   1   2   3
+     * step
+     *    0     1   2   0   3
+     *    1     3   1   2   0
+     *    2     0   3   1   2
+     *
+     * We note the the rows in the above table are just comm->userFromRing in the
+     * first step and the list is cyclicly permuted to the right for each next
+     * step. The columns, which are what the individual GPUs need to know, are
+     * comm->userFromRing traversed backwards and starting at index k for GPU k.
+     * These columns are what we put into args.BlockVsStep to tell the GPU which
+     * block it needs to be processing at a particular step. */
+    ring.UserFromRing = comm->devUserFromRing[r];
+
+    ring.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
+    ring.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
+    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferOffset;
+    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferOffset;
+    ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;
+    ring.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags + r;
+    ring.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + nRings + r;
+    ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
+  }
 
   if( comm->useRemoteRecv ) {
     AllGatherKernel<NUM_THREADS, UNROLL_COUNT, true, T>
-        <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+        <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
   } else {
     AllGatherKernel<NUM_THREADS, UNROLL_COUNT, false, T>
-        <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+        <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
   }
   return ncclSuccess;
 }
