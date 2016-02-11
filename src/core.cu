@@ -131,8 +131,8 @@ typedef struct {
   union {
     struct {
       volatile int bar;
+      int ringDirectFail;
     };
-    int ringDirectFail;
     char pad[16];
    };
    RankEntry ranks[1];
