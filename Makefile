@@ -61,7 +61,11 @@ LIBNAME     := libnccl.so
 VER_MAJOR   := 1
 VER_MINOR   := 0
 VER_PATCH   := 2
-TESTS       := all_gather_test all_reduce_test broadcast_test reduce_test reduce_scatter_test
+TESTS       := all_gather_test     all_gather_scan \
+               all_reduce_test     all_reduce_scan \
+               broadcast_test      broadcast_scan \
+               reduce_test         reduce_scan \
+               reduce_scatter_test reduce_scatter_scan
 MPITESTS    := mpi_test
 
 INCDIR := $(BUILDDIR)/include
