@@ -177,7 +177,6 @@ struct ReduceScatterKernelArgs {
   int NumChunks;
 
   int BufferSliceStride;
-  int BufferMisalignedN;
 
   // local input and output
   const T * __restrict__ ThisInput;
@@ -193,7 +192,6 @@ __device__ inline int GetBlock(const int index, const int step,
 
 template<int THREADS, int UNROLL, class FUNC, typename T>
 __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
-  if (args.N == 0) return;
   int tid = threadIdx.x;
   int bid = blockIdx.x;
   __shared__ ReduceScatterRingArgs<T> ring;
@@ -239,8 +237,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
     int step = 0;
     int block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
     int blockOffset = chunkOffset + block * args.N;
-    int bufferOffset = block * NUM_SUBCHUNKS * args.BufferSliceStride +
-        ((block * args.BufferMisalignedN) % alignof(PackType));
+    int bufferOffset = block * args.BufferSliceStride;
     int sliceSize;
 
     if (tid < NUM_THREADS) {
@@ -269,8 +266,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
     for (step = 1; step < args.NumGPUs - 1; ++step) {
       int block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
       int blockOffset = chunkOffset + block * args.N;
-      int bufferOffset = block * NUM_SUBCHUNKS * args.BufferSliceStride +
-          ((block * args.BufferMisalignedN) % alignof(PackType));
+      int bufferOffset = block * args.BufferSliceStride;
 
       if (tid < NUM_THREADS) {
         for(int s=0; s<NUM_SUBCHUNKS; ++s) {
@@ -299,8 +295,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
     step = args.NumGPUs - 1;
     block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
     blockOffset = chunkOffset + block * args.N;
-    bufferOffset = block * NUM_SUBCHUNKS * args.BufferSliceStride +
-        ((block * args.BufferMisalignedN) % alignof(PackType));
+    bufferOffset = block * args.BufferSliceStride;
 
     if (tid < NUM_THREADS) {
       int outputOffset = 0;
@@ -340,61 +335,47 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
 template<class FUNC, typename T>
 ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
     void* recvbuff, const int recvcount, ncclComm* comm, cudaStream_t stream) {
-  if (recvcount == 0) {
+  if (recvcount == 0)
     return ncclSuccess;
-  }
-
-  int blockSizeInBytes = recvcount * sizeof(T);
-  int misalignedBytes = blockSizeInBytes % alignof(uint64_t);
-  assert((int)((misalignedBytes / sizeof(T)) * sizeof(T)) == misalignedBytes);
-  int misalignedN = misalignedBytes / sizeof(T);
-  assert(misalignedN < (int)(sizeof(uint64_t) / sizeof(T)));
-  int paddingN = (misalignedN > 0) ? sizeof(uint64_t) / sizeof(T) : 0;
-
-  // There is one slice per GPU, so a slice can be at most bufferN / numGPUs,
-  // where bufferN is the number of elements of type T that fit into the buffer.
-  // For efficiency, we want the slice size to be a multiple of UNROLL_SIZE
-  int bufferN = comm->buffSize / (sizeof(T)*comm->nRings);
-  // we only need buffer for k slices and k*k paddings (we need k paddings per
-  // block and we have k blocks)
-  int bufferNPerSlice = (bufferN - NUM_SUBCHUNKS * comm->nDev * paddingN) /
-      (NUM_SUBCHUNKS * comm->nDev);
-  int sliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
-  int bufferOffset = sliceSize * NUM_SUBCHUNKS * comm->nDev;
-
 
   ReduceScatterKernelArgs<T> args;
   args.NumGPUs = comm->nDev;
   args.N = recvcount;
 
-  args.SliceSize = sliceSize;
-  args.ChunkSize = NUM_SUBCHUNKS * args.SliceSize;
+  const int minSlice = UNROLL_SIZE * sizeof(PackType) / sizeof(T);
+  const int minChunk = NUM_SUBCHUNKS * minSlice;
+  const int atomSize = minChunk * comm->nDev;
+  const int numAtoms = (recvcount + minChunk-1) / minChunk;
+  const int nRings = min(numAtoms, comm->nRings);
 
-  // don't reduce this if we cut the slice size in half below, because if that
-  // happens, the last chunk will be larger than the other chunks, and we will
-  // need the extra buffer space
-  args.BufferSliceStride = args.SliceSize + paddingN;
+  const int bufferVPerRing = comm->buffSize / (sizeof(PackType) * nRings);
+  const int bufferNPerRing = bufferVPerRing * sizeof(PackType) / sizeof(T);
+  const int misalignedN = recvcount % (sizeof(PackType) / sizeof(T));
+  const int maxAtomsPerChunk = (bufferNPerRing - misalignedN*comm->nDev) / atomSize;
+  assert(maxAtomsPerChunk>1);
 
-  args.BufferMisalignedN = misalignedN;
-
-  // avoid a case where we have one or more big chunks and one tiny one
-  int remainder = args.N % args.ChunkSize;
-  if ((args.N > args.ChunkSize) && (remainder > 0) &&
-      (args.N < 5 * args.ChunkSize) && (2 * remainder < args.ChunkSize)) {
-    args.SliceSize /= 2;
-    args.ChunkSize = NUM_SUBCHUNKS * args.SliceSize;
-
-    // round down so we end up with a big last chunk
-    args.NumChunks = args.N / args.ChunkSize;
+  if (numAtoms == nRings) {
+    args.SliceSize = minSlice;
+    args.NumChunks = numAtoms;
   } else {
-    // round up
-    args.NumChunks = (args.N + args.ChunkSize - 1) / args.ChunkSize;
+    int minNumChunks = (numAtoms + maxAtomsPerChunk-1) / maxAtomsPerChunk;
+    int targetChunks = ((minNumChunks + nRings-1) / nRings) * nRings;
+    int atomsPerChunk = numAtoms / targetChunks;
+    if (numAtoms % targetChunks > 1) {
+      atomsPerChunk += 1;
+      args.NumChunks = (numAtoms+atomsPerChunk-1) / atomsPerChunk;
+    } else {
+      args.NumChunks = targetChunks;
+    }
+    args.SliceSize = minSlice * atomsPerChunk;
   }
+
+  args.ChunkSize = args.SliceSize * NUM_SUBCHUNKS;
+  args.BufferSliceStride = minChunk * maxAtomsPerChunk + misalignedN;
 
   args.ThisInput = (const T*)sendbuff;
   args.ThisOutput = (volatile T*)recvbuff;
 
-  int nRings = min(comm->nRings, args.NumChunks);
   for(int r=0; r<nRings; ++r) {
     ReduceScatterRingArgs<T>& ring = args.rings[r];
     int index = comm->ringIdx[r];
@@ -441,8 +422,8 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
     ring.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
     ring.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
 
-    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferOffset;
-    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferOffset;
+    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferNPerRing;
+    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferNPerRing;
 
     // we need 2 * NUM_SUBCHUNKS flags, so use the first NUM_SUBCHUNKS flags
     // to signal the next GPU that new data is available and the following

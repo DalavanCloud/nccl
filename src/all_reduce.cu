@@ -27,6 +27,7 @@
  ************************************************************************/
 
 #include <nvToolsExt.h>
+#include <assert.h>
 
 #include "core.h"
 #include "common_kernel.h"
@@ -107,22 +108,6 @@
     } while (0)
 
 
-// chunkAlign = UNROLL_SIZE * 2 * ndev;
-// maxNumChunks = N / chunkAlign;
-// nRings = min(comm->nRings, maxChunks);
-// maxChunkSize = (comm->buffSize/(nRings*sizeof(T)*chunkAlign)) * chunkAlign;
-// assert(maxChunkSize > 0);
-// minNumChunks = (N+maxChunkSize-1) / maxChunkSize;
-// numChunks = max(minNumChunks, nRings);
-
-// totAligns = (N+chunkAlign-1) / chunkAlign;
-// alignPerChunk = totAligns / numChunks;
-// extraAligns = totAligns % numChunks;
-// extraN = N % chunkAlign;
-
-// BigChunks = extraAligns;
-// BigChunkSize = (alignPerChunk+1) * chunkAlign;
-
 __device__ inline void getSliceSizeAndOffset(int *size, int *offset, int slice,
     int numSlices, int numBigSlices, int numSmallSlices, int bigSliceN,
     int smallSliceN, int lastSliceN) {
@@ -171,12 +156,9 @@ struct AllReduceKernelArgs {
   AllReduceRingArgs<T> rings[MAXRINGS];
 };
 
-
-
 template<int THREADS, int UNROLL, class FUNC, bool PUSHRECV, typename T>
 __launch_bounds__(THREADS+WARP_SIZE, 1)
 __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
-  if (args.N == 0) return;
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   __shared__ volatile void * nextOutput;
@@ -406,41 +388,40 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   if (count == 0)
     return ncclSuccess;
 
-  // There is one slice per GPU, so a slice can be at most bufferN / numGPUs,
-  // where bufferN is the number of elements of type T that fit into the buffer.
-  // For efficiency, we want the slice size to be a multiple of UNROLL_SIZE
-  int bufferN = comm->buffSize / (comm->nRings*sizeof(T));
-  int bufferNPerSlice = bufferN / (NUM_SUBCHUNKS * comm->nDev);
-  int sliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
-  int bufferOffset = sliceSize * NUM_SUBCHUNKS * comm->nDev;
-
   AllReduceKernelArgs<T> args;
   args.NumGPUs = comm->nDev;
   args.N = count;
 
-  args.SliceSize = sliceSize;
-  int subchunkSize = comm->nDev * args.SliceSize;
-  args.ChunkSize = NUM_SUBCHUNKS * subchunkSize;
+  const int minSlice = UNROLL_SIZE * sizeof(PackType) / sizeof(T);
+  const int atomSize = minSlice * NUM_SUBCHUNKS * comm->nDev;
+  const int numAtoms = (count + atomSize-1) / atomSize;
+  const int nRings = min(numAtoms, comm->nRings);
+  const int maxAtomsPerChunk = (comm->buffSize / (nRings * sizeof(T) * atomSize));
+  assert (maxAtomsPerChunk > 1);
+  const int bufferOffset = maxAtomsPerChunk * atomSize;
 
-  // avoid a case where we have one or more big chunks and one tiny one
-  int remainder = args.N % args.ChunkSize;
-  if ((args.N > args.ChunkSize) && (remainder > 0) &&
-      (args.N < 5 * args.ChunkSize) && (2 * remainder < args.ChunkSize)) {
-    args.SliceSize /= 2;
-    int subchunkSize = comm->nDev * args.SliceSize;
-    args.ChunkSize = NUM_SUBCHUNKS * subchunkSize;
+  if (numAtoms == nRings) {
+    args.SliceSize = minSlice;
+    args.ChunkSize = atomSize;
+    args.NumChunks = numAtoms;
+  } else { // numAtoms > nRings
+    int minNumChunks = (numAtoms + maxAtomsPerChunk-1) / maxAtomsPerChunk;
+    int targetChunks = ((minNumChunks + nRings-1) / nRings) * nRings;
+    int atomsPerChunk = numAtoms / targetChunks;
+    if (numAtoms % targetChunks > 1) {
+      atomsPerChunk += 1;
+      args.NumChunks = (numAtoms+atomsPerChunk-1) / atomsPerChunk;
+    } else {
+      args.NumChunks = targetChunks;
+    }
 
-    // round down so we end up with a big last chunk
-    args.NumChunks = args.N / args.ChunkSize;
-  } else {
-    // round up
-    args.NumChunks = (args.N + args.ChunkSize - 1) / args.ChunkSize;
+    args.SliceSize = minSlice * atomsPerChunk;
+    args.ChunkSize = atomSize * atomsPerChunk;
   }
 
   args.ThisInput = (const T*)sendbuff;
   args.ThisOutput = (volatile T*)recvbuff;
 
-  int nRings = min(comm->nRings, args.NumChunks);
   for(int r=0; r<nRings; ++r) {
     AllReduceRingArgs<T>& ring = args.rings[r];
     int index = comm->ringIdx[r];
