@@ -270,7 +270,9 @@ void accVec(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op) {
   switch (type) {
     case ncclChar:   accVecType<char>               (out, in, n, op); break;
     case ncclInt:    accVecType<int>                (out, in, n, op); break;
+#ifdef CUDA_HAS_HALF
     case ncclHalf:   accVecType<half>               (out, in, n, op); break;
+#endif
     case ncclFloat:  accVecType<float>              (out, in, n, op); break;
     case ncclDouble: accVecType<double>             (out, in, n, op); break;
     case ncclInt64:  accVecType<long long>          (out, in, n, op); break;
@@ -337,7 +339,9 @@ void maxDiff(double* max, void* first, void* second, int n, ncclDataType_t type,
   switch (type) {
     case ncclChar:   deltaKern<char, 512>              <<<1,512,0,s>>>((char*)first, (char*)second, n, max); break;
     case ncclInt:    deltaKern<int, 512>               <<<1,512,0,s>>>((int*)first, (int*)second, n, max); break;
+#ifdef CUDA_HAS_HALF
     case ncclHalf:   deltaKern<half, 512>              <<<1,512,0,s>>>((half*)first, (half*)second, n, max); break;
+#endif
     case ncclFloat:  deltaKern<float, 512>             <<<1,512,0,s>>>((float*)first, (float*)second, n, max); break;
     case ncclDouble: deltaKern<double, 512>            <<<1,512,0,s>>>((double*)first, (double*)second, n, max); break;
     case ncclInt64:  deltaKern<long long, 512>         <<<1,512,0,s>>>((long long*)first, (long long*)second, n, max); break;
@@ -397,7 +401,7 @@ ncclDataType_t strToType(const char* s) {
 size_t wordSize(ncclDataType_t type) {
   switch(type) {
    case ncclChar:   return sizeof(char);
-   case ncclInt:    return sizeof(half);
+   case ncclInt:    return sizeof(int);
 #ifdef CUDA_HAS_HALF
    case ncclHalf:   return sizeof(short);
 #endif
