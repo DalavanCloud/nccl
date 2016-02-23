@@ -370,22 +370,20 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
     }
   }
 
-  const int PCIE = 0;
-  const int CUBEMESH = 1;
-  int topo = PCIE;
+  enum { _PCIE, _NVLINK } connect = _PCIE;
+  enum { _CUBEMESH, _4FC, _4RING } topo;
+
   const char* topoName = getenv("NCCL_TOPOLOGY");
   if (topoName != NULL) {
-    if (strcmp(topoName, "CUBEMESH") == 0) {
-      if (ndev == 8)
-        topo = CUBEMESH;
-      else
-        INFO("Ignroing NCCL_TOPOLOGY=%s for %d GPUs", topoName, ndev);
-    } else {
-      INFO("Ignroing NCCL_TOPOLOGY=%s", topoName);
+    if      ((strcmp(topoName, "CUBEMESH") == 0) && (ndev == 8)) { connect = _NVLINK; topo = _CUBEMESH; }
+    else if ((strcmp(topoName, "4FC")      == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4FC; }
+    else if ((strcmp(topoName, "4RING")    == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4RING; }
+    else {
+      INFO("Ignoring NCCL_TOPOLOGY=%s for %d GPUs", topoName, ndev);
     }
   }
 
-  if (topo == PCIE) {
+  if (connect == _PCIE) {
     INFO("Using PCIe topology");
     comm->nRings = 1;
     for(int i=0; i<ndev; ++i) {
@@ -396,20 +394,49 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       comm->ringFromUser[0][iRank] = i;
       comm->ncclFromRing[0][i] = i;
     }
-  } else { // topo == CUBEMESH
-    INFO("Using Cube-Mesh topology");
-    comm->nRings = 4;
+  } else { // connect == _NVLINK
+    const int MAXNVLGPUS = 8; // whatever the biggest topology we know about is
+    const int MAXNVLRINGS = 4; // based on how many NVLinks each GPU has
+    int NVLRings[MAXNVLGPUS][MAXNVLRINGS]; // note this is transposed for ease of variable # of GPUs
 
-    // Hard coded ring orders
-    const int CMRings[4][8] = {
-        0, 1, 2, 3, 7, 6, 5, 4,
-        2, 0, 3, 1, 5, 7, 4, 6,
-        4, 5, 6, 7, 3, 2, 1, 0,
-        6, 4, 7, 5, 1, 3, 0, 2};
+    if (topo == _CUBEMESH) {
+      INFO("Using Cube-Mesh topology");
+      comm->nRings = 4;
+      const int CMRings[8][4] = {
+          0, 2, 4, 6,
+          1, 0, 5, 4,
+          2, 3, 6, 7,
+          3, 1, 7, 5,
+          7, 5, 3, 1,
+          6, 7, 2, 3,
+          5, 4, 1, 0,
+          4, 6, 0, 2};
+      memcpy(NVLRings, CMRings, sizeof(CMRings));
+    } else if (topo == _4FC) {
+      INFO("Using 4-FC topology");
+      comm->nRings = 4;
+      const int FCRings[4][4] = {
+          0, 0, 3, 2,
+          1, 3, 2, 1,
+          2, 1, 1, 3,
+          3, 2, 0, 0};
+      memcpy(NVLRings, FCRings, sizeof(FCRings));
+    } else { // topo == _4RING
+      INFO("Using 4-Ring topology");
+      comm->nRings = 2;
+      const int Rings[4][4] = {
+          // want to test this and see if it works as
+          // well with just two CTAs, else switch back to four rings
+          0, 3, -1, -1,
+          1, 2, -1, -1,
+          2, 1, -1, -1,
+          3, 0, -1, -1};
+      memcpy(NVLRings, Rings, sizeof(Rings));
+    }
 
-    for(int r=0; r<4; ++r) {
+    for(int r=0; r<comm->nRings; ++r) {
       for(int p=0; p<ndev; ++p) {
-        int nccl = CMRings[r][p];
+        int nccl = NVLRings[p][r];
         int pRank = ranks[nccl].rank;
         if (pRank == rank)
           comm->ringIdx[r] = p;
