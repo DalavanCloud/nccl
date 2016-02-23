@@ -371,13 +371,14 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   }
 
   enum { _PCIE, _NVLINK } connect = _PCIE;
-  enum { _CUBEMESH, _4FC, _4RING } topo;
+  enum { _CUBEMESH, _HALF_CUBEMESH, _4FC, _4RING } topo;
 
   const char* topoName = getenv("NCCL_TOPOLOGY");
   if (topoName != NULL) {
-    if      ((strcmp(topoName, "CUBEMESH") == 0) && (ndev == 8)) { connect = _NVLINK; topo = _CUBEMESH; }
-    else if ((strcmp(topoName, "4FC")      == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4FC; }
-    else if ((strcmp(topoName, "4RING")    == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4RING; }
+    if      ((strcmp(topoName, "CUBEMESH")      == 0) && (ndev == 8)) { connect = _NVLINK; topo = _CUBEMESH; }
+    else if ((strcmp(topoName, "CUBEMESH")      == 0) && (ndev == 4)) { connect = _NVLINK; topo = _HALF_CUBEMESH; }
+    else if ((strcmp(topoName, "4FC")           == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4FC; }
+    else if ((strcmp(topoName, "4RING")         == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4RING; }
     else {
       INFO("Ignoring NCCL_TOPOLOGY=%s for %d GPUs", topoName, ndev);
     }
@@ -396,41 +397,50 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
     }
   } else { // connect == _NVLINK
     const int MAXNVLGPUS = 8; // whatever the biggest topology we know about is
-    const int MAXNVLRINGS = 4; // based on how many NVLinks each GPU has
+    const int MAXNVLRINGS = 6; // usually based on how many NVLinks each GPU has
     int NVLRings[MAXNVLGPUS][MAXNVLRINGS]; // note this is transposed for ease of variable # of GPUs
 
     if (topo == _CUBEMESH) {
       INFO("Using Cube-Mesh topology");
       comm->nRings = 4;
-      const int CMRings[8][4] = {
-          0, 2, 4, 6,
-          1, 0, 5, 4,
-          2, 3, 6, 7,
-          3, 1, 7, 5,
-          7, 5, 3, 1,
-          6, 7, 2, 3,
-          5, 4, 1, 0,
-          4, 6, 0, 2};
+      const int CMRings[8][MAXNVLRINGS] = {
+          0, 2, 4, 6, -1, -1,
+          1, 0, 5, 4, -1, -1,
+          2, 3, 6, 7, -1, -1,
+          3, 1, 7, 5, -1, -1,
+          7, 5, 3, 1, -1, -1,
+          6, 7, 2, 3, -1, -1,
+          5, 4, 1, 0, -1, -1,
+          4, 6, 0, 2, -1, -1};
       memcpy(NVLRings, CMRings, sizeof(CMRings));
+    } else if (topo == _HALF_CUBEMESH) {
+      INFO("Using Half Cube-Mesh topology");
+      comm->nRings = 6;
+      const int HCMRings[4][MAXNVLRINGS] = {
+          0, 0, 0, 3, 3, 2,
+          1, 2, 1, 2, 1, 3,
+          2, 1, 3, 1, 2, 1,
+          3, 3, 2, 0, 0, 0};
+      memcpy(NVLRings, HCMRings, sizeof(HCMRings));
     } else if (topo == _4FC) {
       INFO("Using 4-FC topology");
       comm->nRings = 4;
-      const int FCRings[4][4] = {
-          0, 0, 3, 2,
-          1, 3, 2, 1,
-          2, 1, 1, 3,
-          3, 2, 0, 0};
+      const int FCRings[4][MAXNVLRINGS] = {
+          0, 0, 3, 2, -1, -1,
+          1, 3, 2, 1, -1, -1,
+          2, 1, 1, 3, -1, -1,
+          3, 2, 0, 0, -1, -1};
       memcpy(NVLRings, FCRings, sizeof(FCRings));
     } else { // topo == _4RING
       INFO("Using 4-Ring topology");
       comm->nRings = 2;
-      const int Rings[4][4] = {
+      const int Rings[4][MAXNVLRINGS] = {
           // want to test this and see if it works as
           // well with just two CTAs, else switch back to four rings
-          0, 3, -1, -1,
-          1, 2, -1, -1,
-          2, 1, -1, -1,
-          3, 0, -1, -1};
+          0, 3, -1, -1, -1, -1,
+          1, 2, -1, -1, -1, -1,
+          2, 1, -1, -1, -1, -1,
+          3, 0, -1, -1, -1, -1};
       memcpy(NVLRings, Rings, sizeof(Rings));
     }
 
