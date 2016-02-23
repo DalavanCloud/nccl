@@ -483,7 +483,7 @@ public:
     case ncclInt:
       return ncclAllReduceWithType<int>(sendbuff, recvbuff, count, op,
           comm, stream);
-#if CUDART_VERSION >= 7050
+#ifdef CUDA_HAS_HALF
     case ncclHalf:
       return ncclAllReduceWithType<half>(sendbuff, recvbuff, count, op,
           comm, stream);

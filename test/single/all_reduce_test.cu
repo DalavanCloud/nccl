@@ -282,7 +282,7 @@ int main(int argc, char* argv[]) {
 
   RunTests<char>(N / sizeof(char), ncclChar, comms, dList);
   RunTests<int>(N / sizeof(int), ncclInt, comms, dList);
-#if CUDART_VERSION >= 7050
+#ifdef CUDA_HAS_HALF
   RunTests<half>(N / sizeof(half), ncclHalf, comms, dList);
 #endif
   RunTests<float>(N / sizeof(float), ncclFloat, comms, dList);
