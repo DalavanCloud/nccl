@@ -214,30 +214,46 @@ struct FuncMin<char> {
 template<>
 struct FuncSum<half> {
   __device__ half2 operator()(const half2 x, const half2 y) const {
+#if __CUDA_ARCH__ >= 530
+    return __hadd2(x, y);
+#else
     float2 fx, fy, fr;
     fx = __half22float2(x);
     fy = __half22float2(y);
     fr.x = fx.x + fy.x;
     fr.y = fx.y + fy.y;
     return __float22half2_rn(fr);
+#endif
   }
   __device__ half operator()(const half x, const half y) const {
+#if __CUDA_ARCH__ >= 530
+    return __hadd(x, y);
+#else
     return __float2half( __half2float(x) + __half2float(y) );
+#endif
   }
 };
 
 template<>
 struct FuncProd<half> {
   __device__ half2 operator()(const half2 x, const half2 y) const {
+#if __CUDA_ARCH__ >= 530
+    return __hmul2(x, y);
+#else
     float2 fx, fy, fr;
     fx = __half22float2(x);
     fy = __half22float2(y);
     fr.x = fx.x * fy.x;
     fr.y = fx.y * fy.y;
     return __float22half2_rn(fr);
+#endif
   }
   __device__ half operator()(const half x, const half y) const {
+#if __CUDA_ARCH__ >= 530
+    return __hmul(x, y);
+#else
     return __float2half( __half2float(x) * __half2float(y) );
+#endif
   }
 };
 
@@ -247,15 +263,15 @@ struct FuncMax<half> {
     float2 fx, fy, fr;
     fx = __half22float2(x);
     fy = __half22float2(y);
-    fr.x = fx.x > fy.x ? fx.x : fy.x;
-    fr.y = fx.y > fy.y ? fx.y : fy.y;
+    fr.x = fmaxf(fx.x, fy.x);
+    fr.y = fmaxf(fx.y, fy.y);
     return __float22half2_rn(fr);
   }
   __device__ half operator()(const half x, const half y) const {
     float fx, fy, fm;
     fx = __half2float(x);
     fy = __half2float(y);
-    fm = fx > fy ? fx : fy;
+    fm = fmaxf(fx, fy);
     return __float2half(fm);
   }
 };
@@ -266,15 +282,15 @@ struct FuncMin<half> {
     float2 fx, fy, fr;
     fx = __half22float2(x);
     fy = __half22float2(y);
-    fr.x = fx.x < fy.x ? fx.x : fy.x;
-    fr.y = fx.y < fy.y ? fx.y : fy.y;
+    fr.x = fminf(fx.x, fy.x);
+    fr.y = fminf(fx.y, fy.y);
     return __float22half2_rn(fr);
   }
   __device__ half operator()(const half x, const half y) const {
     float fx, fy, fm;
     fx = __half2float(x);
     fy = __half2float(y);
-    fm = fx < fy ? fx : fy;
+    fm = fminf(fx, fy);
     return __float2half(fm);
   }
 };
