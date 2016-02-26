@@ -29,6 +29,7 @@
 CUDA_HOME ?= /usr/local/cuda
 PREFIX ?= /usr/local
 VERBOSE ?= 0
+KEEP ?= 0
 
 CUDACODE := -gencode=arch=compute_35,code=sm_35 \
             -gencode=arch=compute_50,code=sm_50 \
@@ -46,6 +47,10 @@ NVCUFLAGS  := $(CUDACODE) -O3 -lineinfo -std=c++11 -maxrregcount 96
 ifneq ($(VERBOSE), 0)
 NVCUFLAGS += -Xptxas -v -Xcompiler -Wall,-Wextra
 CXXFLAGS  += -Wall -Wextra
+endif
+
+ifneq ($(KEEP), 0)
+NVCUFLAGS += -keep
 endif
 
 LDFLAGS    := -L$(CUDA_HOME)/lib64 -lcudart
