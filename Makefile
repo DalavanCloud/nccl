@@ -30,6 +30,7 @@ CUDA_HOME ?= /usr/local/cuda
 PREFIX ?= /usr/local
 VERBOSE ?= 0
 KEEP ?= 0
+DEBUG ?= 0
 
 CUDACODE := -gencode=arch=compute_35,code=sm_35 \
             -gencode=arch=compute_50,code=sm_50 \
@@ -41,8 +42,16 @@ BUILDDIR := build
 NVCC       := $(CUDA_HOME)/bin/nvcc
 GPP        := g++
 CPPFLAGS   := -I$(CUDA_HOME)/include
-CXXFLAGS   := -O3 -fPIC -fvisibility=hidden
-NVCUFLAGS  := $(CUDACODE) -O3 -lineinfo -std=c++11 -maxrregcount 96
+CXXFLAGS   := -fPIC -fvisibility=hidden
+NVCUFLAGS  := $(CUDACODE) -lineinfo -std=c++11 -maxrregcount 96
+
+ifeq ($(DEBUG), 0)
+NVCUFLAGS += -O3
+CXXFLAGS  += -O3
+else
+NVCUFLAGS += -O0 -G
+CXXFLAGS  += -O0 -g -ggdb3
+endif
 
 ifneq ($(VERBOSE), 0)
 NVCUFLAGS += -Xptxas -v -Xcompiler -Wall,-Wextra
