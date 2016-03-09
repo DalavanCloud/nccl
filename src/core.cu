@@ -372,7 +372,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   }
 
   enum { _PCIE, _NVLINK } connect = _PCIE;
-  enum { _CUBEMESH, _HALF_CUBEMESH, _4FC, _4RING } topo;
+  enum { _CUBEMESH, _HALF_CUBEMESH, _4FC, _4RING, _3FC, _2FC } topo;
 
   const char* topoName = getenv("NCCL_TOPOLOGY");
   if (topoName != NULL) {
@@ -380,6 +380,8 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
     else if ((strcmp(topoName, "CUBEMESH")      == 0) && (ndev == 4)) { connect = _NVLINK; topo = _HALF_CUBEMESH; }
     else if ((strcmp(topoName, "4FC")           == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4FC; }
     else if ((strcmp(topoName, "4RING")         == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4RING; }
+    else if ((strcmp(topoName, "3FC")           == 0) && (ndev == 3)) { connect = _NVLINK; topo = _3FC; }
+    else if ((strcmp(topoName, "2FC")           == 0) && (ndev == 2)) { connect = _NVLINK; topo = _2FC; }
     else {
       INFO("Ignoring NCCL_TOPOLOGY=%s for %d GPUs", topoName, ndev);
     }
@@ -432,9 +434,9 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
           2, 1, 1, 3, -1, -1,
           3, 2, 0, 0, -1, -1};
       memcpy(NVLRings, FCRings, sizeof(FCRings));
-    } else { // topo == _4RING
+    } else if (topo == _4RING) {
       INFO("Using 4-Ring topology");
-      comm->nRings = 2;
+      comm->nRings = 2; // FIXME: this may not be enough to saturate bandwidth;
       const int Rings[4][MAXNVLRINGS] = {
           // want to test this and see if it works as
           // well with just two CTAs, else switch back to four rings
@@ -443,6 +445,21 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
           2, 1, -1, -1, -1, -1,
           3, 0, -1, -1, -1, -1};
       memcpy(NVLRings, Rings, sizeof(Rings));
+    } else if (topo == _3FC) {
+      INFO("Using 3-FC topology");
+      comm->nRings = 2; // FIXME: this may not be enough to saturate bandwidth;
+      const int FCRings[4][MAXNVLRINGS] = {
+          0, 2, -1, -1, -1, -1,
+          1, 1, -1, -1, -1, -1,
+          2, 0, -1, -1, -1, -1};
+      memcpy(NVLRings, FCRings, sizeof(FCRings));
+    } else { // if (topo == _2FC) {
+      INFO("Using 2-FC topology");
+      comm->nRings = 1; // FIXME: this may not be enough to saturate bandwidth
+      const int FCRings[4][MAXNVLRINGS] = {
+          0, -1, -1, -1, -1, -1,
+          1, -1, -1, -1, -1, -1};
+      memcpy(NVLRings, FCRings, sizeof(FCRings));
     }
 
     for(int r=0; r<comm->nRings; ++r) {
