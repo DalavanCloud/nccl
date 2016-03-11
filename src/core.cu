@@ -42,6 +42,7 @@
 #include <errno.h>
 
 DebugLevel ncclDebugLevel;
+int ncclPrintCRCs;
 
 extern "C" DSOGLOBAL
 ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
@@ -624,6 +625,12 @@ static void initDebug() {
     INFO("NCCL debug level set to ABORT");
   }
 
+  const char* nccl_crc = getenv("NCCL_CRC");
+  if (nccl_crc != NULL && strcmp(nccl_crc, "PRINT")==0 ) {
+    ncclPrintCRCs = 1;
+  } else {
+    ncclPrintCRCs = 0;
+  }
 }
 
 static void commFree(ncclComm_t comm) {

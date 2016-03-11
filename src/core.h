@@ -118,6 +118,8 @@ struct ncclComm {
 typedef enum {NONE=0, WARN=1, INFO=2, ABORT=3} DebugLevel;
 extern DebugLevel ncclDebugLevel;
 
+extern int ncclPrintCRCs;
+
 #define WARN(...) do {                                           \
   if (ncclDebugLevel >= WARN) {                                  \
     printf("WARN %s:%d ", __FILE__, __LINE__);                   \

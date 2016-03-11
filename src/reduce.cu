@@ -35,6 +35,7 @@
 #include "copy_kernel.h"
 #include "enqueue.h"
 #include "reduce_kernel.h"
+#include "crc32.h"
 
 /* HIERARCHY
  *
@@ -338,6 +339,13 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   args.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + 1;
   args.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + 1;
 
+  // print CRC checksum of input
+  int myRank;
+  if (ncclPrintCRCs) {
+    myRank = comm->userFromRing[0][comm->ringIdx[0]];
+    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
+  }
+
   if (index == (rootId + 1) % comm->nDev) {
     ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, BEGIN, T>
         <<<1, NUM_THREADS + 1, 0, stream>>>(args);
@@ -348,6 +356,12 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, MIDDLE, T>
         <<<1, NUM_THREADS + 1, 0, stream>>>(args);
   }
+
+  // print CRC checksum of output
+  if (ncclPrintCRCs) {
+    printCRCDev((unsigned char*)recvbuff, count*sizeof(T), myRank, stream);
+  }
+
   return ncclSuccess;
 }
 

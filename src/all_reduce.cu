@@ -34,6 +34,7 @@
 #include "copy_kernel.h"
 #include "enqueue.h"
 #include "reduce_kernel.h"
+#include "crc32.h"
 
 /* HIERARCHY
  *
@@ -439,6 +440,13 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
   }
 
+  // print CRC checksum of input
+  int myRank;
+  if (ncclPrintCRCs) {
+    myRank = comm->userFromRing[0][comm->ringIdx[0]];
+    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
+  }
+
   if( comm->useRemoteRecv ) {
     AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, true, T>
         <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
@@ -446,6 +454,12 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, false, T>
         <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
   }
+
+  // print CRC checksum of output
+  if (ncclPrintCRCs) {
+    printCRCDev((unsigned char*)recvbuff, count*sizeof(T), myRank, stream);
+  }
+
   return ncclSuccess;
 }
 

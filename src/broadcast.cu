@@ -34,6 +34,7 @@
 #include "common_kernel.h"
 #include "copy_kernel.h"
 #include "enqueue.h"
+#include "crc32.h"
 
 /* HIERARCHY
  *
@@ -350,6 +351,14 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
   args.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + 1;
   args.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + 1;
 
+  // print CRC checksum of input
+  int myRank;
+  if (ncclPrintCRCs) {
+    myRank = comm->userFromRing[0][comm->ringIdx[0]];
+    if (myRank == root)
+      printCRCDev((unsigned char*)buff, count*sizeof(T), myRank, stream);
+  }
+
   if (comm->useRemoteRecv) {
     if (index == (rootId + comm->nDev - 1) % comm->nDev) {
       BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, END, T>
@@ -373,6 +382,12 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
           <<<1, NUM_THREADS + 1, 0, stream>>>(args);
     }
   }
+
+  // print CRC checksum of output
+  if (ncclPrintCRCs && myRank != root) {
+    printCRCDev((unsigned char*)buff, count*sizeof(T), myRank, stream);
+  }
+
   return ncclSuccess;
 }
 

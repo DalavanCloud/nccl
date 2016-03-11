@@ -33,6 +33,7 @@
 #include "common_kernel.h"
 #include "copy_kernel.h"
 #include "enqueue.h"
+#include "crc32.h"
 
 /* HIERARCHY
  *
@@ -429,6 +430,13 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
     ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
   }
 
+  // print CRC checksum of input
+  int myRank;
+  if (ncclPrintCRCs) {
+    myRank = comm->userFromRing[0][comm->ringIdx[0]];
+    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
+  }
+
   if( comm->useRemoteRecv ) {
     AllGatherKernel<NUM_THREADS, UNROLL_COUNT, true, T>
         <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
@@ -436,6 +444,12 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
     AllGatherKernel<NUM_THREADS, UNROLL_COUNT, false, T>
         <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
   }
+
+  // print CRC checksum of output
+  if (ncclPrintCRCs) {
+    printCRCDev((unsigned char*)recvbuff, comm->nDev*count*sizeof(T), myRank, stream);
+  }
+
   return ncclSuccess;
 }
 

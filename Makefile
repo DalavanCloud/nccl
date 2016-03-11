@@ -56,7 +56,7 @@ TSTINC     := -Ibuild/include -Itest/include
 .DEFAULT : lib
 
 INCEXPORTS  := nccl.h
-LIBSRCFILES := libwrap.cu core.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
+LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
 LIBNAME     := libnccl.so
 VER_MAJOR   := 1
 VER_MINOR   := 0
