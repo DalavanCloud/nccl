@@ -32,17 +32,17 @@ $ cd nccl
 $ make CUDA_HOME=<cuda install path> test
 ```
 
-Test binaries are located in the subdirectories nccl/build/test and nccl/build/mpitest.
+Test binaries are located in the subdirectories nccl/build/test/single and nccl/build/test/mpi.
 
 ```shell
 $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./build/lib
-$ ./build/test/all_reduce_test
+$ ./build/test/single/all_reduce_test
 Error: must specify at least data size in bytes!
 
 Tests nccl AllReduce with user supplied arguments.
     Usage: all_reduce_test <data size in bytes> [number of GPUs] [GPU 0] [GPU 1] ...
 
-$ ./build/test/all_reduce_test 10000000
+$ ./build/test/single/all_reduce_test 10000000
 # Using devices
 #   Device  0 ->  0 [0x0a] GeForce GTX TITAN X
 #   Device  1 ->  1 [0x09] GeForce GTX TITAN X
@@ -77,7 +77,7 @@ To install, run `make PREFIX=<install dir> install` and add `<instal dir>/lib` t
 
 ## Usage
 
-NCCL follows the MPI collectives API fairly closely. Before any collectives can be called, a communicator object must be initialized on each GPU. On a single-process machine, all GPUs can be conveniently initialized using `ncclCommInitAll`. For multi-process applications (e.g., with MPI), `ncclCommInitRank` must be called for each GPU. Internally `ncclCommInitRank` invokes a synchronization among all GPUs, so these calls must be invoked in different host threads (or processes) for each GPU. A brief single-process example follows, for an MPI example see src/mpi_test.cu. For details about the API see nccl.h.
+NCCL follows the MPI collectives API fairly closely. Before any collectives can be called, a communicator object must be initialized on each GPU. On a single-process machine, all GPUs can be conveniently initialized using `ncclCommInitAll`. For multi-process applications (e.g., with MPI), `ncclCommInitRank` must be called for each GPU. Internally `ncclCommInitRank` invokes a synchronization among all GPUs, so these calls must be invoked in different host threads (or processes) for each GPU. A brief single-process example follows, for an MPI example see nccl/test/mpi/mpi_test.cu. For details about the API see nccl.h.
 
 ```c
 #include <nccl.h>
