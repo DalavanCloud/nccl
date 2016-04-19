@@ -78,8 +78,8 @@ INCEXPORTS  := nccl.h
 LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
 LIBNAME     := libnccl.so
 VER_MAJOR   := 1
-VER_MINOR   := 0
-VER_PATCH   := 2
+VER_MINOR   := 1
+VER_PATCH   := 0
 TESTS       := all_gather_test     all_gather_scan \
                all_reduce_test     all_reduce_scan \
                broadcast_test      broadcast_scan \
@@ -109,7 +109,7 @@ lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 $(LIBDIR)/$(LIBTARGET) : $(LIBOBJ)
 	@printf "Linking   %-25s\n" $@
 	@mkdir -p $(LIBDIR)
-	@$(GPP) $(CPPFLAGS) $(CXXFLAGS) -shared -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ)
+	@$(GPP) $(CPPFLAGS) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ)
 	@ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
 	@ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
 
@@ -160,4 +160,3 @@ install : lib
 	@mkdir -p $(PREFIX)/include
 	@cp -P -v build/lib/* $(PREFIX)/lib/
 	@cp -v build/include/* $(PREFIX)/include/
-

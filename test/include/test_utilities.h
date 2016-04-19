@@ -400,15 +400,15 @@ ncclDataType_t strToType(const char* s) {
 
 size_t wordSize(ncclDataType_t type) {
   switch(type) {
-   case ncclChar:   return sizeof(char);
-   case ncclInt:    return sizeof(int);
+    case ncclChar:   return sizeof(char);
+    case ncclInt:    return sizeof(int);
 #ifdef CUDA_HAS_HALF
-   case ncclHalf:   return sizeof(short);
+    case ncclHalf:   return sizeof(short);
 #endif
-   case ncclFloat:  return sizeof(float);
-   case ncclDouble: return sizeof(double);
-   case ncclInt64:  return sizeof(long long);
-   case ncclUint64: return sizeof(unsigned long long);
+    case ncclFloat:  return sizeof(float);
+    case ncclDouble: return sizeof(double);
+    case ncclInt64:  return sizeof(long long);
+    case ncclUint64: return sizeof(unsigned long long);
   }
 
   return 0;

@@ -99,7 +99,7 @@ static __global__ void CRCKernel(unsigned char* data, int bytes, int rank) {
     printf("NCCL Rank %d CRC 0x%.8x\n", rank, ~crc_val);
 }
 
-void printCRCDev(unsigned char* data, 
+void printCRCDev(unsigned char* data,
                  int bytes,
                  int rank,
                  cudaStream_t stream)

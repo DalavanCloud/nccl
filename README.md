@@ -32,7 +32,7 @@ $ cd nccl
 $ make CUDA_HOME=<cuda install path> test
 ```
 
-Test binaries are located in the subdirectories nccl/build/test/single and nccl/build/test/mpi.
+Test binaries are located in the subdirectories nccl/build/test/{single,mpi}.
 
 ```shell
 $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./build/lib

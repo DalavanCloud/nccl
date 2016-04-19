@@ -47,7 +47,9 @@ int main(int argc, char *argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
   if (argc < size) {
-    printf("Usage : %s <GPU list per rank>\n", argv[0]);
+    if (rank == 0)
+      printf("Usage : %s <GPU list per rank>\n", argv[0]);
+    exit(1);
   }
 
   int gpu = atoi(argv[rank+1]);
@@ -65,7 +67,7 @@ int main(int argc, char *argv[]) {
     printf("NCCL Init failed (%d) '%s'\n", ret, ncclGetErrorString(ret));
     exit(1);
   }
-  
+
   // CUDA stream creation
   cudaStream_t stream;
   cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
@@ -101,7 +103,7 @@ int main(int argc, char *argv[]) {
 
   MPI_Allreduce(MPI_IN_PLACE, &errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD);
   if (rank == 0) {
-    if (errors) 
+    if (errors)
       printf("%d errors. Test FAILED.\n", errors);
     else
       printf("Test PASSED.\n");
