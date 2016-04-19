@@ -31,6 +31,7 @@ PREFIX ?= /usr/local
 VERBOSE ?= 0
 KEEP ?= 0
 DEBUG ?= 0
+PROFAPI ?= 0
 
 CUDACODE := -gencode=arch=compute_35,code=sm_35 \
             -gencode=arch=compute_50,code=sm_50 \
@@ -60,6 +61,10 @@ endif
 
 ifneq ($(KEEP), 0)
 NVCUFLAGS += -keep
+endif
+
+ifneq ($(PROFAPI), 0)
+CXXFLAGS += -DPROFAPI
 endif
 
 LDFLAGS    := -L$(CUDA_HOME)/lib64 -lcudart

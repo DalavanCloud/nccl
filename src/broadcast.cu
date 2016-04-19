@@ -420,8 +420,7 @@ public:
   }
 };
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclBcast(void* buff, int count, ncclDataType_t datatype, int root,
+DSOGLOBAL(ncclResult_t, ncclBcast, void* buff, int count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream) {
   return enqueue(BroadcastFunctor(), nullptr, buff, count, datatype, ncclSum,
       root, comm, stream);

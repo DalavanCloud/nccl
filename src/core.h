@@ -135,7 +135,17 @@ extern int ncclPrintCRCs;
   }                                                              \
 } while(0)
 
-#define DSOGLOBAL __attribute__((visibility("default")))
+#ifdef PROFAPI
+#define DSOGLOBAL(ret, func, args...) \
+__attribute__ ((visibility("default"))) \
+__attribute__ ((weak, alias("p" #func))) ret func (args); \
+extern "C" __attribute__ ((visibility("default"))) \
+ret p##func(args)
+#else
+#define DSOGLOBAL(ret, func, args...) \
+extern "C" __attribute__ ((visibility("default"))) \
+ret func(args)
+#endif // end PROFAPI
 
 #endif // end include guard
 

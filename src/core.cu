@@ -44,8 +44,8 @@
 DebugLevel ncclDebugLevel;
 int ncclPrintCRCs;
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
+
+DSOGLOBAL(ncclResult_t, ncclGetUniqueId, ncclUniqueId* out) {
   pid_t pid = getpid();
   static int count = 0;
   int commId = __sync_fetch_and_add(&count, 1);
@@ -806,8 +806,7 @@ static ncclResult_t commUnlinkHostMem(ncclComm_t comm, ncclUniqueId commId, int 
   return shmUnlink(rankname);
 }
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
+DSOGLOBAL(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   if (strlen(commId.internal) < 1 ||
       strlen(commId.internal) >= NCCL_UNIQUE_ID_BYTES) {
     WARN("rank %d invalid commId", myrank);
@@ -883,8 +882,7 @@ ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId
   return res;
 }
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, int* devlist) {
+DSOGLOBAL(ncclResult_t, ncclCommInitAll, ncclComm_t* comms, int ndev, int* devlist) {
   initDebug();
 
   ncclResult_t res;
@@ -999,9 +997,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, int* devlist) {
   return res;
 }
 
-
-extern "C" DSOGLOBAL
-void ncclCommDestroy(ncclComm_t comm) {
+DSOGLOBAL(void, ncclCommDestroy, ncclComm_t comm) {
   if (comm == NULL)
     return;
 
@@ -1019,8 +1015,7 @@ void ncclCommDestroy(ncclComm_t comm) {
     cudaSetDevice(savedDevice);
 }
 
-extern "C" DSOGLOBAL
-const char* ncclGetErrorString(ncclResult_t code) {
+DSOGLOBAL(const char*, ncclGetErrorString, ncclResult_t code) {
   switch (code) {
   case ncclSuccess                : return "no error";
   case ncclUnhandledCudaError     : return "unhandled cuda error";
@@ -1041,20 +1036,17 @@ const char* ncclGetErrorString(ncclResult_t code) {
   return "unknown result code";
 }
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclCommCount(const ncclComm_t comm, int* count) {
+DSOGLOBAL(ncclResult_t, ncclCommCount, const ncclComm_t comm, int* count) {
   *count = comm->nDev;
   return ncclSuccess;
 }
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclCommCuDevice(const ncclComm_t comm, int* devid) {
+DSOGLOBAL(ncclResult_t, ncclCommCuDevice, const ncclComm_t comm, int* devid) {
   *devid = comm->cudaDev;
   return ncclSuccess;
 }
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclCommUserRank(const ncclComm_t comm, int* rank) {
+DSOGLOBAL(ncclResult_t, ncclCommUserRank, const ncclComm_t comm, int* rank) {
   *rank = comm->userFromRing[0][comm->ringIdx[0]];
   return ncclSuccess;
 }

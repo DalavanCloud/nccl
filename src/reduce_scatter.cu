@@ -508,8 +508,7 @@ public:
   }
 };
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclReduceScatter(const void* sendbuff, void* recvbuff,
+DSOGLOBAL(ncclResult_t, ncclReduceScatter, const void* sendbuff, void* recvbuff,
     int recvcount, ncclDataType_t datatype, ncclRedOp_t op, ncclComm* comm,
     cudaStream_t stream) {
   return enqueue(ReduceScatterFunctor(), sendbuff, recvbuff, recvcount,

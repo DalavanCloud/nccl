@@ -416,8 +416,7 @@ public:
   }
 };
 
-extern "C" DSOGLOBAL
-ncclResult_t ncclReduce(const void* sendbuff, void* recvbuff, int count,
+DSOGLOBAL(ncclResult_t, ncclReduce, const void* sendbuff, void* recvbuff, int count,
     ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm,
     cudaStream_t stream) {
   return enqueue(ReduceFunctor(), sendbuff, recvbuff, count, datatype, op,
