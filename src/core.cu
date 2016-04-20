@@ -654,11 +654,9 @@ static void commFree(ncclComm_t comm) {
   if (comm == NULL)
     return;
 
-  for(int i=0; i<MAXQUEUE; ++i) {
-    if (comm->events.isDone[i] != NULL)
-      if (cudaEventDestroy(comm->events.isDone[i]) != cudaSuccess)
-        INFO("failed to destroy cuda event %d", i);
-  }
+  if (comm->doneEvent != NULL)
+    if (cudaEventDestroy(comm->doneEvent) != cudaSuccess)
+      INFO("ncclComm failed to destroy doneEvent");
 
   ncclResult_t res = commClearMaps(comm);
   if (res != ncclSuccess)
@@ -770,13 +768,10 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* 
     }
   }
 
-  EventQueue* eq = &comm->events;
-  for(int i=0; i<MAXQUEUE; ++i) {
-    if (cudaEventCreateWithFlags(eq->isDone+i, cudaEventDisableTiming) != cudaSuccess) {
-      WARN("rank %d failed to create nccl event %d", rank, i);
-      commFree(comm);
-      return ncclUnhandledCudaError;
-    }
+  if (cudaEventCreateWithFlags(&comm->doneEvent, cudaEventDisableTiming) != cudaSuccess) {
+    WARN("ncclComm on rank %d failed to create doneEvent", rank);
+    commFree(comm);
+    return ncclUnhandledCudaError;
   }
 
   if(commId == NULL) {

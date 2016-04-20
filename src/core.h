@@ -35,7 +35,6 @@
 
 #define MAXRINGS 8
 #define MAXFLAGS 16
-#define MAXQUEUE 4 // Maximum number of queued collectives per communicator.
 #define DEFAULT_BUFFER_SIZE_BYTES (1UL << 25)
 
 // DIE on error
@@ -49,11 +48,6 @@
 } while(false)
 
 #define NCCL_MEM_PAD_ALIGN 4096
-
-typedef struct {
-  cudaEvent_t isDone[MAXQUEUE];
-  int back; // Last event used
-} EventQueue;
 
 struct ncclMem {
   union { // Pad this block so that devBuff is correctly aligned
@@ -85,8 +79,8 @@ struct ncclComm {
   ncclMem* hostMem;
   int hostMemState;
 
-  // Placed between calling and internal device streams.
-  EventQueue events;
+  cudaStream_t prevStream; // cache last used stream
+  cudaEvent_t doneEvent; // orders operations in different streams
 
   // Maps an internal nccl index to user-specified rank order. This is necessary
   // since we need to know how the user expects data to be ordered across
