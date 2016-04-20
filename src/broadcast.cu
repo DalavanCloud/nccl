@@ -359,27 +359,36 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
       printCRCDev((unsigned char*)buff, count*sizeof(T), myRank, stream);
   }
 
+  dim3 grid(1, 1, 1);
+  dim3 block(NUM_THREADS+1, 1, 1);
+  void* argptrs[] = {&args};
   if (comm->useRemoteRecv) {
     if (index == (rootId + comm->nDev - 1) % comm->nDev) {
-      BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, END, T>
-          <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+      CUDACHECK(cudaLaunchKernel(
+          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, END, T>,
+          grid, block, argptrs, 0, stream));
     } else if (index == rootId) {
-      BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, ROOT, T>
-          <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+      CUDACHECK(cudaLaunchKernel(
+          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, ROOT, T>,
+          grid, block, argptrs, 0, stream));
     } else {
-      BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, MIDDLE, T>
-          <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+      CUDACHECK(cudaLaunchKernel(
+          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, MIDDLE, T>,
+          grid, block, argptrs, 0, stream));
     }
   } else {
     if (index == (rootId + comm->nDev - 1) % comm->nDev) {
-      BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, END, T>
-          <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+      CUDACHECK(cudaLaunchKernel(
+          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, END, T>,
+          grid, block, argptrs, 0, stream));
     } else if (index == rootId) {
-      BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, ROOT, T>
-          <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+      CUDACHECK(cudaLaunchKernel(
+          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, ROOT, T>,
+          grid, block, argptrs, 0, stream));
     } else {
-      BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, MIDDLE, T>
-          <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+      CUDACHECK(cudaLaunchKernel(
+          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, MIDDLE, T>,
+          grid, block, argptrs, 0, stream));
     }
   }
 

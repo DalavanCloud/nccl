@@ -442,8 +442,12 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
     printCRCDev((unsigned char*)sendbuff, comm->nDev*recvcount*sizeof(T), myRank, stream);
   }
 
-  ReduceScatterKernel<NUM_THREADS, UNROLL_COUNT, FUNC, T>
-      <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
+  dim3 grid(nRings, 1, 1);
+  dim3 block(NUM_THREADS+1, 1, 1);
+  void* argptrs[] = {&args};
+  CUDACHECK(cudaLaunchKernel(
+      (void*)ReduceScatterKernel<NUM_THREADS, UNROLL_COUNT, FUNC, T>,
+      grid, block, argptrs, 0, stream));
 
   // print CRC checksum of output
   if (ncclPrintCRCs) {

@@ -346,15 +346,21 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
   }
 
+  dim3 grid(1, 1, 1);
+  dim3 block(NUM_THREADS+1, 1, 1);
+  void* argptrs[] = {&args};
   if (index == (rootId + 1) % comm->nDev) {
-    ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, BEGIN, T>
-        <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+    CUDACHECK(cudaLaunchKernel(
+        (void*)ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, BEGIN, T>,
+        grid, block, argptrs, 0, stream));
   } else if (index == rootId) {
-    ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, END, T>
-        <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+    CUDACHECK(cudaLaunchKernel(
+        (void*)ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, END, T>,
+        grid, block, argptrs, 0, stream));
   } else {
-    ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, MIDDLE, T>
-        <<<1, NUM_THREADS + 1, 0, stream>>>(args);
+    CUDACHECK(cudaLaunchKernel(
+        (void*)ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, MIDDLE, T>,
+        grid, block, argptrs, 0, stream));
   }
 
   // print CRC checksum of output

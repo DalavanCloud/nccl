@@ -447,12 +447,17 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
   }
 
+  dim3 grid(nRings, 1, 1);
+  dim3 block(NUM_THREADS+1, 1, 1);
+  void* argptrs[] = {&args};
   if( comm->useRemoteRecv ) {
-    AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, true, T>
-        <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
+    CUDACHECK(cudaLaunchKernel(
+        (void*)AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, true, T>,
+        grid, block, argptrs, 0, stream));
   } else {
-    AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, false, T>
-        <<<nRings, NUM_THREADS + 1, 0, stream>>>(args);
+    CUDACHECK(cudaLaunchKernel(
+        (void*)AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, false, T>,
+        grid, block, argptrs, 0, stream));
   }
 
   // print CRC checksum of output

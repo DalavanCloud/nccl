@@ -27,6 +27,7 @@
  ************************************************************************/
 
 #include <stdio.h>
+#include "core.h" // for CUDACHECK
 
 // Based on //sw/gpgpu/MachineLearning/cudnn/test/testUtil.cpp
 
@@ -104,6 +105,9 @@ void printCRCDev(unsigned char* data,
                  int rank,
                  cudaStream_t stream)
 {
-  CRCKernel<<<1, 256, 0, stream>>>(data, bytes, rank);
+  const dim3 grid(1, 1, 1);
+  const dim3 block(256, 1, 1);
+  void* argptrs[] = {&data, &bytes, &rank};
+  CUDACHECK(cudaLaunchKernel((void*)CRCKernel, grid, block, argptrs, 0, stream));
 }
 
