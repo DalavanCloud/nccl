@@ -71,17 +71,15 @@
 #define SIGNAL_NEW_DATA_AVAILABLE(chunk, subchunk)                              \
     do {                                                                        \
       __threadfence_system();                                                   \
-      args.NextNewDataAvailableFlag[0] = NUM_SUBCHUNKS*(chunk) + subchunk + 1;  \
+      ring.NextNewDataAvailableFlag[0] = NUM_SUBCHUNKS*(chunk) + subchunk + 1;  \
     } while (0)
 
 // This is called by all producer threads, but only thread 0 spins on the flag,
 #define WAIT_FOR_NEW_DATA(chunk, subchunk)                                      \
     do {                                                                        \
       if (tid == 0) {                                                           \
-        Wait([=] {                                                              \
-          return ((volatile int *)args.ThisNewDataAvailableFlag)[0] >=          \
-              NUM_SUBCHUNKS*(chunk) + subchunk + 1;                             \
-        });                                                                     \
+        int val = subchunk + 1 + NUM_SUBCHUNKS*(int)(chunk);                    \
+        Wait([=] { return *ring.ThisNewDataAvailableFlag >= val; });            \
       }                                                                         \
       BAR(sync, 1, NUM_THREADS);                                                \
     } while (0)
@@ -90,36 +88,29 @@
 // processing the chunk CHUNK and so the previous GPU can start with CHUNK + 1
 #define SIGNAL_CHUNK_DONE(chunk, subchunk)                                      \
     do {                                                                        \
-      args.PrevChunkDoneFlag[0] = NUM_SUBCHUNKS*(chunk) + subchunk + 1;         \
+      *ring.PrevChunkDoneFlag = NUM_SUBCHUNKS*(chunk) + subchunk + 1;           \
     } while (0)
 
 // This is called by all producer threads, but only thread 0 spins on the flag,
 // all threads synchronize after thread 0 is done spinning.
-#define WAIT_FOR_CHUNK(chunk, subchunk)                                         \
+#define WAIT_FOR_PREV_CHUNK(chunk, subchunk)                                    \
     do {                                                                        \
       if (tid == 0) {                                                           \
-        Wait([=] {                                                              \
-          return ((volatile int *)args.ThisChunkDoneFlag)[0] >=                 \
-              NUM_SUBCHUNKS*(chunk) + subchunk + 1 - NUM_SUBCHUNKS;             \
-        });                                                                     \
+        int val = NUM_SUBCHUNKS*(int)(chunk-gridDim.x) + subchunk + 1;          \
+        Wait([=] { return *ring.ThisChunkDoneFlag >= val; });                   \
       }                                                                         \
       BAR(sync, 1, NUM_THREADS);                                                \
     } while (0)
 
 // This is called by all producer threads, but only thread 0 spins on the flag,
 // all threads synchronize after thread 0 is done spinning.
-#define WAIT_FOR_NEW_DATA_AND_CHUNK(chunk, subchunk)                            \
+#define WAIT_FOR_NEW_DATA_AND_PREV_CHUNK(chunk, subchunk)                       \
     do {                                                                        \
       if (tid == 0) {                                                           \
-        Wait([=] {                                                              \
-          bool newDataAvailable =                                               \
-              ((volatile int *)args.ThisNewDataAvailableFlag)[0] >=             \
-                  NUM_SUBCHUNKS*(chunk) + subchunk + 1;                         \
-          bool chunkDone =                                                      \
-              ((volatile int *)args.ThisChunkDoneFlag)[0] >=                    \
-                  NUM_SUBCHUNKS*(chunk)+subchunk + 1 - NUM_SUBCHUNKS;           \
-          return newDataAvailable && chunkDone;                                 \
-        });                                                                     \
+        int dataval  = subchunk + 1 + NUM_SUBCHUNKS*(int)(chunk);               \
+        int chunkval = NUM_SUBCHUNKS*(int)(chunk-gridDim.x) + subchunk +1;      \
+        Wait([=] { return *ring.ThisNewDataAvailableFlag >= dataval; });        \
+        Wait([=] { return *ring.ThisChunkDoneFlag >= chunkval; });              \
       }                                                                         \
       BAR(sync, 1, NUM_THREADS);                                                \
     } while (0)
@@ -135,31 +126,19 @@ __device__ inline void getSliceSizeAndOffset(int *size, int *offset, int slice,
         : ((slice == numSlices - 1) ? lastSliceN : 0);
     *offset = numBigSlices * bigSliceN + (slice - numBigSlices) * smallSliceN;
   }
-
-//  if (threadIdx.x == 0)
-//    printf("[size=%d] [offset=%d] slice=%d numSlices=%d "
-//        "numBigSlices=%d numSmallSlices=%d bigSliceN=%d smallSliceN=%d "
-//        "lastSliceN=%d\n", *size, *offset, slice, numSlices, numBigSlices,
-//        numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 }
 
-template<typename T>
-struct BroadcastKernelArgs {
-  // general parameters
-  int ThisId;
-  int N;
+enum BcastRole {ROOT=0, MIDDLE=1, END=2};
 
-  // some pre-computed sizes
-  int SliceSize;
-  int ChunkSize;
-  int NumChunks;
-  int BufferSliceStride;
+template<typename T>
+struct BroadcastRingArgs {
+  BcastRole role;
 
   T ** ThisPtrToNextData;
   T ** PrevPtrToThisData;
+  volatile int* __restrict__ NextOpCounter;
+  volatile int* __restrict__ PrevOpCounter;
 
-  // local and remote data
-  T * __restrict__ ThisData;
   volatile T * __restrict__ ThisBuffer;
   volatile T * __restrict__ NextBuffer;
 
@@ -170,32 +149,54 @@ struct BroadcastKernelArgs {
   volatile int * __restrict__ PrevChunkDoneFlag;
 };
 
-__shared__ volatile void * nextData;
-enum BcastRole {ROOT=0, MIDDLE=1, END=2};
+template<typename T>
+struct BroadcastKernelArgs {
+  // general parameters
+  int N;
+  int opIndex;
+  volatile int * __restrict__ opCountHost;
+  volatile int * __restrict__ opCountDev;
+  int * __restrict__ doneCount;
 
-template<int THREADS, int UNROLL, bool PUSHRECV, int ROLE, typename T>
+  // some pre-computed sizes
+  int SliceSize;
+  int ChunkSize;
+  int NumChunks;
+  int BufferSliceStride;
+
+  T * __restrict__ ThisData;
+
+  BroadcastRingArgs<T> rings[MAXRINGS];
+};
+
+template<int THREADS, int UNROLL, bool PUSHRECV, typename T>
 __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
-  if (args.N == 0) return;
-  int tid = threadIdx.x;
+  const int tid = threadIdx.x;
+  const int bid = blockIdx.x;
+  __shared__ volatile void * nextData;
+  __shared__ BroadcastRingArgs<T> ring;
+  ring = args.rings[bid];
 
-  // First wait for args.PrevPtrToThisOutput to become nullptr to ensure that
-  // the previous GPU is done with a previous collective operation.
   if (tid == 0) {
-    Wait([=] {
-      return *((T * volatile *)args.PrevPtrToThisData) == nullptr; // Wait for previous processor to be done
-    });
-
-    *((T * volatile *)args.PrevPtrToThisData) = (T*)args.ThisData; // Tell Previous I'm starting
-    Wait([=] {
-      return *((T * volatile *)args.ThisPtrToNextData) != nullptr;  // Wait till I've been told next started
-    });
-
-    if (PUSHRECV)
-      nextData = *((volatile void * volatile *)args.ThisPtrToNextData); // Grab next's pointer if needed.
+    if (PUSHRECV) {
+      if (ring.role != ROOT) {
+        Wait([=] { return *ring.PrevOpCounter == args.opIndex; });
+        *((T* volatile*)ring.PrevPtrToThisData) = (T*)args.ThisData;
+      }
+      if (ring.role != END) {
+        Wait([=] { return *((T* volatile*)ring.ThisPtrToNextData) != nullptr; });
+        nextData = *((volatile void * volatile *)ring.ThisPtrToNextData);
+        *ring.ThisPtrToNextData = nullptr;
+      }
+    } else { // !PUSHRECV
+      if (ring.role != END) {
+        Wait([=] { return *ring.NextOpCounter == args.opIndex; });
+      }
+    }
   }
   __syncthreads();
 
-  for (int chunk = 0; chunk < args.NumChunks; ++chunk) {
+  for (int chunk = bid; chunk < args.NumChunks; chunk+=gridDim.x) {
     // calculate slice size.  for all chunks except (possibly) the last one,
     // this will just be args.SliceSize. For the last one, it may be smaller
     int bigSliceN   = args.SliceSize;
@@ -224,36 +225,36 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
             numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
         if (PUSHRECV) {
-          if (ROLE != ROOT)
+          if (ring.role != ROOT)
             WAIT_FOR_NEW_DATA(chunk, s);
 
-          if (ROLE != END)
+          if (ring.role != END)
             Copy<UNROLL, THREADS>(
                 (volatile T *)nextData + chunkOffset + offset,
                 args.ThisData + chunkOffset + offset,
                 sliceSize);
         } else { // PUSH2BUFF
-          if (ROLE == ROOT) {
-            WAIT_FOR_CHUNK(chunk, s);
+          if (ring.role == ROOT) {
+            WAIT_FOR_PREV_CHUNK(chunk, s);
 
             Copy<UNROLL, THREADS>(
-                args.NextBuffer + (s * args.BufferSliceStride),
+                ring.NextBuffer + (s * args.BufferSliceStride),
                 args.ThisData + chunkOffset + offset,
                 sliceSize);
-          } else if (ROLE == MIDDLE) {
-            WAIT_FOR_NEW_DATA_AND_CHUNK(chunk, s);
+          } else if (ring.role == MIDDLE) {
+            WAIT_FOR_NEW_DATA_AND_PREV_CHUNK(chunk, s);
 
             DoubleCopy<UNROLL, THREADS>(
-                args.NextBuffer + (s * args.BufferSliceStride),
+                ring.NextBuffer + (s * args.BufferSliceStride),
                 args.ThisData + chunkOffset + offset,
-                args.ThisBuffer + (s * args.BufferSliceStride),
+                ring.ThisBuffer + (s * args.BufferSliceStride),
                 sliceSize);
-          } else { // ROLE == END
+          } else { // ring.role == END
             WAIT_FOR_NEW_DATA(chunk, s);
 
             Copy<UNROLL, THREADS>(
                 args.ThisData + chunkOffset + offset,
-                args.ThisBuffer + (s * args.BufferSliceStride),
+                ring.ThisBuffer + (s * args.BufferSliceStride),
                 sliceSize);
           }
         }
@@ -262,23 +263,28 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
     } else { // Consumer thread
       for(int s=0; s<NUM_SUBCHUNKS; ++s) {
         __syncthreads();
-        if (ROLE != END)
+        if (ring.role != END)
           SIGNAL_NEW_DATA_AVAILABLE(chunk, s);
 
         // signal chunk done if we don't push into the receive buffer and this
         // is no the last chunk and this is not root
-        if ((!PUSHRECV) && (ROLE != ROOT) && (chunk + 1 < args.NumChunks)) {
+        if ((!PUSHRECV) && (ring.role != ROOT) && (chunk + gridDim.x < args.NumChunks)) {
           SIGNAL_CHUNK_DONE(chunk, s);
         }
       }
     }
   }
 
-  // reset flags
   if (tid == 0) {
-    args.ThisNewDataAvailableFlag[0] = 0;
-    args.ThisChunkDoneFlag[0] = 0;
-    *args.ThisPtrToNextData = nullptr;
+    *ring.ThisNewDataAvailableFlag = 0;
+    *ring.ThisChunkDoneFlag = 0;
+    if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
+      *args.doneCount = 0;
+      __threadfence_system();
+
+      *args.opCountHost = args.opIndex+1;
+      *args.opCountDev  = args.opIndex+1;
+    }
   }
 }
 
@@ -288,37 +294,32 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
   if (count == 0)
     return ncclSuccess;
 
-  int index = comm->ringIdx[0];
-  int rootId = comm->ringFromUser[0][root];
-
-  int nextId = comm->ncclFromRing[0][(index + 1) % comm->nDev];
-  int prevId = comm->ncclFromRing[0][(index + comm->nDev - 1) % comm->nDev];
-
-  // There is one slice per GPU, so a slice can be at most bufferN / numGPUs,
-  // where bufferN is the number of elements of type T that fit into the buffer.
-  // For efficiency, we want the slice size to be a multiple of UNROLL_SIZE
-  int bufferN = comm->buffSize / sizeof(T);
-  // we only need buffer for k slices and k paddings
-  int bufferNPerSlice = bufferN / NUM_SUBCHUNKS;
-  int maxSliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
-
   BroadcastKernelArgs<T> args;
-
-  args.ThisId = index;
+  args.ThisData = (T*)buff;
   args.N = count;
+  args.opIndex = comm->opSched;
+  args.opCountHost = &comm->hostMem->opCounter;
+  args.opCountDev = &comm->devMem->opCounter;
+  args.doneCount = comm->devMem->flags + MAXFLAGS-1;
 
-  args.SliceSize = numUnroll * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
-
+  // slice size, num chunks, etc.
+  const int bufferVPerRing = comm->buffSize / (sizeof(PackType) * comm->nRings);
+  const int bufferNPerRing = bufferVPerRing * sizeof(PackType) / sizeof(T);
+  int sliceSize  = numUnroll * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   // if we don't directly push into the remote receive buffer, make sure slice
   // fits into the temporary buffer
   if (!comm->useRemoteRecv) {
     // Larger transfers help QPI more than tag updates hurt P2P.
-    args.SliceSize *= 8;
+    sliceSize *= 4;
   }
-
-  args.SliceSize = std::min(maxSliceSize, args.SliceSize);
-  args.BufferSliceStride = args.SliceSize;
-  args.ChunkSize = NUM_SUBCHUNKS * args.SliceSize;
+  if (sliceSize * NUM_SUBCHUNKS > bufferNPerRing) {
+    const int align = UNROLL_SIZE * sizeof(PackType) / sizeof(T);
+    sliceSize = (bufferNPerRing / (NUM_SUBCHUNKS * align)) * align;
+  }
+  args.SliceSize = sliceSize;
+  args.BufferSliceStride = sliceSize;
+  args.ChunkSize = NUM_SUBCHUNKS * sliceSize;
+  int bufferOffset = args.ChunkSize;
 
   // avoid a case where we have one or more big chunks and one tiny one
   int remainder = args.N % args.ChunkSize;
@@ -334,22 +335,33 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
     args.NumChunks = (args.N + args.ChunkSize - 1) / args.ChunkSize;
   }
 
-//  printf("sliceSize = %i, chunkSize = %i, numChunks = %i\n", args.SliceSize, args.ChunkSize, args.NumChunks);
+  const int nRings = std::min(args.NumChunks, comm->nRings);
+  for(int r=0; r<nRings; ++r) {
+    BroadcastRingArgs<T>& ring = args.rings[r];
+    int index = comm->ringIdx[r];
+    int rootId = comm->ringFromUser[r][root];
+    int nextId = comm->ncclFromRing[r][(index + 1) % comm->nDev];
+    int prevId = comm->ncclFromRing[r][(index + comm->nDev - 1) % comm->nDev];
 
-  args.ThisPtrToNextData = (T**)&(comm->ptrs[nextId].local->recvPtrs[0]);
-  args.PrevPtrToThisData = (T**)&(comm->ptrs[prevId].remote->recvPtrs[0]);
+    if (index == (rootId + comm->nDev - 1) % comm->nDev) {
+      ring.role = END;
+    } else if (index == rootId) {
+      ring.role = ROOT;
+    } else {
+      ring.role = MIDDLE;
+    }
 
-  args.ThisData = (T*)buff;
-  args.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff;
-  args.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff;
-
-  // we need 2 * NUM_SUBCHUNKS flags, so use the first NUM_SUBCHUNKS flags
-  // to signal the next GPU that new data is available and the following
-  // NUM_SUBCHUNKS to signal the previous GPU that a chunk is finished
-  args.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags;
-  args.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags;
-  args.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + 1;
-  args.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + 1;
+    ring.ThisPtrToNextData = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
+    ring.PrevPtrToThisData = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
+    ring.NextOpCounter = &(comm->ptrs[nextId].remote->opCounter);
+    ring.PrevOpCounter = &(comm->ptrs[prevId].remote->opCounter);
+    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferOffset;
+    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferOffset;
+    ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;
+    ring.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags + r;
+    ring.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + nRings + r;
+    ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
+  }
 
   // print CRC checksum of input
   int myRank;
@@ -359,37 +371,17 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
       printCRCDev((unsigned char*)buff, count*sizeof(T), myRank, stream);
   }
 
-  dim3 grid(1, 1, 1);
+  dim3 grid(nRings, 1, 1);
   dim3 block(NUM_THREADS+1, 1, 1);
   void* argptrs[] = {&args};
   if (comm->useRemoteRecv) {
-    if (index == (rootId + comm->nDev - 1) % comm->nDev) {
-      CUDACHECK(cudaLaunchKernel(
-          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, END, T>,
-          grid, block, argptrs, 0, stream));
-    } else if (index == rootId) {
-      CUDACHECK(cudaLaunchKernel(
-          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, ROOT, T>,
-          grid, block, argptrs, 0, stream));
-    } else {
-      CUDACHECK(cudaLaunchKernel(
-          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, MIDDLE, T>,
-          grid, block, argptrs, 0, stream));
-    }
+    CUDACHECK(cudaLaunchKernel(
+        (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, T>,
+        grid, block, argptrs, 0, stream));
   } else {
-    if (index == (rootId + comm->nDev - 1) % comm->nDev) {
-      CUDACHECK(cudaLaunchKernel(
-          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, END, T>,
-          grid, block, argptrs, 0, stream));
-    } else if (index == rootId) {
-      CUDACHECK(cudaLaunchKernel(
-          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, ROOT, T>,
-          grid, block, argptrs, 0, stream));
-    } else {
-      CUDACHECK(cudaLaunchKernel(
-          (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, MIDDLE, T>,
-          grid, block, argptrs, 0, stream));
-    }
+    CUDACHECK(cudaLaunchKernel(
+        (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, T>,
+        grid, block, argptrs, 0, stream));
   }
 
   // print CRC checksum of output
@@ -405,7 +397,7 @@ public:
   ncclResult_t operator()(const void* /*dummy sendbuff*/,
       void* buff, int count, ncclDataType_t datatype, ncclRedOp_t /*dummy operation*/,
       int root, ncclComm* comm, cudaStream_t stream) {
-    int numUnroll = 4;
+    int numUnroll = 8;
 
     switch (datatype) {
     case ncclChar:

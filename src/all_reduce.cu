@@ -128,6 +128,8 @@ struct AllReduceRingArgs {
 
   T ** ThisPtrToNextOutput;
   T ** PrevPtrToThisOutput;
+  volatile int* __restrict__ NextOpCounter;
+  volatile int* __restrict__ PrevOpCounter;
 
   volatile T * __restrict__ ThisBuffer;
   volatile T * __restrict__ NextBuffer;
@@ -144,6 +146,10 @@ struct AllReduceKernelArgs {
   // general parameters
   int NumGPUs;
   int N;
+  int opIndex;
+  volatile int * __restrict__ opCountHost;
+  volatile int * __restrict__ opCountDev;
+  int * __restrict__ doneCount;
 
   // some pre-computed sizes
   int SliceSize;
@@ -166,25 +172,21 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   __shared__ AllReduceRingArgs<T> ring;
   ring = args.rings[bid];
 
-  // First wait for args.PrevPtrToThisOutput to become nullptr to ensure that
-  // the previous GPU is done with a previous collective operation.
   if (tid == 0) {
-    Wait([=] {
-      return *((T * volatile *)ring.PrevPtrToThisOutput) == nullptr;
-    });
-
-    *((T * volatile *)ring.PrevPtrToThisOutput) = (T*)args.ThisOutput;
-
-    Wait([=] {
-      return *((T * volatile *)ring.ThisPtrToNextOutput) != nullptr;
-    });
-
-    if (PUSHRECV)
+    if (PUSHRECV) {
+      Wait([=] { return *ring.PrevOpCounter == args.opIndex; });
+      *((T * volatile *)ring.PrevPtrToThisOutput) = (T*)args.ThisOutput;
+      Wait([=] {
+        return *((T * volatile *)ring.ThisPtrToNextOutput) != nullptr;
+      });
       nextOutput =
         *((volatile void * volatile *)ring.ThisPtrToNextOutput);
+      *ring.ThisPtrToNextOutput = nullptr;
+    } else {
+      Wait([=] { return *ring.NextOpCounter == args.opIndex; });
+    }
   }
   __syncthreads();
-
 
   int chunk;
   for (chunk = bid; chunk < args.NumChunks; chunk+=gridDim.x) {
@@ -375,11 +377,20 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   }
 
   if (tid == 0) {
+    // Each CTA resets its own flags
     *ring.ThisNewDataAvailableFlag = 0;
     if(!PUSHRECV) {
       *ring.ThisChunkDoneFlag = 0;
     }
-    *ring.ThisPtrToNextOutput = nullptr;
+
+    // Last CTA increments comm's operation counts
+    if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
+      *args.doneCount = 0;
+      __threadfence_system(); // Technically need to ensure that cleared flags
+                              // are visible before incrementing op counter.
+      *args.opCountHost = args.opIndex+1;
+      *args.opCountDev = args.opIndex+1;
+    }
   }
 }
 
@@ -392,6 +403,10 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   AllReduceKernelArgs<T> args;
   args.NumGPUs = comm->nDev;
   args.N = count;
+  args.opIndex = comm->opSched;
+  args.opCountHost = &comm->hostMem->opCounter;
+  args.opCountDev  = &comm->devMem->opCounter;
+  args.doneCount = comm->devMem->flags + MAXFLAGS-1;
 
   const int minSlice = UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   const int atomSize = minSlice * NUM_SUBCHUNKS * comm->nDev;
@@ -432,6 +447,8 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     ring.ThisId = index;
     ring.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
     ring.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
+    ring.NextOpCounter = &(comm->ptrs[nextId].remote->opCounter);
+    ring.PrevOpCounter = &(comm->ptrs[prevId].remote->opCounter);
     ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferOffset;
     ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferOffset;
     ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;

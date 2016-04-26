@@ -64,6 +64,7 @@ ncclResult_t enqueue(ColFunc colfunc,
   // Always have to record done event because we don't know what stream next
   // collective will be in.
   CUDACHECK( cudaEventRecord(comm->doneEvent, stream) );
+  comm->opSched += 1;
   return ret;
 }
 

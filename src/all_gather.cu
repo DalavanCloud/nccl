@@ -118,6 +118,8 @@ struct AllGatherRingArgs {
 
   T ** ThisPtrToNextOutput;
   T ** PrevPtrToThisOutput;
+  volatile int * __restrict__ NextOpCounter;
+  volatile int * __restrict__ PrevOpCounter;
 
   volatile T * __restrict__ ThisBuffer;
   volatile T * __restrict__ NextBuffer;
@@ -134,12 +136,15 @@ struct AllGatherKernelArgs {
   // general parameters
   int NumGPUs;
   int N;
+  int opIndex;
+  volatile int* __restrict__ opCountHost;
+  volatile int* __restrict__ opCountDev;
+  int * __restrict__ doneCount;
 
   // some pre-computed sizes
   int SliceSize;
   int ChunkSize;
   int NumChunks;
-
   int BufferSliceStride;
 
   // local input and output
@@ -162,21 +167,16 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
   __shared__ AllGatherRingArgs<T> ring;
   ring = args.rings[bid];
 
-  // First wait for args.PrevPtrToThisOutput to become nullptr to ensure that
-  // the previous GPU is done with a previous collective operation.
   if (tid == 0) {
-    Wait([=] {
-      return *((T * volatile *)ring.PrevPtrToThisOutput) == nullptr;
-    });
-
-    *((T * volatile *)ring.PrevPtrToThisOutput) = (T*)args.ThisOutput;
-
-    Wait([=] {
-      return *((T * volatile *)ring.ThisPtrToNextOutput) != nullptr;
-    });
-
-    if(PUSHRECV)
+    if (PUSHRECV) {
+      Wait([=] { return *ring.PrevOpCounter == args.opIndex; });
+      *((T* volatile*)ring.PrevPtrToThisOutput) = (T*)args.ThisOutput;
+      Wait([=] { return *(T* volatile*)ring.ThisPtrToNextOutput != nullptr; });
       nextOutput = *((volatile void * volatile *)ring.ThisPtrToNextOutput);
+      *ring.ThisPtrToNextOutput = nullptr;
+    } else { // !PUSHRECV
+      Wait([=] { return *ring.NextOpCounter == args.opIndex; });
+    }
   }
   __syncthreads();
 
@@ -331,7 +331,14 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
     if (tid == 0) {
       *ring.ThisNewDataAvailableFlag = 0;
       *ring.ThisChunkDoneFlag = 0;
-      *ring.ThisPtrToNextOutput = nullptr;
+
+      if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
+        *args.doneCount = 0;
+        __threadfence_system();
+
+        *args.opCountHost = args.opIndex+1;
+        *args.opCountDev  = args.opIndex+1;
+      }
     }
   }
 }
@@ -345,6 +352,10 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
   AllGatherKernelArgs<T> args;
   args.NumGPUs = comm->nDev;
   args.N = count;
+  args.opIndex = comm->opSched;
+  args.opCountHost = &comm->hostMem->opCounter;
+  args.opCountDev = &comm->devMem->opCounter;
+  args.doneCount = comm->devMem->flags + MAXFLAGS-1;
 
   const int minSlice = UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   const int minChunk = NUM_SUBCHUNKS * minSlice;
@@ -422,6 +433,8 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
 
     ring.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
     ring.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
+    ring.NextOpCounter = &(comm->ptrs[nextId].remote->opCounter);
+    ring.PrevOpCounter = &(comm->ptrs[prevId].remote->opCounter);
     ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferNPerRing;
     ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferNPerRing;
     ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;

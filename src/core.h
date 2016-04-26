@@ -54,6 +54,7 @@ struct ncclMem {
     struct {
       int   flags[MAXFLAGS];
       void* recvPtrs[MAXFLAGS];
+      int   opCounter; // Used to determine when remote Communicators are ready.
     };
     char pad[NCCL_MEM_PAD_ALIGN];
   };
@@ -73,6 +74,7 @@ struct ncclComm {
   int cudaDev; // cuda device index
   int nRings;
   int ringIdx[MAXRINGS];
+  int opSched; // Scheduling operation index
 
   // Device and Host allocated chunks. Stored here to correctly free() memory.
   ncclMem* devMem;
