@@ -550,26 +550,34 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       canpeer = 0;
     }
 
-    if (canpeer) {
-      cudaError_t err;
-      err = cudaDeviceEnablePeerAccess(iDev, 0);
-      if (err == cudaErrorPeerAccessAlreadyEnabled) {
-        cudaGetLastError();
-      } else if (err != cudaSuccess) {
-        INFO("peer access failed between rank %d (dev %d) and rank %d (dev %d)\n",
-          rank, myDev, iRank, iDev);
-
-        canpeer = 0;
-      }
-    }
-
     cudaError_t err;
     ncclMem* remoteHostBuff;
 
+    comm->ptrs[i].type = ncclNodeRef::HOST; // Assume host buffer
+    comm->ptrs[i].devCleanup = NULL;
+    comm->ptrs[i].hostCleanup = NULL;
+
     if (iPid == myPid) {
       remoteHostBuff = ranks[i].hostptr;
-      comm->ptrs[i].hostCleanup = NULL;
-    } else {
+
+      if (myDev == iDev) { // shared device
+        INFO("rank access %d -> %d via common device", rank, iRank);
+        comm->ptrs[i].type = ncclNodeRef::DEVICE;
+        comm->ptrs[i].local = ranks[myId].devptr;
+        comm->ptrs[i].remote = ranks[i].devptr;
+      } else if (canpeer) {
+        err = cudaDeviceEnablePeerAccess(iDev, 0);
+        if (err != cudaSuccess) {
+          WARN("rank %d failed to peer with device %d: %s",
+              rank, iDev, cudaGetErrorString(err));
+          commClearMaps(comm);
+          return ncclUnhandledCudaError;
+        }
+        comm->ptrs[i].type = ncclNodeRef::DEVICE;
+        comm->ptrs[i].local = ranks[myId].devptr;
+        comm->ptrs[i].remote = ranks[i].devptr;
+      }
+    } else { // Separate processes
       *ringDirectFailed = 1;
       char rankname[1024];
       sprintf(rankname, "%s-%d", commId->internal, ranks[i].rank);
@@ -580,6 +588,23 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
         return ncclUnhandledCudaError;
       }
       comm->ptrs[i].hostCleanup = remoteHostBuff;
+
+      // TODO: Extend to same device (MPS) case.
+      // At present that would go through host mem.
+      if (canpeer) {
+        INFO("rank access %d -> %d via IPC device mem", rank, iRank);
+        comm->ptrs[i].type = ncclNodeRef::DEVICE;
+        comm->ptrs[i].local  = ranks[myId].devptr;
+        err = cudaIpcOpenMemHandle((void**)(&comm->ptrs[i].remote),
+            ranks[i].devipc, cudaIpcMemLazyEnablePeerAccess);
+        if (err != cudaSuccess) {
+          WARN("rank %d failed to open Ipc handle to rank %d: %s",
+              rank, iRank, cudaGetErrorString(err));
+          commClearMaps(comm);
+          return ncclUnhandledCudaError;
+        }
+        comm->ptrs[i].devCleanup = comm->ptrs[i].remote;
+      }
     }
 
     err = cudaHostGetDevicePointer(&comm->ptrs[i].opCounter,
@@ -591,33 +616,10 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       return ncclUnhandledCudaError;
     }
 
-    if (iPid == myPid && myDev == iDev) {
-      // Same process, same device, cudaIpcOpenMemHandle would fail
-      // because GPU cannot peer itself. So we have a special case!
-      INFO("rank access %d -> %d via common device", rank, iRank);
-      comm->ptrs[i].type = ncclNodeRef::DEVICE;
-      comm->ptrs[i].local = ranks[myId].devptr;
-      comm->ptrs[i].remote = ranks[i].devptr;
-      comm->ptrs[i].devCleanup = NULL;
-    } else if (canpeer || myDev == iDev) {
-      INFO("rank access %d -> %d via P2P device mem", rank, iRank);
-      comm->ptrs[i].type = ncclNodeRef::DEVICE;
-      comm->ptrs[i].local  = ranks[myId].devptr;
-      err = cudaIpcOpenMemHandle((void**)(&comm->ptrs[i].remote),
-          ranks[i].devipc, cudaIpcMemLazyEnablePeerAccess);
-      if (err != cudaSuccess) {
-        WARN("rank %d failed to open Ipc handle to rank %d: %s",
-            rank, iRank, cudaGetErrorString(err));
-        commClearMaps(comm);
-        return ncclUnhandledCudaError;
-      }
-      comm->ptrs[i].devCleanup = comm->ptrs[i].remote;
-    } else { // Must go though host memory
-      comm->ptrs[i].devCleanup = NULL;
+    if (comm->ptrs[i].type == ncclNodeRef::HOST) {
       if (j < loopPeers)
         *ringDirectFailed = 1;
       INFO("rank access %d -> %d via zero-copy host mem", rank, iRank);
-      comm->ptrs[i].type = ncclNodeRef::HOST;
       if (cudaHostGetDevicePointer(&comm->ptrs[i].local, ranks[myId].hostptr, 0) != cudaSuccess) {
         WARN("rank %d failed to map zero copy buffer to device", rank);
         commClearMaps(comm);
@@ -862,7 +864,7 @@ DSOGLOBAL(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUni
   }
 
   syncRingDirect(gath, &((*newcomm)->useRemoteRecv));
-  INFO("Peer to output access is %s\n", (*newcomm)->useRemoteRecv ? "enabled" : "disabled");
+  INFO("Peer to output access is %s", (*newcomm)->useRemoteRecv ? "enabled" : "disabled");
 
   res = closeGather(gath, ndev); // includes a barrier
   gath = NULL;
@@ -978,7 +980,7 @@ DSOGLOBAL(ncclResult_t, ncclCommInitAll, ncclComm_t* comms, int ndev, int* devli
     }
   }
 
-  INFO("Peer to output access is %s\n", (ringDirectFail) ? "disabled" : "enabled");
+  INFO("Peer to output access is %s", (ringDirectFail) ? "disabled" : "enabled");
   for(rank=0; rank<ndev; ++rank) {
     comms[rank]->useRemoteRecv = ringDirectFail ? 0 : 1;
   }
