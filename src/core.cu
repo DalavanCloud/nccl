@@ -111,7 +111,7 @@ typedef struct {
   pid_t pid;
   ncclMem* hostptr;
   ncclMem* devptr;
-  CUipcMemHandle devipc;
+  cudaIpcMemHandle_t devipc;
   size_t buffSize;
 } RankEntry;
 
@@ -298,7 +298,7 @@ static ncclResult_t populateRankInfo(RankEntry* info, int rank, ncclComm_t comm)
   info->buffSize = comm->buffSize;
   info->hostptr = comm->hostMem;
   info->devptr = comm->devMem;
-  if (wrapCuIpcGetMemHandle(&info->devipc, (CUdeviceptr)comm->devMem) != ncclSuccess) {
+  if (cudaIpcGetMemHandle(&info->devipc, (void*)comm->devMem) != cudaSuccess) {
     WARN("rank %d failed to open CUDA IPC handle", rank);
     return ncclUnhandledCudaError;
   }
@@ -312,29 +312,29 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
   cudaError_t cures;
 
   for(int d=0; d<comm->nDev; ++d) {
-    if (comm->ptrs[d].cleanupHandle != NULL) {
-      if (comm->ptrs[d].type == ncclNodeRef::DEVICE) {
-        res = wrapCuIpcCloseMemHandle((CUdeviceptr)comm->ptrs[d].cleanupHandle);
-        if (res != ncclSuccess) {
-          WARN("rank %d failed to close IPC handle to device %d",
-            comm->userFromRing[0][comm->ringIdx[0]], d);
-          retval = (retval == ncclSuccess) ? res : retval;
-        }
-      } else { // type is HOST
-        cures = cudaHostUnregister(comm->ptrs[d].cleanupHandle);
-        if (cures != cudaSuccess) {
-          WARN("rank %d failed to unregister handle to device %d",
-            comm->userFromRing[0][comm->ringIdx[0]], d);
-            retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
-        }
-        res = shmUnmap(comm->ptrs[d].cleanupHandle, offsetof(ncclMem, buff) + comm->buffSize);
-        if (res != ncclSuccess) {
-          WARN("rank %d failed to unmap handle to device %d",
-            comm->userFromRing[0][comm->ringIdx[0]], d);
-            retval = (retval == ncclSuccess) ? res : retval;
-        }
+    if (comm->ptrs[d].hostCleanup != NULL) {
+      cures = cudaHostUnregister(comm->ptrs[d].hostCleanup);
+      if (cures != cudaSuccess) {
+        WARN("rank %d failed to unregister handle to device %d",
+          comm->userFromRing[0][comm->ringIdx[0]], d);
+          retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
       }
-      comm->ptrs[d].cleanupHandle = NULL;
+      res = shmUnmap(comm->ptrs[d].hostCleanup, offsetof(ncclMem, buff) + comm->buffSize);
+      if (res != ncclSuccess) {
+        WARN("rank %d failed to unmap handle to device %d",
+          comm->userFromRing[0][comm->ringIdx[0]], d);
+          retval = (retval == ncclSuccess) ? res : retval;
+      }
+      comm->ptrs[d].hostCleanup = NULL;
+    }
+
+    if (comm->ptrs[d].devCleanup != NULL) {
+      cures = cudaIpcCloseMemHandle((void*)comm->ptrs[d].devCleanup);
+      if (cures != cudaSuccess) {
+        WARN("rank %d failed to close IPC handle to device %d: %s",
+          comm->userFromRing[0][comm->ringIdx[0]], d, cudaGetErrorString(cures));
+        retval = (retval == ncclSuccess) ? res : retval;
+      }
     }
   }
 
@@ -347,9 +347,9 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
       memset(comm->ncclFromRing[r], 0, sizeof(int)*comm->nDev);
 
     if (comm->devUserFromRing[r] != NULL) {
-      cudaError_t err = cudaMemset(comm->devUserFromRing[r], 0, sizeof(int)*comm->nDev);
-      if (err != cudaSuccess) {
-        WARN("Faild to clear dev map: %s", cudaGetErrorString(err));
+      cures = cudaMemset(comm->devUserFromRing[r], 0, sizeof(int)*comm->nDev);
+      if (cures != cudaSuccess) {
+        WARN("Faild to clear dev map: %s", cudaGetErrorString(cures));
         retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
       }
     }
@@ -550,77 +550,85 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       canpeer = 0;
     }
 
-    if (canpeer) {
-      cudaError_t err;
-      err = cudaDeviceEnablePeerAccess(iDev, 0);
-      if (err == cudaErrorPeerAccessAlreadyEnabled) {
-        cudaGetLastError();
-      } else if (err != cudaSuccess) {
-        INFO("peer access failed between rank %d (dev %d) and rank %d (dev %d)\n",
-          rank, myDev, iRank, iDev);
+    cudaError_t err;
+    ncclMem* remoteHostBuff;
 
-        canpeer = 0;
+    comm->ptrs[i].type = ncclNodeRef::HOST; // Assume host buffer
+    comm->ptrs[i].devCleanup = NULL;
+    comm->ptrs[i].hostCleanup = NULL;
+
+    if (iPid == myPid) {
+      remoteHostBuff = ranks[i].hostptr;
+
+      if (myDev == iDev) { // shared device
+        INFO("rank access %d -> %d via common device", rank, iRank);
+        comm->ptrs[i].type = ncclNodeRef::DEVICE;
+        comm->ptrs[i].local = ranks[myId].devptr;
+        comm->ptrs[i].remote = ranks[i].devptr;
+      } else if (canpeer) {
+        err = cudaDeviceEnablePeerAccess(iDev, 0);
+        if (err != cudaSuccess) {
+          WARN("rank %d failed to peer with device %d: %s",
+              rank, iDev, cudaGetErrorString(err));
+          commClearMaps(comm);
+          return ncclUnhandledCudaError;
+        }
+        comm->ptrs[i].type = ncclNodeRef::DEVICE;
+        comm->ptrs[i].local = ranks[myId].devptr;
+        comm->ptrs[i].remote = ranks[i].devptr;
+      }
+    } else { // Separate processes
+      *ringDirectFailed = 1;
+      char rankname[1024];
+      sprintf(rankname, "%s-%d", commId->internal, ranks[i].rank);
+      if (openHostMemShm(rankname, &remoteHostBuff, ranks[i].buffSize)
+          != ncclSuccess) {
+        WARN("rank %d failed to open sysmem buffer of rank %d", rank, iRank);
+        commClearMaps(comm);
+        return ncclUnhandledCudaError;
+      }
+      comm->ptrs[i].hostCleanup = remoteHostBuff;
+
+      // TODO: Extend to same device (MPS) case.
+      // At present that would go through host mem.
+      if (canpeer) {
+        INFO("rank access %d -> %d via IPC device mem", rank, iRank);
+        comm->ptrs[i].type = ncclNodeRef::DEVICE;
+        comm->ptrs[i].local  = ranks[myId].devptr;
+        err = cudaIpcOpenMemHandle((void**)(&comm->ptrs[i].remote),
+            ranks[i].devipc, cudaIpcMemLazyEnablePeerAccess);
+        if (err != cudaSuccess) {
+          WARN("rank %d failed to open Ipc handle to rank %d: %s",
+              rank, iRank, cudaGetErrorString(err));
+          commClearMaps(comm);
+          return ncclUnhandledCudaError;
+        }
+        comm->ptrs[i].devCleanup = comm->ptrs[i].remote;
       }
     }
 
-    if (iPid == myPid) {
-      if (canpeer || myDev == iDev) {
-        INFO("rank access %d -> %d via P2P device mem", rank, iRank);
-        comm->ptrs[i].local  = ranks[myId].devptr;
-        comm->ptrs[i].remote = ranks[i].devptr;
-        comm->ptrs[i].type = ncclNodeRef::DEVICE;
-        comm->ptrs[i].cleanupHandle = NULL;
-      } else { // go through hostmem
-        INFO("rank access %d -> %d via zero-copy host mem", rank, iRank);
-        if (j < loopPeers)
-          *ringDirectFailed = 1;
-        if (cudaHostGetDevicePointer(&comm->ptrs[i].local, ranks[myId].hostptr, 0) != cudaSuccess) {
-          WARN("rank %d failed to map zero copy buffer to device", rank);
-          commClearMaps(comm);
-          return ncclUnhandledCudaError;
-        }
-        if (cudaHostGetDevicePointer(&comm->ptrs[i].remote, ranks[i].hostptr, 0) != cudaSuccess) {
-          WARN("rank %d failed to map %d's zero copy buffer to device", rank, iRank);
-          commClearMaps(comm);
-          return ncclUnhandledCudaError;
-        }
-        comm->ptrs[i].type = ncclNodeRef::HOST;
-        comm->ptrs[i].cleanupHandle = NULL;
+    err = cudaHostGetDevicePointer(&comm->ptrs[i].opCounter,
+          &(remoteHostBuff->opCounter), 0);
+    if (err != cudaSuccess) {
+      WARN("rank %d failed to obtain %d's zero copy pointer: %s",
+          rank, iRank, cudaGetErrorString(err));
+      commClearMaps(comm);
+      return ncclUnhandledCudaError;
+    }
+
+    if (comm->ptrs[i].type == ncclNodeRef::HOST) {
+      if (j < loopPeers)
+        *ringDirectFailed = 1;
+      INFO("rank access %d -> %d via zero-copy host mem", rank, iRank);
+      if (cudaHostGetDevicePointer(&comm->ptrs[i].local, ranks[myId].hostptr, 0) != cudaSuccess) {
+        WARN("rank %d failed to map zero copy buffer to device", rank);
+        commClearMaps(comm);
+        return ncclUnhandledCudaError;
       }
-    } else { // multi-process!
-      *ringDirectFailed = 1;
-      if (canpeer || myDev == iDev) {
-        INFO("rank access %d -> %d via Ipc P2P device mem", rank, iRank);
-        comm->ptrs[i].local = ranks[myId].devptr;
-        if (wrapCuIpcOpenMemHandle((CUdeviceptr*)(&comm->ptrs[i].remote),
-            ranks[i].devipc, CU_IPC_MEM_LAZY_ENABLE_PEER_ACCESS) != ncclSuccess) {
-          WARN("rank %d failed to open Ipc handle to rank %d", rank, iRank);
-          commClearMaps(comm);
-          return ncclUnhandledCudaError;
-        }
-        comm->ptrs[i].type = ncclNodeRef::DEVICE;
-        comm->ptrs[i].cleanupHandle = comm->ptrs[i].remote;
-      } else { // go through hostmem
-        INFO("rank access %d -> %d via zero copy host shm", rank, iRank);
-        if (cudaHostGetDevicePointer(&comm->ptrs[i].local, ranks[myId].hostptr, 0) != cudaSuccess) {
-          WARN("rank %d failed to obtain dev ptr to sysmem buffer", rank);
-          commClearMaps(comm);
-          return ncclUnhandledCudaError;
-        }
-        char rankname[1024];
-        sprintf(rankname, "%s-%d", commId->internal, ranks[i].rank);
-        if (openHostMemShm(rankname, (ncclMem**)&comm->ptrs[i].cleanupHandle, ranks[i].buffSize)
-            != ncclSuccess) {
-          WARN("rank %d failed to open sysmem buffer of rank %d", rank, iRank);
-          commClearMaps(comm);
-          return ncclUnhandledCudaError;
-        }
-        if (cudaHostGetDevicePointer(&comm->ptrs[i].remote, comm->ptrs[i].cleanupHandle, 0) != cudaSuccess) {
-          WARN("rank %d failed to obtain dev ptr for rank %d", rank, iRank);
-          commClearMaps(comm);
-          return ncclUnhandledCudaError;
-        }
-        comm->ptrs[i].type = ncclNodeRef::HOST;
+      if (cudaHostGetDevicePointer(&comm->ptrs[i].remote, remoteHostBuff, 0) != cudaSuccess) {
+        WARN("rank %d failed to map %d's zero copy buffer to device", rank, iRank);
+        commClearMaps(comm);
+        return ncclUnhandledCudaError;
       }
     }
   }
@@ -789,6 +797,12 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* 
     comm->hostMemState = ShmMapped | ShmLinked;
   }
 
+  if (cudaHostGetDevicePointer(&comm->opCounter, &comm->hostMem->opCounter, 0) != cudaSuccess) {
+    WARN("ncclComm on rank %d failed to map opCounter to device", rank);
+    commFree(comm);
+    return ncclUnhandledCudaError;
+  }
+
   *comret = comm;
   return ncclSuccess;
 }
@@ -850,7 +864,7 @@ DSOGLOBAL(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUni
   }
 
   syncRingDirect(gath, &((*newcomm)->useRemoteRecv));
-  INFO("Peer to output access is %s\n", (*newcomm)->useRemoteRecv ? "enabled" : "disabled");
+  INFO("Peer to output access is %s", (*newcomm)->useRemoteRecv ? "enabled" : "disabled");
 
   res = closeGather(gath, ndev); // includes a barrier
   gath = NULL;
@@ -966,7 +980,7 @@ DSOGLOBAL(ncclResult_t, ncclCommInitAll, ncclComm_t* comms, int ndev, int* devli
     }
   }
 
-  INFO("Peer to output access is %s\n", (ringDirectFail) ? "disabled" : "enabled");
+  INFO("Peer to output access is %s", (ringDirectFail) ? "disabled" : "enabled");
   for(rank=0; rank<ndev; ++rank) {
     comms[rank]->useRemoteRecv = ringDirectFail ? 0 : 1;
   }

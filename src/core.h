@@ -55,6 +55,7 @@ struct ncclMem {
       int   flags[MAXFLAGS];
       void* recvPtrs[MAXFLAGS];
       int   opCounter; // Used to determine when remote Communicators are ready.
+                       // Only used in host memory.
     };
     char pad[NCCL_MEM_PAD_ALIGN];
   };
@@ -66,7 +67,9 @@ struct ncclNodeRef {
   ncclMem* remote;
   ncclMem* local;
   enum {DEVICE, HOST} type;
-  void* cleanupHandle;
+  ncclMem* devCleanup;  // Used only when remote comm uses same process & GPU
+  ncclMem* hostCleanup; // Used whenever target is in different process
+  int* opCounter;
 };
 
 struct ncclComm {
@@ -74,12 +77,13 @@ struct ncclComm {
   int cudaDev; // cuda device index
   int nRings;
   int ringIdx[MAXRINGS];
-  int opSched; // Scheduling operation index
 
   // Device and Host allocated chunks. Stored here to correctly free() memory.
   ncclMem* devMem;
   ncclMem* hostMem;
   int hostMemState;
+  int opSched; // Scheduling operation index
+  int* opCounter; // Counter of completed operations
 
   cudaStream_t prevStream; // cache last used stream
   cudaEvent_t doneEvent; // orders operations in different streams

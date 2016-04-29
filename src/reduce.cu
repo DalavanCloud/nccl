@@ -138,7 +138,7 @@ struct ReduceRingArgs {
   T ** ThisPtrToNextData;
   T ** PrevPtrToThisData;
   volatile int* __restrict__ NextOpCounter;
- 
+
   volatile T * __restrict__ ThisBuffer;
   volatile T * __restrict__ NextBuffer;
 
@@ -154,8 +154,7 @@ struct ReduceKernelArgs {
   // general parameters
   int N;
   int opIndex;
-  volatile int * __restrict__ opCountHost;
-  volatile int * __restrict__ opCountDev;
+  volatile int * __restrict__ opCounter;
   int * __restrict__ doneCount;
 
   // some pre-computed sizes
@@ -261,8 +260,7 @@ __global__ void ReduceKernel(const ReduceKernelArgs<T> args) {
     if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
       *args.doneCount = 0;
       __threadfence_system();
-      *args.opCountHost = args.opIndex+1;
-      *args.opCountDev = args.opIndex+1;
+      *args.opCounter = args.opIndex+1;
     }
   }
 }
@@ -278,8 +276,7 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   args.Output = (T*)recvbuff;
   args.ThisData = (const T*) sendbuff;
   args.opIndex = comm->opSched;
-  args.opCountHost = &comm->hostMem->opCounter;
-  args.opCountDev = &comm->devMem->opCounter;
+  args.opCounter = comm->opCounter;
   args.doneCount = comm->devMem->flags + MAXFLAGS-1;
 
   // slice size num chunks, etc.
@@ -334,7 +331,7 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
 
     ring.ThisPtrToNextData = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
     ring.PrevPtrToThisData = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
-    ring.NextOpCounter = &(comm->ptrs[nextId].remote->opCounter);
+    ring.NextOpCounter = comm->ptrs[nextId].opCounter;
     ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferOffset;
     ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferOffset;
     ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;

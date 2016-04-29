@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Check results
-  cudaStreamSynchronize(stream);
+  CUDACHECK(cudaStreamSynchronize(stream));
   CUDACHECK(cudaMemcpy(val, (dptr+SIZE), SIZE*sizeof(int), cudaMemcpyDeviceToHost));
   for (int v=0; v<SIZE; v++) {
     if (val[v] != ref) {
