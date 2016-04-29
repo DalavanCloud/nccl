@@ -45,7 +45,8 @@ CUDACODE := -gencode=arch=compute_35,code=sm_35 \
 
 CXXFLAGS   := -I$(CUDA_INC) -fPIC -fvisibility=hidden
 NVCUFLAGS  := -ccbin $(CXX) $(CUDACODE) -lineinfo -std=c++11 -maxrregcount 96
-LDFLAGS    := -L$(CUDA_LIB) -lcudart
+# Use addprefix so that we can specify more than one path
+LDFLAGS    := $(addprefix -L,${CUDA_LIB}) -lcudart
 
 ifeq ($(DEBUG), 0)
 NVCUFLAGS += -O3
@@ -58,6 +59,8 @@ endif
 ifneq ($(VERBOSE), 0)
 NVCUFLAGS += -Xptxas -v -Xcompiler -Wall,-Wextra
 CXXFLAGS  += -Wall -Wextra
+else
+.SILENT:
 endif
 
 ifneq ($(KEEP), 0)
@@ -101,20 +104,20 @@ lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 
 $(LIBDIR)/$(LIBTARGET) : $(LIBOBJ)
 	@printf "Linking   %-25s\n" $@
-	@mkdir -p $(LIBDIR)
-	@$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ)
-	@ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
-	@ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
+	mkdir -p $(LIBDIR)
+	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ)
+	ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
+	ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
 
 $(INCDIR)/%.h : src/%.h
 	@printf "Grabbing  %-25s > %-25s\n" $< $@
-	@mkdir -p $(INCDIR)
-	@cp -f $< $@
+	mkdir -p $(INCDIR)
+	cp -f $< $@
 
 $(OBJDIR)/%.o : src/%.cu
 	@printf "Compiling %-25s > %-25s\n" $< $@
-	@mkdir -p $(OBJDIR)
-	@$(NVCC) -c $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -o $@
+	mkdir -p $(OBJDIR)
+	$(NVCC) -c $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -o $@
 	@$(NVCC) -M $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< > $(@:%.o=%.d.tmp)
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%.o=%.d.tmp) > $(@:%.o=%.d)
 	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%.o=%.d.tmp) | fmt -1 | \
@@ -125,10 +128,10 @@ clean :
 	rm -rf $(BUILDDIR)
 
 install : lib
-	@mkdir -p $(PREFIX)/lib
-	@mkdir -p $(PREFIX)/include
-	@cp -P -v build/lib/* $(PREFIX)/lib/
-	@cp -v build/include/* $(PREFIX)/include/
+	mkdir -p $(PREFIX)/lib
+	mkdir -p $(PREFIX)/include
+	cp -P -v build/lib/* $(PREFIX)/lib/
+	cp -v build/include/* $(PREFIX)/include/
 
 
 #### TESTS ####
@@ -159,8 +162,8 @@ test : $(TESTBINS)
 
 $(TSTDIR)/% : test/single/%.cu $(TSTDEP) 
 	@printf "Building  %-25s > %-24s\n" $< $@
-	@mkdir -p $(TSTDIR)
-	@$(NVCC) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcuda -lcurand -lnvToolsExt
+	mkdir -p $(TSTDIR)
+	$(NVCC) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcuda -lcurand -lnvToolsExt
 	@$(NVCC) -M $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< $(TSTLIB) -lcuda -lcurand -lnvToolsExt > $(@:%=%.d.tmp)
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%=%.d.tmp) > $(@:%=%.d)
 	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%=%.d.tmp) | fmt -1 | \
@@ -171,8 +174,8 @@ mpitest : $(MPITESTBINS)
 
 $(MPITSTDIR)/% : test/mpi/%.cu $(TSTDEP) 
 	@printf "Building  %-25s > %-24s\n" $< $@
-	@mkdir -p $(MPITSTDIR)
-	@$(NVCC) $(MPIFLAGS) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcurand
+	mkdir -p $(MPITSTDIR)
+	$(NVCC) $(MPIFLAGS) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcurand
 	@$(NVCC) $(MPIFLAGS) -M $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< $(TSTLIB) -lcurand > $(@:%=%.d.tmp)
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%=%.d.tmp) > $(@:%=%.d)
 	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%=%.d.tmp) | fmt -1 | \
