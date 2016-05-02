@@ -504,7 +504,9 @@ public:
   }
 };
 
-DSOGLOBAL(ncclResult_t, ncclAllGather, const void* sendbuff, int count, ncclDataType_t datatype,
+NCCL_API(ncclResult_t, ncclAllGather, const void* sendbuff, int count, ncclDataType_t datatype,
+    void* recvbuff, ncclComm_t comm, cudaStream_t stream);
+ncclResult_t ncclAllGather(const void* sendbuff, int count, ncclDataType_t datatype,
     void* recvbuff, ncclComm_t comm, cudaStream_t stream) {
   return enqueue(AllGatherFunctor(), sendbuff, recvbuff, count, datatype,
       ncclSum, 0, comm, stream);
