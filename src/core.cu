@@ -352,6 +352,20 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
         retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
       }
     }
+    if (comm->devRingFromUser[r] != NULL) {
+      cures = cudaMemset(comm->devRingFromUser[r], 0, sizeof(int)*comm->nDev);
+      if (cures != cudaSuccess) {
+	WARN("Faild to clear dev map: %s", cudaGetErrorString(cures));
+	retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
+      }
+    }
+    if (comm->devNcclFromRing[r] != NULL) {
+      cures = cudaMemset(comm->devNcclFromRing[r], 0, sizeof(int)*comm->nDev);
+      if (cures != cudaSuccess) {
+	WARN("Faild to clear dev map: %s", cudaGetErrorString(cures));
+	retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
+      }
+    }
   }
   return retval;
 }
@@ -476,6 +490,10 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
 
   for(int r=0; r<comm->nRings; ++r) {
     if (cudaMemcpy(comm->devUserFromRing[r], comm->userFromRing[r], ndev*sizeof(int),
+        cudaMemcpyHostToDevice) != cudaSuccess ||
+        cudaMemcpy(comm->devRingFromUser[r], comm->ringFromUser[r], ndev*sizeof(int),
+        cudaMemcpyHostToDevice) != cudaSuccess ||
+        cudaMemcpy(comm->devNcclFromRing[r], comm->ncclFromRing[r], ndev*sizeof(int),
         cudaMemcpyHostToDevice) != cudaSuccess) {
       WARN("rank %d failed to copy maps to device", rank);
       commClearMaps(comm);
@@ -677,6 +695,14 @@ static void commFree(ncclComm_t comm) {
       if (cudaFree(comm->devUserFromRing[r]) != cudaSuccess)
         INFO("commFree failed to free dev maps");
 
+  if (comm->devRingFromUser != NULL)
+    if (cudaFree(comm->devRingFromUser[r]) != cudaSuccess)
+      INFO("commFree failed to free dev maps");
+
+  if (comm->devNcclFromRing != NULL)
+    if (cudaFree(comm->devNcclFromRing[r]) != cudaSuccess)
+      INFO("commFree failed to free dev maps");
+
     if (comm->ringFromUser[r] != NULL)
       free(comm->ringFromUser[r]);
 
@@ -747,7 +773,9 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* 
   }
 
   for(int r=0; r<MAXRINGS; ++r) {
-    if (cudaMalloc(&comm->devUserFromRing[r], ndev*sizeof(int)) != cudaSuccess) {
+    if (cudaMalloc(&comm->devUserFromRing[r], ndev*sizeof(int)) != cudaSuccess ||
+        cudaMalloc(&comm->devRingFromUser[r], ndev*sizeof(int)) != cudaSuccess ||
+        cudaMalloc(&comm->devNcclFromRing[r], ndev*sizeof(int)) != cudaSuccess ) {
       WARN("rank %d failed to allocated device maps", rank);
       commFree(comm);
       return ncclCudaMallocFailed;
@@ -804,6 +832,36 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* 
 
   *comret = comm;
   return ncclSuccess;
+}
+
+static ncclResult_t devCommUpdate(ncclComm_t comm) {
+  // Copy the comm on the device
+  size_t commBytes = offsetof(ncclComm, ptrs) + comm->nDev*sizeof(ncclNodeRef);
+  if (cudaMemcpy(comm->devComm, comm, commBytes, cudaMemcpyHostToDevice) != cudaSuccess) {
+    WARN("failed to copy device comm");
+    return ncclUnhandledCudaError;
+  }
+  // Fix the host pointer to be accessible from the device
+  void* dptr;
+  if (cudaHostGetDevicePointer(&dptr, comm->hostMem, 0) != cudaSuccess) {
+    WARN("failed to get device pointer for host mem");
+    return ncclUnhandledCudaError;
+  }
+  if (cudaMemcpy(&comm->devComm->hostMem, &dptr, sizeof(dptr), cudaMemcpyHostToDevice) != cudaSuccess) {
+    WARN("failed to update host pointer");
+    return ncclUnhandledCudaError;
+  }
+  return ncclSuccess;
+}
+
+static ncclResult_t devCommSetup(ncclComm_t comm) {
+  // Fully duplicate the comm on the device
+  size_t commBytes = offsetof(ncclComm, ptrs) + comm->nDev*sizeof(ncclNodeRef);
+  if (cudaMalloc(&comm->devComm, commBytes) != cudaSuccess) {
+    WARN("failed to allocated device comm");
+    return ncclCudaMallocFailed;
+  }
+  return devCommUpdate(comm);
 }
 
 static ncclResult_t commUnlinkHostMem(ncclComm_t comm, ncclUniqueId commId, int rank) {
@@ -873,6 +931,13 @@ ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId
     goto cleanup;
   }
 
+  res = devCommSetup(*newcomm);
+  if (res != ncclSuccess) {
+    WARN("rank %d failed to copy dcomm", myrank);
+    goto cleanup;
+  }
+
+  res = ncclSuccess;
   goto final;
 
   cleanup:
@@ -984,6 +1049,14 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, int* devlist) {
   INFO("Peer to output access is %s", (ringDirectFail) ? "disabled" : "enabled");
   for(rank=0; rank<ndev; ++rank) {
     comms[rank]->useRemoteRecv = ringDirectFail ? 0 : 1;
+  }
+ 
+  for(rank=0; rank<ndev; ++rank) {
+    res = devCommSetup(comms[rank]);
+    if (res != ncclSuccess) {
+      WARN("rank %d failed to copy dcomm", rank);
+      goto cleanup;
+    }
   }
 
   free(ranks);
