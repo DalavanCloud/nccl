@@ -79,7 +79,7 @@ LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast
 LIBNAME     := libnccl.so
 VER_MAJOR   := 1
 VER_MINOR   := 5
-VER_PATCH   := 0
+VER_PATCH   := 1
 TESTS       := all_gather_test     all_gather_scan \
                all_reduce_test     all_reduce_scan \
                broadcast_test      broadcast_scan \
