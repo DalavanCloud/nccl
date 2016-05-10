@@ -125,6 +125,7 @@ extern int ncclPrintCRCs;
     printf("WARN %s:%d ", __FILE__, __LINE__);                   \
     printf(__VA_ARGS__);                                         \
     printf("\n");                                                \
+    fflush(stdout);                                              \
     if (ncclDebugLevel >= ABORT) abort();                        \
   }                                                              \
 } while(0)
@@ -132,6 +133,7 @@ extern int ncclPrintCRCs;
 #define INFO(...) do {                                           \
   if (ncclDebugLevel >= INFO) {                                  \
     printf("INFO "); printf(__VA_ARGS__); printf("\n");          \
+    fflush(stdout);                                              \
   }                                                              \
 } while(0)
 
