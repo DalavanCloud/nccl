@@ -99,8 +99,14 @@ struct ncclComm {
   // Inverse of userFromRing. Maps user specified index to internal nccl index.
   int* ringFromUser[MAXRINGS];
 
+  // copy of the above stored on each device
+  int* devRingFromUser[MAXRINGS];
+
   // Ring orders
   int* ncclFromRing[MAXRINGS];
+
+  // copy of the above stored on each device
+  int* devNcclFromRing[MAXRINGS];
 
   // Size of temp buffer in bytes.
   size_t buffSize;
@@ -109,6 +115,9 @@ struct ncclComm {
   // GPUs. In single process mode this can be used as long as QPI links are
   // not present. In multi-process, we never push to a remote recvbuff.
   int useRemoteRecv;
+
+  // Device copy of the communicator
+  struct ncclComm *devComm;
 
   // Device-to-device communication structures to access remote or local device
   // memory. Actual allocation larger than 1.
