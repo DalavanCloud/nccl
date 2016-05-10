@@ -1,3 +1,27 @@
+nccl (1.5.2-2+nvlink+cuda8.0) trusty; urgency=medium
+
+  * Fixed location for dev .so
+
+ -- Boris Fomitchev <bfomitchev@nvidia.com>  Tue, 14 Apr 2016 23:38:01 -0800
+
+nccl (1.5.2-1+nvlink+cuda8.0) trusty; urgency=medium
+
+  * Merged public bugfixes
+
+ -- Boris Fomitchev <bfomitchev@nvidia.com>  Tue, 14 Apr 2016 23:38:01 -0800
+
+nccl (1.5.1-1+nvlink+cuda8.0) trusty; urgency=medium
+
+  * Built from git-master sources + nvlink
+
+ -- Boris Fomitchev <bfomitchev@nvidia.com>  Thu, 14 Apr 2016 15:43:01 -0800
+
+nccl (1.1.1-1+cuda8.0) trusty; urgency=medium
+
+  * Rebuilding with 8.0
+
+ -- Boris Fomitchev <bfomitchev@nvidia.com>  Thu, 17 Mar 2016 18:37:01 -0800
+
 nccl (1.1.1-1+cuda7.5) trusty; urgency=medium
 
   * Rebuilding with 7.5
