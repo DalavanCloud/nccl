@@ -366,17 +366,19 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
       printCRCDev((unsigned char*)buff, count*sizeof(T), myRank, stream);
   }
 
-  dim3 grid(nRings, 1, 1);
-  dim3 block(NUM_THREADS+1, 1, 1);
-  void* argptrs[] = {&args};
-  if (comm->useRemoteRecv) {
-    CUDACHECK(cudaLaunchKernel(
-        (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, T>,
-        grid, block, argptrs, 0, stream));
-  } else {
-    CUDACHECK(cudaLaunchKernel(
-        (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, T>,
-        grid, block, argptrs, 0, stream));
+  if (comm->nDev != 1) {
+    dim3 grid(nRings, 1, 1);
+    dim3 block(NUM_THREADS+1, 1, 1);
+    void* argptrs[] = {&args};
+    if (comm->useRemoteRecv) {
+      CUDACHECK(cudaLaunchKernel(
+	    (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, true, T>,
+	    grid, block, argptrs, 0, stream));
+    } else {
+      CUDACHECK(cudaLaunchKernel(
+	    (void*)BroadcastKernel<NUM_THREADS, UNROLL_COUNT, false, T>,
+	    grid, block, argptrs, 0, stream));
+    }
   }
 
   // print CRC checksum of output

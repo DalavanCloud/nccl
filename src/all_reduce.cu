@@ -460,17 +460,22 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
   }
 
-  dim3 grid(nRings, 1, 1);
-  dim3 block(NUM_THREADS+1, 1, 1);
-  void* argptrs[] = {&args};
-  if( comm->useRemoteRecv ) {
-    CUDACHECK(cudaLaunchKernel(
-        (void*)AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, true, T>,
-        grid, block, argptrs, 0, stream));
+  if (comm->nDev == 1) {
+    if (sendbuff != recvbuff)
+      CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    CUDACHECK(cudaLaunchKernel(
-        (void*)AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, false, T>,
-        grid, block, argptrs, 0, stream));
+    dim3 grid(nRings, 1, 1);
+    dim3 block(NUM_THREADS+1, 1, 1);
+    void* argptrs[] = {&args};
+    if( comm->useRemoteRecv ) {
+      CUDACHECK(cudaLaunchKernel(
+	    (void*)AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, true, T>,
+	    grid, block, argptrs, 0, stream));
+    } else {
+      CUDACHECK(cudaLaunchKernel(
+	    (void*)AllReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, false, T>,
+	    grid, block, argptrs, 0, stream));
+    }
   }
 
   // print CRC checksum of output
