@@ -345,12 +345,17 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
   }
 
-  dim3 grid(nRings, 1, 1);
-  dim3 block(NUM_THREADS+1, 1, 1);
-  void* argptrs[] = {&args};
-  CUDACHECK(cudaLaunchKernel(
-      (void*)ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, T>,
-      grid, block, argptrs, 0, stream));
+  if (comm->nDev == 1) {
+    if (sendbuff != recvbuff)
+      CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
+  } else {
+    dim3 grid(nRings, 1, 1);
+    dim3 block(NUM_THREADS+1, 1, 1);
+    void* argptrs[] = {&args};
+    CUDACHECK(cudaLaunchKernel(
+	  (void*)ReduceKernel<NUM_THREADS, UNROLL_COUNT, FUNC, T>,
+	  grid, block, argptrs, 0, stream));
+  }
 
   // print CRC checksum of output
   if (ncclPrintCRCs) {
