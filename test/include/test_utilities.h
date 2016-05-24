@@ -110,7 +110,7 @@ void GenerateRandom<unsigned long long>(curandGenerator_t generator, unsigned lo
 template<typename T>
 void Randomize(T* const dest, const int N, const int randomSeed) {
   curandGenerator_t gen;
-  CURAND_CHK(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_MT19937));
+  CURAND_CHK(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_MTGP32));
   CURAND_CHK(curandSetPseudoRandomGeneratorSeed(gen, randomSeed));
   GenerateRandom<T>(gen, dest, N);
   CURAND_CHK(curandDestroyGenerator(gen));
