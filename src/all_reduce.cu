@@ -32,11 +32,7 @@
 #include "enqueue.h"
 #include "crc32.h"
 
-#include "syncfunc.h"
-#include "primstep.h"
-
-
-#define UNROLL_SIZE     (UNROLL_COUNT * NUM_THREADS)
+#include "primitives.h"
 
 
 __device__ inline void getSliceSizeAndOffset(int *size, int *offset, int slice,
@@ -83,6 +79,7 @@ struct AllReduceKernelArgs {
 
   // some pre-computed sizes
   int SliceSize;
+  int SliceOffset;
   int ChunkSize;
   int NumChunks;
 
@@ -93,19 +90,19 @@ struct AllReduceKernelArgs {
   AllReduceRingArgs<T> rings[MAXRINGS];
 };
 
-template<class FUNC, bool PUSHRECV, typename T>
-__launch_bounds__(NUM_THREADS+WARP_SIZE, 1)
+template<int THREADS, int UNROLL, class FUNC, bool PUSHRECV, typename T>
+__launch_bounds__(THREADS+WARP_SIZE, 1)
 __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
-  __shared__ volatile void * nextOutput;
+  __shared__ volatile T* nextOutput;
   __shared__ AllReduceRingArgs<T> ring;
 
   if (tid == 0) {
     ring = args.rings[bid];
 
     if (PUSHRECV) {
-      auto prevCommOp = PackSyncFlags(ring.PrevOpCounter);
+      WaitFlag prevCommOp(ring.PrevOpCounter);
       prevCommOp.wait(args.opIndex);
 
       *((T * volatile *)ring.PrevPtrToThisOutput) = (T*)args.ThisOutput;
@@ -113,20 +110,21 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
         return *((T * volatile *)ring.ThisPtrToNextOutput) != nullptr;
       });
       nextOutput =
-        *((volatile void * volatile *)ring.ThisPtrToNextOutput);
+        *((volatile T * volatile *)ring.ThisPtrToNextOutput);
       *ring.ThisPtrToNextOutput = nullptr;
     } else {
-      auto nextCommOp = PackSyncFlags(ring.NextOpCounter);
+      WaitFlag nextCommOp(ring.NextOpCounter);
       nextCommOp.wait(args.opIndex);
     }
   }
-
   __syncthreads();
 
-  auto dataForNext = PackSyncFlags(ring.NextNewDataAvailableFlag);
-  auto dataForMe   = PackSyncFlags(ring.ThisNewDataAvailableFlag);
-  auto buffForPrev = PackSyncFlags(ring.PrevChunkDoneFlag);
-  auto buffForMe   = PackSyncFlags(ring.ThisChunkDoneFlag);
+  WaitFlag thisChunkDone(ring.ThisChunkDoneFlag);
+  WaitFlag thisDataReady(ring.ThisNewDataAvailableFlag);
+  PostFlag prevChunkDone(ring.PrevChunkDoneFlag);
+  PostFlag nextDataReady(ring.NextNewDataAvailableFlag);
+
+  typedef Primitives<THREADS, UNROLL, 2, T, FUNC> Prims;
 
   int step = 0;
   for (int chunk=bid; chunk<args.NumChunks; chunk+=gridDim.x) {
@@ -140,10 +138,14 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
     int numSmallSlices = 0;
 
     // last chunk
-    if ((chunk + 1 == args.NumChunks) && (args.N % args.ChunkSize > 0))
-      CalcLastChunk<NUM_THREADS, UNROLL_COUNT, T>(&bigSliceN, &smallSliceN, &lastSliceN,
+    if ((chunk + 1 == args.NumChunks) && (args.N % args.ChunkSize > 0)) {
+      if (!PUSHRECV) {
+        thisChunkDone.wait(2*step); // TODO handle slice resize more elegantly.
+      }
+      CalcLastChunk<THREADS, UNROLL, T>(&bigSliceN, &smallSliceN, &lastSliceN,
           &numSlices, &numBigSlices, &numSmallSlices, args.N, args.NumChunks,
           args.ChunkSize);
+    }
 
     // this offset is only applied to Data pointers, not to Buffer pointers,
     // since we only have one buffer per chunk
@@ -159,17 +161,18 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
         numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
     if (PUSHRECV) {
-      CopyStep(step, 2, NOSYNC(),
-          args.ThisInput + chunkOffset + offset,
-          ring.NextBuffer + offset,
-          sliceSize, dataForNext);
+      Prims::Copy(
+          args.ThisInput  + chunkOffset + offset,
+          ring.NextBuffer               + offset,
+          sliceSize,
+          step++, nextDataReady);
     } else {
-      CopyStep(step, 2, buffForMe,
-          args.ThisInput + chunkOffset + offset,
-          ring.NextBuffer + offset,
-          sliceSize, dataForNext);
+      Prims::Copy(
+          args.ThisInput  + chunkOffset + offset,
+          ring.NextBuffer               + offset,
+          sliceSize,
+          step++, thisChunkDone, nextDataReady);
     }
-    ++ step;
 
     // steps j with 1 <= j < k - 1, where k = number of GPUs:
     // reduce and copy to next GPU
@@ -178,12 +181,12 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
       getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
           numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
-      ReduceStep<FUNC>(step, 2, dataForMe,
-          ring.ThisBuffer + offset,
-          args.ThisInput + chunkOffset + offset,
-          ring.NextBuffer + offset,
-          sliceSize, dataForNext);
-      ++ step;
+      Prims::Reduce(
+          ring.ThisBuffer               + offset,
+          args.ThisInput  + chunkOffset + offset,
+          ring.NextBuffer               + offset,
+          sliceSize,
+          step++, thisDataReady, nextDataReady);
     }
 
     // step k - 1: reduce this buffer and data, which will produce the final
@@ -193,21 +196,22 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
         numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
     if (PUSHRECV) {
-      ReduceCopyStep<FUNC>(step, 2, dataForMe,
-          ring.ThisBuffer + offset,
-          args.ThisInput + chunkOffset + offset,
-          (volatile T *)nextOutput + chunkOffset + offset,
+      Prims::ReduceCopy(
+          ring.ThisBuffer               + offset,
+          args.ThisInput  + chunkOffset + offset,
+          nextOutput      + chunkOffset + offset,
           args.ThisOutput + chunkOffset + offset,
-          sliceSize, dataForNext);
+          sliceSize,
+          step++, thisDataReady, nextDataReady);
     } else {
-      ReduceCopyStep<FUNC>(step, 2, dataForMe,
-          ring.ThisBuffer + offset,
-          args.ThisInput + chunkOffset + offset,
-          ring.NextBuffer + offset,
+      Prims::ReduceCopy(
+          ring.ThisBuffer               + offset,
+          args.ThisInput  + chunkOffset + offset,
+          ring.NextBuffer               + offset,
           args.ThisOutput + chunkOffset + offset,
-          sliceSize, dataForNext);
+          sliceSize,
+          step++, thisDataReady, nextDataReady);
     }
-    ++ step;
 
     // steps j with k <= j < 2*k-2: copy result to next GPU
     for (int j=1; j<args.NumGPUs-1; ++j) {
@@ -215,19 +219,20 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
       getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
           numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
-      if( PUSHRECV ) {
-        CopyStep(step, 2, dataForMe,
+      if (PUSHRECV) {
+        Prims::Copy(
             args.ThisOutput + chunkOffset + offset,
-            (volatile T *)nextOutput + chunkOffset + offset,
-            sliceSize, dataForNext);
+            nextOutput      + chunkOffset + offset,
+            sliceSize,
+            step++, thisDataReady, nextDataReady);
       } else {
-        DoubleCopyStep(step, 2, dataForMe,
-            ring.ThisBuffer + offset,
-            ring.NextBuffer + offset,
+        Prims::DoubleCopy(
+            ring.ThisBuffer               + offset,
+            ring.NextBuffer               + offset,
             args.ThisOutput + chunkOffset + offset,
-            sliceSize, dataForNext);
+            sliceSize,
+            step++, thisDataReady, nextDataReady);
       }
-      ++ step;
     }
 
     if (!PUSHRECV) {
@@ -237,32 +242,25 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
           numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
       // Here we need to copy from buffer to this output.
-      CopyStep(step, 2, dataForMe,
-          ring.ThisBuffer + offset,
+      Prims::Copy(
+          ring.ThisBuffer               + offset,
           args.ThisOutput + chunkOffset + offset,
-          sliceSize, buffForPrev);
-      ++ step;
+          sliceSize,
+          step++, thisDataReady, prevChunkDone);
     }
   }
-
-  // TODO: Wrap steps in object
-  // TODO: put step index in object
-  // TODO: add synchronize method?
-  // TODO: add reset method to wait flags
-  //       NOT for post flags
 
   // wait for the last data to be pushed to us
   if (tid == 0) {
     if (PUSHRECV) {
-      dataForMe.wait(step * 4);
+      thisDataReady.wait(2*step); // wait to receive last data
+    } else {
+      thisChunkDone.wait(2*step); // wait for last flag update
+      *ring.ThisChunkDoneFlag = 0;
     }
 
     // Each CTA resets its own flags
     *ring.ThisNewDataAvailableFlag = 0;
-    if(!PUSHRECV) {
-      buffForMe.wait(step*4);
-      *ring.ThisChunkDoneFlag = 0;
-    }
 
     // Last CTA increments comm's operation counts
     if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
@@ -280,12 +278,24 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   if (count == 0)
     return ncclSuccess;
 
+  enum {THREADS = 256};
+  enum {UNROLL = 8};
+  enum {UNROLL_SIZE = THREADS*UNROLL};
+
   AllReduceKernelArgs<T> args;
   args.NumGPUs = comm->nDev;
   args.N = count;
   args.opIndex = comm->opSched;
   args.opCounter = comm->opCounter;
   args.doneCount = comm->devMem->flags + MAXFLAGS-1;
+
+  // START
+  //const int minChunkSize = comm->nDev * 2 * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
+  //const int maxNumChunks = count / minChunkSize;
+  //const int nRings = std::min(comm->nRings, maxNumChunks);
+  //const int 
+  //N <= numGpus * chunksPerGpu * chunkSize <= N+numGpus*minChunkSize-1
+  // STOP
 
   const int minSlice = 2 * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   const int atomSize = minSlice * comm->nDev;
@@ -344,15 +354,15 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   }
 
   dim3 grid(nRings, 1, 1);
-  dim3 block(NUM_THREADS+1, 1, 1);
+  dim3 block(THREADS+1, 1, 1);
   void* argptrs[] = {&args};
   if( comm->useRemoteRecv ) {
     CUDACHECK(cudaLaunchKernel(
-        (void*)AllReduceKernel<FUNC, true, T>,
+        (void*)AllReduceKernel<THREADS, UNROLL, FUNC, true, T>,
         grid, block, argptrs, 0, stream));
   } else {
     CUDACHECK(cudaLaunchKernel(
-        (void*)AllReduceKernel<FUNC, false, T>,
+        (void*)AllReduceKernel<THREADS, UNROLL, FUNC, false, T>,
         grid, block, argptrs, 0, stream));
   }
 
