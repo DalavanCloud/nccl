@@ -81,7 +81,7 @@ VER_MAJOR   := 1
 VER_MINOR   := 5
 VER_PATCH   := 1
 TESTS       := all_gather_test     all_gather_scan \
-               all_reduce_test     all_reduce_scan \
+               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded \
                broadcast_test      broadcast_scan \
                reduce_test         reduce_scan \
                reduce_scatter_test reduce_scatter_scan
