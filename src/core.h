@@ -29,13 +29,11 @@
 #ifndef CORE_H_
 #define CORE_H_
 
+
 #include "nccl.h"
 #include <cstdio>
 #include <cuda_runtime.h>
 
-#define MAXRINGS 8
-#define MAXFLAGS 16
-#define DEFAULT_BUFFER_SIZE_BYTES (1UL << 25)
 
 // DIE on error
 #define CUDACHECK(cmd) do {                              \
@@ -47,7 +45,13 @@
     }                                                    \
 } while(false)
 
-#define NCCL_MEM_PAD_ALIGN 4096
+
+#define MAXRINGS  8
+#define MAXFLAGS 16
+#define MAXRANKS 32
+#define DEFAULT_BUFFER_SIZE_BYTES (1UL << 25)
+#define NCCL_MEM_PAD_ALIGN 65536
+
 
 struct ncclMem {
   union { // Pad this block so that devBuff is correctly aligned
@@ -59,24 +63,40 @@ struct ncclMem {
     };
     char pad[NCCL_MEM_PAD_ALIGN];
   };
-  // devBuff will likely be bigger ; we only use its offset/address.
-  char buff[NCCL_MEM_PAD_ALIGN];
+  // devBuff will be bigger ; we only use its offset/address.
+  char buff[1];
 };
 
-struct ncclNodeRef {
-  ncclMem* remote;
-  ncclMem* local;
+
+// Represents communication path between two GPUs
+struct DevLink {
+  ncclMem* recv;
+  ncclMem* send;
+  volatile int* remoteOpCounter;
+};
+
+
+struct DevRing {
+  DevLink prev;
+  DevLink next;
+  int userRank[MAXRANKS];
+};
+
+
+struct NodeRef {
+  ncclMem* remote; // TODO: Verify if these
+  ncclMem* local;  //       are still needed.
   enum {DEVICE, HOST} type;
   ncclMem* devCleanup;  // Used only when remote comm uses same process & GPU
   ncclMem* hostCleanup; // Used whenever target is in different process
-  int* opCounter;
+  int* opCounter; // TODO: see if this can be removed too.
 };
 
+
 struct ncclComm {
-  int nDev;    // number of devices in communicator
+  int nRanks;  // number of GPUs in communicator
   int cudaDev; // cuda device index
-  int nRings;
-  int ringIdx[MAXRINGS];
+  int nRings;  // number of hamiltonian cycles
 
   // Device and Host allocated chunks. Stored here to correctly free() memory.
   ncclMem* devMem;
@@ -90,23 +110,14 @@ struct ncclComm {
 
   // Maps an internal nccl index to user-specified rank order. This is necessary
   // since we need to know how the user expects data to be ordered across
-  // devices.
+  // devices. Ordered from current device.
   int* userFromRing[MAXRINGS];
 
   // copy of the above stored on each device
   int* devUserFromRing[MAXRINGS];
 
-  // Inverse of userFromRing. Maps user specified index to internal nccl index.
-  int* ringFromUser[MAXRINGS];
-
-  // copy of the above stored on each device
-  int* devRingFromUser[MAXRINGS];
-
   // Ring orders
-  int* ncclFromRing[MAXRINGS];
-
-  // copy of the above stored on each device
-  int* devNcclFromRing[MAXRINGS];
+  int* ncclFromRing[MAXRINGS]; // TODO: REMOVE IF NOT NEEDED BEYOND CORE.CU
 
   // Size of temp buffer in bytes.
   size_t buffSize;
@@ -114,20 +125,21 @@ struct ncclComm {
   // Whether we have remote access to the recvbuff pointers passed from remote
   // GPUs. In single process mode this can be used as long as QPI links are
   // not present. In multi-process, we never push to a remote recvbuff.
-  int useRemoteRecv;
+  int globalMemSpace;
 
   // Device copy of the communicator
   struct ncclComm *devComm;
 
   // Device-to-device communication structures to access remote or local device
   // memory. Actual allocation larger than 1.
-  ncclNodeRef ptrs[1];
+  NodeRef ptrs[1];
 };
+
+
+extern int ncclPrintCRCs;
 
 typedef enum {NONE=0, WARN=1, INFO=2, ABORT=3} DebugLevel;
 extern DebugLevel ncclDebugLevel;
-
-extern int ncclPrintCRCs;
 
 #define WARN(...) do {                                           \
   if (ncclDebugLevel >= WARN) {                                  \
@@ -162,6 +174,7 @@ extern int ncclPrintCRCs;
     __attribute__ ((visibility("default"))) \
     ret func(args)
 #endif // end PROFAPI
+
 
 #endif // end include guard
 

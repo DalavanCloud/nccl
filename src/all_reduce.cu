@@ -283,14 +283,14 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   enum {UNROLL_SIZE = THREADS*UNROLL};
 
   AllReduceKernelArgs<T> args;
-  args.NumGPUs = comm->nDev;
+  args.NumGPUs = comm->nRanks;
   args.N = count;
   args.opIndex = comm->opSched;
   args.opCounter = comm->opCounter;
   args.doneCount = comm->devMem->flags + MAXFLAGS-1;
 
   const int minSlice = 2 * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
-  const int atomSize = minSlice * comm->nDev;
+  const int atomSize = minSlice * comm->nRanks;
   const int numAtoms = (count + atomSize-1) / atomSize;
   const int nRings = min(numAtoms, comm->nRings);
   const int maxAtomsPerChunk = (comm->buffSize / (nRings * sizeof(T) * atomSize));
@@ -321,38 +321,44 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
 
   for(int r=0; r<nRings; ++r) {
     AllReduceRingArgs<T>& ring = args.rings[r];
-    int index = comm->ringIdx[r];
-    int nextId = comm->ncclFromRing[r][(index + 1) % comm->nDev];
-    int prevId = comm->ncclFromRing[r][(index + comm->nDev - 1) % comm->nDev];
+    int nextNcclId = comm->ncclFromRing[r][(comm->nRanks > 1) ? 1 : 0];
+    int prevNcclId = comm->ncclFromRing[r][comm->nRanks - 1];
+    NodeRef* next = comm->ptrs + nextNcclId;
+    NodeRef* prev = comm->ptrs + prevNcclId;
 
-    ring.ThisId = index;
-    ring.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
-    ring.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
-    ring.NextOpCounter = comm->ptrs[nextId].opCounter;
-    ring.PrevOpCounter = comm->ptrs[prevId].opCounter;
-    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferOffset;
-    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferOffset;
-    ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;
-    ring.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags + r;
-    ring.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + nRings + r;
-    ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
+    // TODO: Remove this ugly hack
+    int zeroIdx = 0;
+    while (comm->ncclFromRing[r][zeroIdx] != 0)
+      zeroIdx ++;
+    ring.ThisId = (comm->nRanks-zeroIdx) % comm->nRanks; //comm->userFromRing[r][0];
+
+    ring.ThisPtrToNextOutput = (T**)&(next->local->recvPtrs[r]);
+    ring.PrevPtrToThisOutput = (T**)&(prev->remote->recvPtrs[r]);
+    ring.NextOpCounter = next->opCounter;
+    ring.PrevOpCounter = prev->opCounter;
+    ring.ThisBuffer = (volatile T*)prev->local->buff + r*bufferOffset;
+    ring.NextBuffer = (volatile T*)next->remote->buff + r*bufferOffset;
+    ring.ThisNewDataAvailableFlag = prev->local->flags + r;
+    ring.NextNewDataAvailableFlag = next->remote->flags + r;
+    ring.ThisChunkDoneFlag = next->local->flags + nRings + r;
+    ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
   }
 
   // print CRC checksum of input
   int myRank;
   if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][comm->ringIdx[0]];
+    myRank = comm->userFromRing[0][0];
     printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
   }
 
-  if (comm->nDev == 1) {
+  if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
     dim3 grid(nRings, 1, 1);
     dim3 block(THREADS+1, 1, 1);
     void* argptrs[] = {&args};
-    if( comm->useRemoteRecv ) {
+    if( comm->globalMemSpace ) {
       CUDACHECK(cudaLaunchKernel(
           (void*)AllReduceKernel<THREADS, UNROLL, FUNC, true, T>,
           grid, block, argptrs, 0, stream));

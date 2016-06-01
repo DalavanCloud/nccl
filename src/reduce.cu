@@ -285,7 +285,7 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   int maxSliceSize = (bufferNPerSlice / UNROLL_SIZE) * UNROLL_SIZE;
 
   args.SliceSize = numUnroll * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
-  if(!comm->useRemoteRecv) {
+  if(!comm->globalMemSpace) {
     // Proxy for QPI. Reduce never pushes directly to recv.
     // But larger transfers help QPI more than tag updates hurt P2P.
     args.SliceSize *= 4;
@@ -314,38 +314,41 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   const int nRings = std::min(args.NumChunks, comm->nRings);
   for(int r=0; r<nRings; ++r) {
     ReduceRingArgs<T>& ring = args.rings[r];
-    int index = comm->ringIdx[r];
-    int rootId = comm->ringFromUser[r][root];
-    int nextId = comm->ncclFromRing[r][(index + 1) % comm->nDev];
-    int prevId = comm->ncclFromRing[r][(index + comm->nDev - 1) % comm->nDev];
+    int nextPosInRing = (comm->nRanks > 1) ? 1 : 0;
+    int prevPosInRing = comm->nRanks-1;
+    NodeRef* next = comm->ptrs + comm->ncclFromRing[r][nextPosInRing];
+    NodeRef* prev = comm->ptrs + comm->ncclFromRing[r][prevPosInRing];
 
-    if (index == (rootId + 1) % comm->nDev) {
+    int prevURank = comm->userFromRing[r][prevPosInRing];
+    int thisURank = comm->userFromRing[r][0];
+
+    if (prevURank == root) {
       ring.role = BEGIN;
-    } else if (index == rootId) {
+    } else if (thisURank == root) {
       ring.role = END;
     } else {
       ring.role = MIDDLE;
     }
 
-    ring.ThisPtrToNextData = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
-    ring.PrevPtrToThisData = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
-    ring.NextOpCounter = comm->ptrs[nextId].opCounter;
-    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferOffset;
-    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferOffset;
-    ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;
-    ring.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags + r;
-    ring.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + nRings + r;
-    ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
+    ring.ThisPtrToNextData = (T**)&(next->local->recvPtrs[r]);
+    ring.PrevPtrToThisData = (T**)&(prev->remote->recvPtrs[r]);
+    ring.NextOpCounter = next->opCounter;
+    ring.ThisBuffer = (volatile T*)prev->local->buff + r*bufferOffset;
+    ring.NextBuffer = (volatile T*)next->remote->buff + r*bufferOffset;
+    ring.ThisNewDataAvailableFlag = prev->local->flags + r;
+    ring.NextNewDataAvailableFlag = next->remote->flags + r;
+    ring.ThisChunkDoneFlag = next->local->flags + nRings + r;
+    ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
   }
 
   // print CRC checksum of input
   int myRank;
   if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][comm->ringIdx[0]];
+    myRank = comm->userFromRing[0][0];
     printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
   }
 
-  if (comm->nDev == 1) {
+  if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {

@@ -150,7 +150,6 @@ __device__ inline void getSliceSizeAndChunkSize(int *sliceSize, int slice,
 
 template<typename T>
 struct ReduceScatterRingArgs {
-  int ThisId;
   int * UserFromRing;
 
   T ** ThisPtrToNextOutput;
@@ -189,9 +188,9 @@ struct ReduceScatterKernelArgs {
   ReduceScatterRingArgs<T> rings[MAXRINGS];
 };
 
-__device__ inline int GetBlock(const int index, const int step,
+__device__ inline int GetBlock(const int step,
     const int * const userFromRing, const int numGPUs) {
-  return userFromRing[(numGPUs + index - 1 - step) % numGPUs];
+  return userFromRing[(numGPUs - 1 - step) % numGPUs];
 }
 
 template<int THREADS, int UNROLL, class FUNC, typename T>
@@ -230,7 +229,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
 
     // step 0: push data to next GPU
     int step = 0;
-    int block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
+    int block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
     int blockOffset = chunkOffset + block * args.N;
     int bufferOffset = block * args.BufferSliceStride;
     int sliceSize;
@@ -259,7 +258,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
     // steps j with 0 < j < k - 1, where k = number of GPUs: reduce and copy to
     // next GPU
     for (step = 1; step < args.NumGPUs - 1; ++step) {
-      int block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
+      int block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
       int blockOffset = chunkOffset + block * args.N;
       int bufferOffset = block * args.BufferSliceStride;
 
@@ -288,7 +287,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
     // step k - 1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
     step = args.NumGPUs - 1;
-    block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
+    block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
     blockOffset = chunkOffset + block * args.N;
     bufferOffset = block * args.BufferSliceStride;
 
@@ -340,7 +339,7 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
     return ncclSuccess;
 
   ReduceScatterKernelArgs<T> args;
-  args.NumGPUs = comm->nDev;
+  args.NumGPUs = comm->nRanks;
   args.N = recvcount;
   args.opIndex = comm->opSched;
   args.opCounter = comm->opCounter;
@@ -348,14 +347,14 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
 
   const int minSlice = UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   const int minChunk = NUM_SUBCHUNKS * minSlice;
-  const int atomSize = minChunk * comm->nDev;
+  const int atomSize = minChunk * comm->nRanks;
   const int numAtoms = (recvcount + minChunk-1) / minChunk;
   const int nRings = min(numAtoms, comm->nRings);
 
   const int bufferVPerRing = comm->buffSize / (sizeof(PackType) * nRings);
   const int bufferNPerRing = bufferVPerRing * sizeof(PackType) / sizeof(T);
   const int misalignedN = recvcount % (sizeof(PackType) / sizeof(T));
-  const int maxAtomsPerChunk = (bufferNPerRing - misalignedN*comm->nDev) / atomSize;
+  const int maxAtomsPerChunk = (bufferNPerRing - misalignedN*comm->nRanks) / atomSize;
   assert(maxAtomsPerChunk>1);
 
   if (numAtoms == nRings) {
@@ -382,10 +381,10 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
 
   for(int r=0; r<nRings; ++r) {
     ReduceScatterRingArgs<T>& ring = args.rings[r];
-    int index = comm->ringIdx[r];
-    int nextId = comm->ncclFromRing[r][(index + 1) % comm->nDev];
-    int prevId = comm->ncclFromRing[r][(index + comm->nDev - 1) % comm->nDev];
-    ring.ThisId = index;
+    int nextNcclId = comm->ncclFromRing[r][(comm->nRanks > 1) ? 1 : 0]; 
+    int prevNcclId = comm->ncclFromRing[r][comm->nRanks - 1];
+    NodeRef* next = comm->ptrs + nextNcclId;
+    NodeRef* prev = comm->ptrs + prevNcclId;
 
 
     /* Block j must end up in recvbuff[j], which lives on device with logical
@@ -423,30 +422,30 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
     ring.UserFromRing = comm->devUserFromRing[r];
 
 
-    ring.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
-    ring.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
-    ring.NextOpCounter = comm->ptrs[nextId].opCounter;
+    ring.ThisPtrToNextOutput = (T**)&(next->local->recvPtrs[r]);
+    ring.PrevPtrToThisOutput = (T**)&(prev->remote->recvPtrs[r]);
+    ring.NextOpCounter = next->opCounter;
 
-    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferNPerRing;
-    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferNPerRing;
+    ring.ThisBuffer = (volatile T*)prev->local->buff + r*bufferNPerRing;
+    ring.NextBuffer = (volatile T*)next->remote->buff + r*bufferNPerRing;
 
     // we need 2 * NUM_SUBCHUNKS flags, so use the first NUM_SUBCHUNKS flags
     // to signal the next GPU that new data is available and the following
     // NUM_SUBCHUNKS to signal the previous GPU that a chunk is finished
-    ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;
-    ring.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags + r;
-    ring.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + nRings + r;
-    ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
+    ring.ThisNewDataAvailableFlag = prev->local->flags + r;
+    ring.NextNewDataAvailableFlag = next->remote->flags + r;
+    ring.ThisChunkDoneFlag = next->local->flags + nRings + r;
+    ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
   }
 
   // print CRC checksum of input
   int myRank;
   if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][comm->ringIdx[0]];
-    printCRCDev((unsigned char*)sendbuff, comm->nDev*recvcount*sizeof(T), myRank, stream);
+    myRank = comm->userFromRing[0][0];
+    printCRCDev((unsigned char*)sendbuff, comm->nRanks*recvcount*sizeof(T), myRank, stream);
   }
 
-  if (comm->nDev == 1) {
+  if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, recvcount*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {

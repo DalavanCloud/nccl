@@ -113,7 +113,6 @@ __device__ inline void getSliceSizeAndChunkSize(int *sliceSize, int slice,
 
 template<typename T>
 struct AllGatherRingArgs {
-  int ThisId;
   int * UserFromRing;
 
   T ** ThisPtrToNextOutput;
@@ -153,9 +152,9 @@ struct AllGatherKernelArgs {
   AllGatherRingArgs<T> rings[MAXRINGS];
 };
 
-__device__ inline int GetBlock(const int index, const int step,
+__device__ inline int GetBlock(const int step,
     const int * const userFromRing, const int numGPUs) {
-  return userFromRing[(numGPUs + index - step) % numGPUs];
+  return userFromRing[(numGPUs - step) % numGPUs];
 }
 
 template<int THREADS, int UNROLL, bool PUSHRECV, typename T>
@@ -203,7 +202,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
     // step 0: copy the resident block from the ThisInput to ThisOutput and also
     // to NextOutput
     int step = 0;
-    int block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
+    int block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
     int outputOffset = chunkOffset + block * args.N;
     int inputOffset = chunkOffset;
     int bufferOffset;
@@ -250,7 +249,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
     // steps j with 0 < j < k - 1:
     // copy a block that was pushed to this GPU to the next GPU
     for (step = 1; step < args.NumGPUs - 1; ++step) {
-      block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
+      block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
       outputOffset = chunkOffset + block * args.N;
       if (!PUSHRECV) {
         bufferOffset = block * args.BufferSliceStride;
@@ -290,7 +289,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
 
     if (!PUSHRECV) {
       step = args.NumGPUs - 1;
-      block = GetBlock(ring.ThisId, step, ring.UserFromRing, args.NumGPUs);
+      block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
       outputOffset = chunkOffset + block * args.N;
       bufferOffset = block * args.BufferSliceStride;
 
@@ -348,7 +347,7 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
       return ncclSuccess;
 
   AllGatherKernelArgs<T> args;
-  args.NumGPUs = comm->nDev;
+  args.NumGPUs = comm->nRanks;
   args.N = count;
   args.opIndex = comm->opSched;
   args.opCounter = comm->opCounter;
@@ -356,14 +355,14 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
 
   const int minSlice = UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   const int minChunk = NUM_SUBCHUNKS * minSlice;
-  const int atomSize = minChunk * comm->nDev;
+  const int atomSize = minChunk * comm->nRanks;
   const int numAtoms = (count + minChunk-1) / minChunk;
   const int nRings = min(numAtoms, comm->nRings);
 
   const int bufferVPerRing = comm->buffSize / (sizeof(PackType) * nRings);
   const int bufferNPerRing = bufferVPerRing * sizeof(PackType) / sizeof(T);
   const int misalignedN = count % (sizeof(PackType) / sizeof(T));
-  const int maxAtomsPerChunk = (bufferNPerRing - misalignedN*comm->nDev) / atomSize;
+  const int maxAtomsPerChunk = (bufferNPerRing - misalignedN*comm->nRanks) / atomSize;
   assert(maxAtomsPerChunk>1);
 
   if (numAtoms == nRings) {
@@ -390,10 +389,8 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
 
   for(int r=0; r<nRings; ++r) {
     AllGatherRingArgs<T>& ring = args.rings[r];
-    int index = comm->ringIdx[r];
-    int nextId = comm->ncclFromRing[r][(index + 1) % comm->nDev];
-    int prevId = comm->ncclFromRing[r][(index + comm->nDev - 1) % comm->nDev];
-    ring.ThisId = index;
+    NodeRef* next = comm->ptrs + comm->ncclFromRing[r][(comm->nRanks > 0) ? 1 : 0];
+    NodeRef* prev = comm->ptrs + comm->ncclFromRing[r][comm->nRanks - 1];
 
     /* Block j is coming from sendbuff[j], which lives on device with logical
      * index comm->ringFromUser[j]. But the block ordering does not necessarily
@@ -428,33 +425,33 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
      * block it needs to be processing at a particular step. */
     ring.UserFromRing = comm->devUserFromRing[r];
 
-    ring.ThisPtrToNextOutput = (T**)&(comm->ptrs[nextId].local->recvPtrs[r]);
-    ring.PrevPtrToThisOutput = (T**)&(comm->ptrs[prevId].remote->recvPtrs[r]);
-    ring.NextOpCounter = comm->ptrs[nextId].opCounter;
-    ring.PrevOpCounter = comm->ptrs[prevId].opCounter;
-    ring.ThisBuffer = (volatile T*)comm->ptrs[prevId].local->buff + r*bufferNPerRing;
-    ring.NextBuffer = (volatile T*)comm->ptrs[nextId].remote->buff + r*bufferNPerRing;
-    ring.ThisNewDataAvailableFlag = comm->ptrs[prevId].local->flags + r;
-    ring.NextNewDataAvailableFlag = comm->ptrs[nextId].remote->flags + r;
-    ring.ThisChunkDoneFlag = comm->ptrs[nextId].local->flags + nRings + r;
-    ring.PrevChunkDoneFlag = comm->ptrs[prevId].remote->flags + nRings + r;
+    ring.ThisPtrToNextOutput = (T**)&(next->local->recvPtrs[r]);
+    ring.PrevPtrToThisOutput = (T**)&(prev->remote->recvPtrs[r]);
+    ring.NextOpCounter = next->opCounter;
+    ring.PrevOpCounter = prev->opCounter;
+    ring.ThisBuffer = (volatile T*)prev->local->buff + r*bufferNPerRing;
+    ring.NextBuffer = (volatile T*)next->remote->buff + r*bufferNPerRing;
+    ring.ThisNewDataAvailableFlag = prev->local->flags + r;
+    ring.NextNewDataAvailableFlag = next->remote->flags + r;
+    ring.ThisChunkDoneFlag = next->local->flags + nRings + r;
+    ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
   }
 
   // print CRC checksum of input
   int myRank;
   if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][comm->ringIdx[0]];
+    myRank = comm->userFromRing[0][0];
     printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
   }
 
-  if (comm->nDev == 1) {
+  if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
     dim3 grid(nRings, 1, 1);
     dim3 block(NUM_THREADS+1, 1, 1);
     void* argptrs[] = {&args};
-    if( comm->useRemoteRecv ) {
+    if( comm->globalMemSpace ) {
       CUDACHECK(cudaLaunchKernel(
 	    (void*)AllGatherKernel<NUM_THREADS, UNROLL_COUNT, true, T>,
 	    grid, block, argptrs, 0, stream));
@@ -467,7 +464,7 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
 
   // print CRC checksum of output
   if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)recvbuff, comm->nDev*count*sizeof(T), myRank, stream);
+    printCRCDev((unsigned char*)recvbuff, comm->nRanks*count*sizeof(T), myRank, stream);
   }
 
   return ncclSuccess;
