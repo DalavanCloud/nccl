@@ -572,7 +572,9 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       } else if (canpeer) {
         INFO("rank access %d -> %d via P2P device mem", rank, iRank);
         err = cudaDeviceEnablePeerAccess(iDev, 0);
-        if (err != cudaSuccess) {
+        if (err == cudaErrorPeerAccessAlreadyEnabled) {
+          cudaGetLastError();
+        } else if (err != cudaSuccess) {
           WARN("rank %d failed to peer with device %d: %s",
               rank, iDev, cudaGetErrorString(err));
           commClearMaps(comm);
