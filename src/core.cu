@@ -566,7 +566,9 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
         comm->ptrs[i].remote = ranks[i].devptr;
       } else if (canpeer) {
         err = cudaDeviceEnablePeerAccess(iDev, 0);
-        if (err != cudaSuccess) {
+        if (err == cudaErrorPeerAccessAlreadyEnabled) {
+          cudaGetLastError();
+        } else if (err != cudaSuccess) {
           WARN("rank %d failed to peer with device %d: %s",
               rank, iDev, cudaGetErrorString(err));
           commClearMaps(comm);
