@@ -332,7 +332,7 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
       if (cures != cudaSuccess) {
         WARN("rank %d failed to close IPC handle to device %d: %s",
           comm->userFromRing[0][0], d, cudaGetErrorString(cures));
-        retval = (retval == ncclSuccess) ? res : retval;
+        retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
       }
     }
   }
