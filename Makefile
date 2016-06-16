@@ -71,15 +71,22 @@ ifneq ($(PROFAPI), 0)
 CXXFLAGS += -DPROFAPI
 endif
 
+NCCL_MAJOR   := 1
+NCCL_MINOR   := 5
+NCCL_PATCH   := 3
+CXXFLAGS  += -DNCCL_MAJOR=$(NCCL_MAJOR) -DNCCL_MINOR=$(NCCL_MINOR) -DNCCL_PATCH=$(NCCL_PATCH)
+
+CUDA_VERSION ?= $(shell ls $(CUDA_LIB)/libcudart.so.* | head -1 | rev | cut -d "." -f -2 | rev)
+CUDA_MAJOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 1)
+CUDA_MINOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 2)
+CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
+
 .PHONY : lib clean debclean test mpitest install
 .DEFAULT : lib
 
 INCEXPORTS  := nccl.h
 LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
 LIBNAME     := libnccl.so
-VER_MAJOR   := 1
-VER_MINOR   := 5
-VER_PATCH   := 3
 TESTS       := all_gather_test     all_gather_scan \
                all_reduce_test     all_reduce_scan \
                broadcast_test      broadcast_scan \
@@ -92,8 +99,8 @@ LIBDIR := $(BUILDDIR)/lib
 OBJDIR := $(BUILDDIR)/obj
 
 INCTARGETS := $(patsubst %, $(INCDIR)/%, $(INCEXPORTS))
-LIBSONAME  := $(patsubst %,%.$(VER_MAJOR),$(LIBNAME))
-LIBTARGET  := $(patsubst %,%.$(VER_MAJOR).$(VER_MINOR).$(VER_PATCH),$(LIBNAME))
+LIBSONAME  := $(patsubst %,%.$(NCCL_MAJOR),$(LIBNAME))
+LIBTARGET  := $(patsubst %,%.$(NCCL_MAJOR).$(NCCL_MINOR).$(NCCL_PATCH),$(LIBNAME))
 LIBLINK    := $(patsubst lib%.so, -l%, $(LIBNAME))
 LIBOBJ     := $(patsubst %.cu, $(OBJDIR)/%.o, $(filter %.cu, $(LIBSRCFILES)))
 DEPFILES   := $(patsubst %.o, %.d, $(LIBOBJ)) $(patsubst %, %.d, $(TESTBINS)) $(patsubst %, %.d, $(MPITESTBINS))
@@ -184,10 +191,6 @@ $(MPITSTDIR)/% : test/mpi/%.cu $(TSTDEP)
 
 #### PACKAGING ####
 
-CUDA_VERSION ?= $(shell ls $(CUDA_LIB)/libcudart.so.* | head -1 | rev | cut -d "." -f -2 | rev)
-CUDA_MAJOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 1)
-CUDA_MINOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 2)
-
 DEB_GEN_IN := $(shell ls debian/*.in)
 DEB_GEN    := $(DEB_GEN_IN:.in=)
 
@@ -205,9 +208,9 @@ debclean :
 
 debian/% : debian/%.in
 	@printf "Generating %-25s > %-24s\n" $< $@
-	sed -e "s/\$${nccl:Major}/$(VER_MAJOR)/g" \
-	    -e "s/\$${nccl:Minor}/$(VER_MINOR)/g" \
-	    -e "s/\$${nccl:Patch}/$(VER_PATCH)/g" \
+	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
+	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
+	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
 	    -e "s/\$${cuda:Major}/$(CUDA_MAJOR)/g" \
 	    -e "s/\$${cuda:Minor}/$(CUDA_MINOR)/g" \
 	    -e "s/\$${nccl:Debian}/$(DEB_REVISION)/g" \
