@@ -48,25 +48,18 @@ __device__ inline void getSliceSizeAndOffset(int *size, int *offset, int slice,
   }
 }
 
-
-template<typename T>
-struct AllReduceRingArgs {
-  int ThisId;
-
-  T ** ThisPtrToNextOutput;
-  T ** PrevPtrToThisOutput;
-  volatile int* __restrict__ NextOpCounter;
-  volatile int* __restrict__ PrevOpCounter;
-
-  volatile T * __restrict__ ThisBuffer;
-  volatile T * __restrict__ NextBuffer;
-
-  // local and remote flags
-  volatile int * __restrict__ ThisNewDataAvailableFlag;
-  volatile int * __restrict__ NextNewDataAvailableFlag;
-  volatile int * __restrict__ ThisChunkDoneFlag;
-  volatile int * __restrict__ PrevChunkDoneFlag;
-};
+template <int THREADS, typename T> __device__ __forceinline__
+void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
+  enum { NUM_WORDS = sizeof(DevRing<char>) / sizeof(long long) };
+  static_assert(sizeof(DevRing<char>) % sizeof(long long) == 0, "Bad alignment");
+  static_assert(THREADS >= NUM_WORDS, "Not enough threads to load DevRing");
+  static_assert(sizeof(DevRing<char>) == sizeof(DevRing<T>), "DevRing size mismatch");
+  long long* lldst = reinterpret_cast<long long*>(dst);
+  const long long* llsrc = reinterpret_cast<const long long*>(src);
+  if (threadIdx.x < NUM_WORDS) {
+    lldst[threadIdx.x] = llsrc[threadIdx.x];
+  }
+}
 
 template<typename T>
 struct AllReduceKernelArgs {
@@ -85,44 +78,45 @@ struct AllReduceKernelArgs {
 
   // local and remote input, output, and buffer
   const T * __restrict__ ThisInput;
-  volatile T * __restrict__ ThisOutput;
+  T * __restrict__ ThisOutput;
 
-  AllReduceRingArgs<T> rings[MAXRINGS];
+  DevRing<char>* rings;
 };
+
 
 template<int THREADS, int UNROLL, class FUNC, bool PUSHRECV, typename T>
 __launch_bounds__(THREADS+WARP_SIZE, 1)
 __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
-  __shared__ volatile T* nextOutput;
-  __shared__ AllReduceRingArgs<T> ring;
+  __shared__ T* nextOutput;
+  __shared__ DevRing<T> ring;
+
+  LoadRing<THREADS>(args.rings+bid, &ring);
+  __syncthreads();
 
   if (tid == 0) {
-    ring = args.rings[bid];
-
     if (PUSHRECV) {
-      WaitFlag prevCommOp(ring.PrevOpCounter);
+      WaitFlag prevCommOp(ring.prevOpCounter);
       prevCommOp.wait(args.opIndex);
 
-      *((T * volatile *)ring.PrevPtrToThisOutput) = (T*)args.ThisOutput;
+      *ring.sendPtrToPrev = (T*)args.ThisOutput;
       Wait([=] {
-        return *((T * volatile *)ring.ThisPtrToNextOutput) != nullptr;
+        return *ring.recvPtrFromNext != nullptr;
       });
-      nextOutput =
-        *((volatile T * volatile *)ring.ThisPtrToNextOutput);
-      *ring.ThisPtrToNextOutput = nullptr;
+      nextOutput = *ring.recvPtrFromNext;
+      *ring.recvPtrFromNext = nullptr;
     } else {
-      WaitFlag nextCommOp(ring.NextOpCounter);
+      WaitFlag nextCommOp(ring.nextOpCounter);
       nextCommOp.wait(args.opIndex);
     }
   }
   __syncthreads();
 
-  WaitFlag thisChunkDone(ring.ThisChunkDoneFlag);
-  WaitFlag thisDataReady(ring.ThisNewDataAvailableFlag);
-  PostFlag prevChunkDone(ring.PrevChunkDoneFlag);
-  PostFlag nextDataReady(ring.NextNewDataAvailableFlag);
+  WaitFlag thisChunkDone(ring.recvFlagFromNext);
+  WaitFlag thisDataReady(ring.recvFlagFromPrev);
+  PostFlag prevChunkDone(ring.sendFlagToPrev);
+  PostFlag nextDataReady(ring.sendFlagToNext);
 
   typedef Primitives<THREADS, UNROLL, 2, T, FUNC> Prims;
 
@@ -154,7 +148,7 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
     /////////////// begin AllReduce steps ///////////////
 
     // step 0: push data to next GPU
-    int slice = ring.ThisId;
+    int slice = ring.userRank[args.NumGPUs-1];
     int offset;
     int sliceSize;
     getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
@@ -163,41 +157,40 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
     if (PUSHRECV) {
       Prims::Copy(
           args.ThisInput  + chunkOffset + offset,
-          ring.NextBuffer               + offset,
+          ring.sendBuffer               + offset,
           sliceSize,
           step++, nextDataReady);
     } else {
       Prims::Copy(
           args.ThisInput  + chunkOffset + offset,
-          ring.NextBuffer               + offset,
+          ring.sendBuffer               + offset,
           sliceSize,
           step++, thisChunkDone, nextDataReady);
     }
 
-    // steps j with 1 <= j < k - 1, where k = number of GPUs:
-    // reduce and copy to next GPU
-    for (int j=1; j<args.NumGPUs-1; ++j) {
-      slice = (args.NumGPUs + slice - 1) % args.NumGPUs;
+    // k-2 steps: reduce and copy to next GPU
+    for (int j=2; j<args.NumGPUs; ++j) {
+      slice = ring.userRank[args.NumGPUs-j];
       getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
           numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
       Prims::Reduce(
-          ring.ThisBuffer               + offset,
+          ring.recvBuffer               + offset,
           args.ThisInput  + chunkOffset + offset,
-          ring.NextBuffer               + offset,
+          ring.sendBuffer               + offset,
           sliceSize,
           step++, thisDataReady, nextDataReady);
     }
 
     // step k - 1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
-    slice = (args.NumGPUs + slice - 1) % args.NumGPUs;
+    slice = ring.userRank[0];
     getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
         numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
     if (PUSHRECV) {
       Prims::ReduceCopy(
-          ring.ThisBuffer               + offset,
+          ring.recvBuffer               + offset,
           args.ThisInput  + chunkOffset + offset,
           nextOutput      + chunkOffset + offset,
           args.ThisOutput + chunkOffset + offset,
@@ -205,17 +198,17 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
           step++, thisDataReady, nextDataReady);
     } else {
       Prims::ReduceCopy(
-          ring.ThisBuffer               + offset,
+          ring.recvBuffer               + offset,
           args.ThisInput  + chunkOffset + offset,
-          ring.NextBuffer               + offset,
+          ring.sendBuffer               + offset,
           args.ThisOutput + chunkOffset + offset,
           sliceSize,
           step++, thisDataReady, nextDataReady);
     }
 
-    // steps j with k <= j < 2*k-2: copy result to next GPU
+    // k-2 steps: copy result to next GPU
     for (int j=1; j<args.NumGPUs-1; ++j) {
-      slice = (args.NumGPUs + slice - 1) % args.NumGPUs;
+      slice = ring.userRank[args.NumGPUs - j];
       getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
           numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
@@ -227,8 +220,8 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
             step++, thisDataReady, nextDataReady);
       } else {
         Prims::DoubleCopy(
-            ring.ThisBuffer               + offset,
-            ring.NextBuffer               + offset,
+            ring.recvBuffer               + offset,
+            ring.sendBuffer               + offset,
             args.ThisOutput + chunkOffset + offset,
             sliceSize,
             step++, thisDataReady, nextDataReady);
@@ -237,13 +230,13 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
 
     if (!PUSHRECV) {
       // Make final copy from buffer to dest.
-      slice = (args.NumGPUs + slice - 1) % args.NumGPUs;
+      slice = ring.userRank[1];
       getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
           numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
 
       // Here we need to copy from buffer to this output.
       Prims::Copy(
-          ring.ThisBuffer               + offset,
+          ring.recvBuffer               + offset,
           args.ThisOutput + chunkOffset + offset,
           sliceSize,
           step++, thisDataReady, prevChunkDone);
@@ -256,11 +249,11 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
       thisDataReady.wait(2*step); // wait to receive last data
     } else {
       thisChunkDone.wait(2*step); // wait for last flag update
-      *ring.ThisChunkDoneFlag = 0;
+      *ring.recvFlagFromNext = 0;
     }
 
     // Each CTA resets its own flags
-    *ring.ThisNewDataAvailableFlag = 0;
+    *ring.recvFlagFromPrev = 0;
 
     // Last CTA increments comm's operation counts
     if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
@@ -293,9 +286,8 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   const int atomSize = minSlice * comm->nRanks;
   const int numAtoms = (count + atomSize-1) / atomSize;
   const int nRings = min(numAtoms, comm->nRings);
-  const int maxAtomsPerChunk = (comm->buffSize / (nRings * sizeof(T) * atomSize));
+  const int maxAtomsPerChunk = comm->buffSizePerRing / (sizeof(T) * atomSize);
   assert (maxAtomsPerChunk > 1);
-  const int bufferOffset = maxAtomsPerChunk * atomSize;
 
   if (numAtoms == nRings) {
     args.SliceSize = minSlice;
@@ -317,34 +309,11 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   }
 
   args.ThisInput = (const T*)sendbuff;
-  args.ThisOutput = (volatile T*)recvbuff;
-
-  for(int r=0; r<nRings; ++r) {
-    AllReduceRingArgs<T>& ring = args.rings[r];
-    int nextNcclId = comm->ncclFromRing[r][(comm->nRanks > 1) ? 1 : 0];
-    int prevNcclId = comm->ncclFromRing[r][comm->nRanks - 1];
-    NodeRef* next = comm->ptrs + nextNcclId;
-    NodeRef* prev = comm->ptrs + prevNcclId;
-
-    // TODO: Remove this ugly hack
-    int zeroIdx = 0;
-    while (comm->ncclFromRing[r][zeroIdx] != 0)
-      zeroIdx ++;
-    ring.ThisId = (comm->nRanks-zeroIdx) % comm->nRanks; //comm->userFromRing[r][0];
-
-    ring.ThisPtrToNextOutput = (T**)&(next->local->recvPtrs[r]);
-    ring.PrevPtrToThisOutput = (T**)&(prev->remote->recvPtrs[r]);
-    ring.NextOpCounter = next->opCounter;
-    ring.PrevOpCounter = prev->opCounter;
-    ring.ThisBuffer = (volatile T*)prev->local->buff + r*bufferOffset;
-    ring.NextBuffer = (volatile T*)next->remote->buff + r*bufferOffset;
-    ring.ThisNewDataAvailableFlag = prev->local->flags + r;
-    ring.NextNewDataAvailableFlag = next->remote->flags + r;
-    ring.ThisChunkDoneFlag = next->local->flags + nRings + r;
-    ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
-  }
+  args.ThisOutput = (T*)recvbuff;
+  args.rings = comm->devRing;
 
   // print CRC checksum of input
+  // TODO Move this into enqueue.h
   int myRank;
   if (ncclPrintCRCs) {
     myRank = comm->userFromRing[0][0];

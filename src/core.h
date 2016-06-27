@@ -67,21 +67,22 @@ struct ncclMem {
   char buff[1];
 };
 
+template <typename T>
+struct alignas(long long) DevRing {
+  volatile int* __restrict__ prevOpCounter;
+  volatile int* __restrict__ nextOpCounter;
+  volatile int* __restrict__ sendFlagToNext;
+  volatile int* __restrict__ sendFlagToPrev;
+  volatile int* __restrict__ recvFlagFromNext;
+  volatile int* __restrict__ recvFlagFromPrev;
 
-// Represents communication path between two GPUs
-struct DevLink {
-  ncclMem* recv;
-  ncclMem* send;
-  volatile int* remoteOpCounter;
-};
+  T* volatile * __restrict__ recvPtrFromNext;
+  T* volatile * __restrict__ sendPtrToPrev;
+  T*   __restrict__ recvBuffer;
+  T*   __restrict__ sendBuffer;
 
-
-struct DevRing {
-  DevLink prev;
-  DevLink next;
   int userRank[MAXRANKS];
 };
-
 
 struct NodeRef {
   ncclMem* remote; // TODO: Verify if these
@@ -121,6 +122,7 @@ struct ncclComm {
 
   // Size of temp buffer in bytes.
   size_t buffSize;
+  size_t buffSizePerRing;
 
   // Whether we have remote access to the recvbuff pointers passed from remote
   // GPUs. In single process mode this can be used as long as QPI links are
@@ -128,7 +130,10 @@ struct ncclComm {
   int globalMemSpace;
 
   // Device copy of the communicator
-  struct ncclComm *devComm;
+  struct ncclComm *devComm;  // TODO: Remove this if not useful
+
+  // Device-side ring views
+  DevRing<char>* devRing;
 
   // Device-to-device communication structures to access remote or local device
   // memory. Actual allocation larger than 1.
