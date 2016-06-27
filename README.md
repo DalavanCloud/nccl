@@ -113,9 +113,7 @@ int main(int argc, char* argv[])
 }
 ```
 
-## Copyright and License
+## Copyright
 
-NCCL is provided under the [BSD licence](LICENSE.txt). All source code and
-accompanying documentation is copyright (c) 2015-2016, NVIDIA CORPORATION. All
-rights reserved.
+All source code and accompanying documentation is copyright (c) 2015-2016, NVIDIA CORPORATION. All rights reserved.
 
