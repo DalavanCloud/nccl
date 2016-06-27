@@ -32,7 +32,6 @@
 #include "common_kernel.h"
 #include "copy_kernel.h"
 #include "enqueue.h"
-#include "crc32.h"
 
 /* HIERARCHY
  *
@@ -285,10 +284,12 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
 }
 
 template<typename T>
-ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
-    ncclComm* comm, int numUnroll, cudaStream_t stream) {
+ncclResult_t RingBroadcast(void* buff, const int count, const int root,
+    ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
+
+  int numUnroll = 8;
 
   BroadcastKernelArgs<T> args;
   args.ThisData = (T*)buff;
@@ -362,14 +363,6 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
     ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
   }
 
-  // print CRC checksum of input
-  int myRank;
-  if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][0];
-    if (myRank == root)
-      printCRCDev((unsigned char*)buff, count*sizeof(T), myRank, stream);
-  }
-
   if (comm->nRanks != 1) {
     dim3 grid(nRings, 1, 1);
     dim3 block(NUM_THREADS+1, 1, 1);
@@ -385,40 +378,15 @@ ncclResult_t ncclBcastWithType(void* buff, const int count, const int root,
     }
   }
 
-  // print CRC checksum of output
-  if (ncclPrintCRCs && myRank != root) {
-    printCRCDev((unsigned char*)buff, count*sizeof(T), myRank, stream);
-  }
-
   return ncclSuccess;
 }
 
-class BroadcastFunctor {
-public:
-  ncclResult_t operator()(const void* /*dummy sendbuff*/,
-      void* buff, int count, ncclDataType_t datatype, ncclRedOp_t /*dummy operation*/,
-      int root, ncclComm* comm, cudaStream_t stream) {
-    int numUnroll = 8;
-
-    switch (datatype) {
-    case ncclChar:
-      return ncclBcastWithType<char>(buff, count, root, comm, numUnroll, stream);
-    case ncclInt:
-      return ncclBcastWithType<int>(buff, count, root, comm, numUnroll, stream);
-#ifdef CUDA_HAS_HALF
-    case ncclHalf:
-      return ncclBcastWithType<half>(buff, count, root, comm, numUnroll, stream);
-#endif
-    case ncclFloat:
-      return ncclBcastWithType<float>(buff, count, root, comm, numUnroll, stream);
-    case ncclDouble:
-      return ncclBcastWithType<double>(buff, count, root, comm, numUnroll, stream);
-    case ncclInt64:
-      return ncclBcastWithType<long long>(buff, count, root, comm, numUnroll, stream);
-    case ncclUint64:
-      return ncclBcastWithType<unsigned long long>(buff, count, root, comm, numUnroll, stream);
-    }
-    return ncclInvalidType;
+template<typename T>
+class Broadcast {
+  public:
+  static ncclResult_t entry(const void* sendbuff, void* recvbuff,
+      int count, int root, ncclComm* comm, cudaStream_t stream) {
+    return RingBroadcast<T>(recvbuff, count, root, comm, stream);
   }
 };
 
@@ -426,7 +394,6 @@ NCCL_API(ncclResult_t, ncclBcast, void* buff, int count, ncclDataType_t datatype
     ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclBcast(void* buff, int count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream) {
-  return enqueue(BroadcastFunctor(), nullptr, buff, count, datatype, ncclSum,
-      root, comm, stream);
+  return enqueue<Broadcast>(nullptr, buff, count, datatype, root, comm, stream);
 }
 

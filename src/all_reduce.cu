@@ -30,8 +30,6 @@
 
 #include "core.h"
 #include "enqueue.h"
-#include "crc32.h"
-
 #include "primitives.h"
 
 
@@ -266,7 +264,7 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
 }
 
 template<class FUNC, typename T>
-ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
+ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     const int count, ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
@@ -312,14 +310,6 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
   args.ThisOutput = (T*)recvbuff;
   args.rings = comm->devRing;
 
-  // print CRC checksum of input
-  // TODO Move this into enqueue.h
-  int myRank;
-  if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][0];
-    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
-  }
-
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
@@ -338,68 +328,15 @@ ncclResult_t ncclAllReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     }
   }
 
-  // print CRC checksum of output
-  if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)recvbuff, count*sizeof(T), myRank, stream);
-  }
-
   return ncclSuccess;
 }
 
-
-template<typename T>
-ncclResult_t ncclAllReduceWithType(const void* sendbuff,
-    void* recvbuff, int count, ncclRedOp_t op, ncclComm* comm, cudaStream_t stream) {
-  switch (op) {
-  case ncclSum:
-    return ncclAllReduceWithTypeAndFunc<FuncSum<T>, T>(
-        sendbuff, recvbuff, count, comm, stream);
-  case ncclProd:
-    return ncclAllReduceWithTypeAndFunc<FuncProd<T>, T>(
-        sendbuff, recvbuff, count, comm, stream);
-  case ncclMax:
-    return ncclAllReduceWithTypeAndFunc<FuncMax<T>, T>(
-        sendbuff, recvbuff, count, comm, stream);
-  case ncclMin:
-    return ncclAllReduceWithTypeAndFunc<FuncMin<T>, T>(
-        sendbuff, recvbuff, count, comm, stream);
-  }
-  return ncclInvalidOperation;
-}
-
-class AllReduceFunctor {
-public:
-  ncclResult_t operator()(const void* sendbuff, void* recvbuff,
-      int count, ncclDataType_t datatype, ncclRedOp_t op, int /*root*/,
-      ncclComm* comm, cudaStream_t stream) {
-
-    switch (datatype) {
-    case ncclChar:
-      return ncclAllReduceWithType<char>(sendbuff, recvbuff, count, op,
-          comm, stream);
-    case ncclInt:
-      return ncclAllReduceWithType<int>(sendbuff, recvbuff, count, op,
-          comm, stream);
-#ifdef CUDA_HAS_HALF
-    case ncclHalf:
-      return ncclAllReduceWithType<half>(sendbuff, recvbuff, count, op,
-          comm, stream);
-#endif
-    case ncclFloat:
-      return ncclAllReduceWithType<float>(sendbuff, recvbuff, count, op,
-          comm, stream);
-    case ncclDouble:
-      return ncclAllReduceWithType<double>(sendbuff, recvbuff, count, op,
-          comm, stream);
-    case ncclInt64:
-      return ncclAllReduceWithType<long long>(sendbuff, recvbuff, count, op,
-          comm, stream);
-    case ncclUint64:
-      return ncclAllReduceWithType<unsigned long long int>(sendbuff, recvbuff, count, op,
-          comm, stream);
-    }
-
-    return ncclInvalidType;
+template<typename T, template <typename> class RedOp>
+class AllReduce {
+  public:
+  static ncclResult_t entry(const void* sendbuff, void* recvbuff,
+      int count, int /*root*/, ncclComm* comm, cudaStream_t stream) {
+    return RingAllReduce<RedOp<T>, T>(sendbuff, recvbuff, count, comm, stream);
   }
 };
 
@@ -407,7 +344,6 @@ NCCL_API(ncclResult_t, ncclAllReduce, const void* sendbuff, void* recvbuff, int 
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclAllReduce(const void* sendbuff, void* recvbuff, int count,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream) {
-  return enqueue(AllReduceFunctor(), sendbuff, recvbuff, count, datatype, op, 0,
-      comm, stream);
+  return enqueue<AllReduce>(sendbuff, recvbuff, count, datatype, op, 0, comm, stream);
 }
 

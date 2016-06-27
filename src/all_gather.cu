@@ -33,7 +33,6 @@
 #include "common_kernel.h"
 #include "copy_kernel.h"
 #include "enqueue.h"
-#include "crc32.h"
 
 /* HIERARCHY
  *
@@ -341,8 +340,8 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
 }
 
 template<typename T>
-ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
-    int count, ncclComm* comm, int numUnroll, cudaStream_t stream) {
+ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
+    int count, ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
       return ncclSuccess;
 
@@ -437,13 +436,6 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
     ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
   }
 
-  // print CRC checksum of input
-  int myRank;
-  if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][0];
-    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
-  }
-
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
@@ -462,47 +454,15 @@ ncclResult_t ncclAllGatherWithType(const void* sendbuff, void* recvbuff,
     }
   }
 
-  // print CRC checksum of output
-  if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)recvbuff, comm->nRanks*count*sizeof(T), myRank, stream);
-  }
-
   return ncclSuccess;
 }
 
-class AllGatherFunctor {
-public:
-  ncclResult_t operator()(const void* sendbuff, void* recvbuff,
-      int count, ncclDataType_t datatype, ncclRedOp_t /*dummy operation*/,
-      int /*dummy root*/, ncclComm* comm, cudaStream_t stream) {
-    int numUnroll = 16; // this is optimal on dt07 with 4 GPUs
-
-    switch (datatype) {
-    case ncclChar:
-      return ncclAllGatherWithType<char>(sendbuff, recvbuff, count, comm,
-          numUnroll, stream);
-    case ncclInt:
-      return ncclAllGatherWithType<int>(sendbuff, recvbuff, count, comm,
-          numUnroll, stream);
-#ifdef CUDA_HAS_HALF
-    case ncclHalf:
-      return ncclAllGatherWithType<half>(sendbuff, recvbuff, count, comm,
-          numUnroll, stream);
-#endif
-    case ncclFloat:
-      return ncclAllGatherWithType<float>(sendbuff, recvbuff, count, comm,
-          numUnroll, stream);
-    case ncclDouble:
-      return ncclAllGatherWithType<double>(sendbuff, recvbuff, count, comm,
-          numUnroll, stream);
-    case ncclInt64:
-      return ncclAllGatherWithType<long long>(sendbuff, recvbuff, count, comm,
-          numUnroll, stream);
-    case ncclUint64:
-      return ncclAllGatherWithType<unsigned long long>(sendbuff, recvbuff, count, comm,
-          numUnroll, stream);
-    }
-    return ncclInvalidType;
+template<typename T>
+class AllGather {
+  public:
+  static ncclResult_t entry(const void* sendbuff, void* recvbuff,
+      int count, int /*root*/, ncclComm* comm, cudaStream_t stream) {
+    return RingAllGather<T>(sendbuff, recvbuff, count, comm, stream);
   }
 };
 
@@ -510,6 +470,5 @@ NCCL_API(ncclResult_t, ncclAllGather, const void* sendbuff, int count, ncclDataT
     void* recvbuff, ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclAllGather(const void* sendbuff, int count, ncclDataType_t datatype,
     void* recvbuff, ncclComm_t comm, cudaStream_t stream) {
-  return enqueue(AllGatherFunctor(), sendbuff, recvbuff, count, datatype,
-      ncclSum, 0, comm, stream);
+  return enqueue<AllGather>(sendbuff, recvbuff, count, datatype, 0, comm, stream);
 }
