@@ -351,11 +351,24 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
       }
     }
   }
+  if (comm->devRing != NULL) {
+    cures = cudaMemset(comm->devRing, 0, MAXRINGS*sizeof(DevRing<char>));
+    if (cures != cudaSuccess) {
+      WARN("Failed to clear devRing: %s", cudaGetErrorString(cures));
+      retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
+    }
+  }
+  comm->buffSizePerRing = 0;
   return retval;
 }
 
 static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int rank, RankEntry* ranks, int* globalMemSpaceBroke) {
   int ndev = comm->nRanks;
+
+  if (ndev > MAXRANKS) {
+    WARN("%d ranks exceeds MAXRANKS of %d", ndev, MAXRANKS);
+    return ncclUnsupportedDeviceCount;
+  }
 
   // Check for inconsistencies between ranks
   // If two ranks use the same rank, then one slot of
@@ -461,7 +474,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
           1, 1, -1, -1, -1, -1,
           2, 0, -1, -1, -1, -1};
       memcpy(NVLRings, FCRings, sizeof(FCRings));
-    } else { // if (topo == _2FC) {
+    } else { // if (topo == _2FC)
       INFO("Using 2-FC topology");
       comm->nRings = 1; // FIXME: this may not be enough to saturate bandwidth
       const int FCRings[4][MAXNVLRINGS] = {
@@ -491,16 +504,6 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       }
     }
   }
-
-  for(int r=0; r<comm->nRings; ++r) {
-    if (cudaMemcpy(comm->devUserFromRing[r], comm->userFromRing[r], ndev*sizeof(int),
-        cudaMemcpyHostToDevice) != cudaSuccess) {
-      WARN("rank %d failed to copy maps to device", rank);
-      commClearMaps(comm);
-      return ncclUnhandledCudaError;
-    }
-  }
-
 
   int myDev = ranks[myNcclId].cudaDev;
   pid_t myPid = ranks[myNcclId].pid;
@@ -640,6 +643,47 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
     }
   }
   free(orderedList);
+
+  // Setup device-side ring-views
+  int maxBuffPerRing = (comm->buffSize / (comm->nRings * 128)) * 128;
+  comm->buffSizePerRing = maxBuffPerRing;
+  for(int r=0; r<comm->nRings; ++r) {
+    if (cudaMemcpy(comm->devUserFromRing[r], comm->userFromRing[r], ndev*sizeof(int),
+        cudaMemcpyHostToDevice) != cudaSuccess) {
+      WARN("rank %d failed to copy maps to device", rank);
+      commClearMaps(comm);
+      return ncclUnhandledCudaError;
+    }
+
+    DevRing<char> ringTemp;
+    memcpy(ringTemp.userRank, comm->userFromRing[r], ndev*sizeof(int));
+
+    int prevIdx = comm->ncclFromRing[r][comm->nRanks-1];
+    int nextIdx = comm->ncclFromRing[r][1 % comm->nRanks];
+    NodeRef* prevPtrs = comm->ptrs+prevIdx;
+    NodeRef* nextPtrs = comm->ptrs+nextIdx;
+
+    ringTemp.prevOpCounter    = prevPtrs->opCounter;
+    ringTemp.nextOpCounter    = nextPtrs->opCounter;
+    ringTemp.sendFlagToNext   = nextPtrs->remote->flags + 2*r;
+    ringTemp.recvFlagFromPrev = prevPtrs->local->flags  + 2*r;
+    ringTemp.sendFlagToPrev   = prevPtrs->remote->flags + 2*r+1;
+    ringTemp.recvFlagFromNext = nextPtrs->local->flags  + 2*r+1;
+
+    ringTemp.recvPtrFromNext = (char**)nextPtrs->local->recvPtrs + r;
+    ringTemp.sendPtrToPrev   = (char**)prevPtrs->remote->recvPtrs + r;
+
+    ringTemp.recvBuffer = prevPtrs->local->buff + r*maxBuffPerRing;
+    ringTemp.sendBuffer = nextPtrs->remote->buff + r*maxBuffPerRing;
+
+    if (cudaMemcpy(comm->devRing+r, &ringTemp, sizeof(ringTemp),
+        cudaMemcpyHostToDevice) != cudaSuccess) {
+      WARN("rank %d failed to copy ring maps to device", rank);
+      commClearMaps(comm);
+      return ncclUnhandledCudaError;
+    }
+  }
+
   return ncclSuccess;
 }
 
@@ -678,6 +722,10 @@ static void commFree(ncclComm_t comm) {
   ncclResult_t res = commClearMaps(comm);
   if (res != ncclSuccess)
     INFO("failed to cleanup comm maps");
+
+  if (comm->devRing != NULL)
+    if (cudaFree(comm->devRing) != cudaSuccess)
+      INFO("commFree failed to free devRing");
 
   for(int r=0; r<MAXRINGS; ++r) {
     if (comm->userFromRing[r] != NULL)
@@ -751,6 +799,12 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* 
     WARN("rank %d failed to allocate device buffer", rank);
     commFree(comm);
     return res;
+  }
+
+  if (cudaMalloc(&comm->devRing, MAXRINGS*sizeof(DevRing<char>)) != cudaSuccess) {
+    WARN("rank %d failed to allocate device-side ring views", rank);
+    commFree(comm);
+    return ncclCudaMallocFailed;
   }
 
   for(int r=0; r<MAXRINGS; ++r) {

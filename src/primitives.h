@@ -134,17 +134,17 @@ class Primitives {
             typename DST2_T, // either T* or nullptr_t
             typename... SYNC_Ts> // either WaitFunc or PostFunc
   static __device__ __forceinline__ void
-  GenericOp(volatile const T*     src1,
-            volatile const SRC2_T src2,
-            volatile       T*     dst1,
-            volatile       DST2_T dst2,
+  GenericOp(const T*     src1,
+            const SRC2_T src2,
+                  T*     dst1,
+                  DST2_T dst2,
             int len, int step, SYNC_Ts... flags) {
 
     enum { noSrc2 = std::is_same<SRC2_T, nullptr_t>::value };
     enum { noDst2 = std::is_same<DST2_T, nullptr_t>::value };
-    static_assert(noSrc2 || std::is_same<SRC2_T, volatile const T*>::value,
+    static_assert(noSrc2 || std::is_same<SRC2_T, const T*>::value,
         "src2 must be of type T* or nullptr_t");
-    static_assert(noDst2 || std::is_same<DST2_T, volatile T*>::value,
+    static_assert(noDst2 || std::is_same<DST2_T, T*>::value,
         "dst2 must be of type T* or nullptr_t");
 
     using OpType = typename std::conditional<noSrc2, FuncPassA<T>, REDOP>::type;
@@ -172,9 +172,9 @@ class Primitives {
             (
              threadIdx.x,
              ptradd(dst1, sliceOffset),
-             (volatile T*)ptradd(dst2, sliceOffset),
+             ptradd(dst2, sliceOffset),
              ptradd(src1, sliceOffset),
-             (volatile const T*)ptradd(src2, sliceOffset),
+             ptradd(src2, sliceOffset),
              (sub == SUBSTEPS-1) ? len-sliceOffset : sliceSize
             );
         if (AnyAre<PostFlag>(flags...)) {
@@ -196,28 +196,28 @@ class Primitives {
   public:
   template <typename... SYNC_Ts>
   static __device__ __forceinline__ void
-  Copy(volatile const T* src, volatile T* dst,
+  Copy(const T* src, T* dst,
       int len, int step, SYNC_Ts... flags) {
     GenericOp(src, nullptr, dst, nullptr, len, step, flags...);
   }
 
   template <typename... SYNC_Ts>
   static __device__ __forceinline__ void
-  DoubleCopy(volatile const T* src, volatile T* dst1, volatile T* dst2,
+  DoubleCopy(const T* src, T* dst1, T* dst2,
       int len, int step, SYNC_Ts... flags) {
     GenericOp(src, nullptr, dst1, dst2, len, step, flags...);
   }
 
   template <typename... SYNC_Ts>
   static __device__ __forceinline__ void
-  Reduce(volatile const T* src1, volatile const T* src2, volatile T* dst,
+  Reduce(const T* src1, const T* src2, T* dst,
       int len, int step, SYNC_Ts... flags) {
     GenericOp(src1, src2, dst, nullptr, len, step, flags...);
   }
 
   template <typename... SYNC_Ts>
   static __device__ __forceinline__ void
-  ReduceCopy(volatile const T* src1, volatile const T* src2, volatile T* dst1, volatile T* dst2,
+  ReduceCopy(const T* src1, const T* src2, T* dst1, T* dst2,
       int len, int step, SYNC_Ts... flags) {
     GenericOp(src1, src2, dst1, dst2, len, step, flags...);
   }

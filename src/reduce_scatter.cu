@@ -33,7 +33,6 @@
 #include "copy_kernel.h"
 #include "enqueue.h"
 #include "reduce_kernel.h"
-#include "crc32.h"
 
 /* HIERARCHY
  *
@@ -333,7 +332,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
 }
 
 template<class FUNC, typename T>
-ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
+ncclResult_t RingReduceScatter(const void* sendbuff,
     void* recvbuff, const int recvcount, ncclComm* comm, cudaStream_t stream) {
   if (recvcount == 0)
     return ncclSuccess;
@@ -438,13 +437,6 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
     ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
   }
 
-  // print CRC checksum of input
-  int myRank;
-  if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][0];
-    printCRCDev((unsigned char*)sendbuff, comm->nRanks*recvcount*sizeof(T), myRank, stream);
-  }
-
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, recvcount*sizeof(T), cudaMemcpyDeviceToDevice, stream));
@@ -457,66 +449,15 @@ ncclResult_t ncclReduceScatterWithTypeAndFunc(const void* sendbuff,
 	  grid, block, argptrs, 0, stream));
   }
 
-  // print CRC checksum of output
-  if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)recvbuff, recvcount*sizeof(T), myRank, stream);
-  }
-
   return ncclSuccess;
 }
 
-template<typename T>
-ncclResult_t ncclReduceScatterWithType(const void* sendbuff, void* recvbuff,
-    int recvcount, ncclRedOp_t op, ncclComm* comm, cudaStream_t stream) {
-  switch (op) {
-  case ncclSum:
-    return ncclReduceScatterWithTypeAndFunc<FuncSum<T>, T>(
-        sendbuff, recvbuff, recvcount, comm, stream);
-  case ncclProd:
-    return ncclReduceScatterWithTypeAndFunc<FuncProd<T>, T>(
-        sendbuff, recvbuff, recvcount, comm, stream);
-  case ncclMax:
-    return ncclReduceScatterWithTypeAndFunc<FuncMax<T>, T>(
-        sendbuff, recvbuff, recvcount, comm, stream);
-  case ncclMin:
-    return ncclReduceScatterWithTypeAndFunc<FuncMin<T>, T>(
-        sendbuff, recvbuff, recvcount, comm, stream);
-  }
-  return ncclInvalidOperation;
-}
-
-class ReduceScatterFunctor {
-public:
-  ncclResult_t operator()(const void* sendbuff, void* recvbuff,
-      int recvcount, ncclDataType_t datatype, ncclRedOp_t op, int /*root*/,
-      ncclComm* comm, cudaStream_t stream) {
-
-    switch (datatype) {
-    case ncclChar:
-      return ncclReduceScatterWithType<char>(sendbuff, recvbuff, recvcount,
-          op, comm, stream);
-    case ncclInt:
-      return ncclReduceScatterWithType<int>(sendbuff, recvbuff, recvcount,
-          op, comm, stream);
-#ifdef CUDA_HAS_HALF
-    case ncclHalf:
-      return ncclReduceScatterWithType<half>(sendbuff, recvbuff, recvcount,
-          op, comm, stream);
-#endif
-    case ncclFloat:
-      return ncclReduceScatterWithType<float>(sendbuff, recvbuff, recvcount,
-          op, comm, stream);
-    case ncclDouble:
-      return ncclReduceScatterWithType<double>(sendbuff, recvbuff, recvcount,
-          op, comm, stream);
-    case ncclInt64:
-      return ncclReduceScatterWithType<long long>(sendbuff, recvbuff, recvcount,
-          op, comm, stream);
-    case ncclUint64:
-      return ncclReduceScatterWithType<unsigned long long>(sendbuff, recvbuff, recvcount,
-          op, comm, stream);
-    }
-    return ncclInvalidType;
+template<typename T, template <typename> class RedOp>
+class ReduceScatter {
+  public:
+  static ncclResult_t entry(const void* sendbuff, void* recvbuff,
+      int count, int /*root*/, ncclComm* comm, cudaStream_t stream) {
+    return RingReduceScatter<RedOp<T>, T>(sendbuff, recvbuff, count, comm, stream);
   }
 };
 
@@ -524,7 +465,6 @@ NCCL_API(ncclResult_t, ncclReduceScatter, const void* sendbuff, void* recvbuff, 
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm* comm, cudaStream_t stream);
 ncclResult_t ncclReduceScatter(const void* sendbuff, void* recvbuff, int recvcount,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm* comm, cudaStream_t stream) {
-  return enqueue(ReduceScatterFunctor(), sendbuff, recvbuff, recvcount,
-      datatype, op, 0, comm, stream);
+  return enqueue<ReduceScatter>(sendbuff, recvbuff, recvcount, datatype, op, 0, comm, stream);
 }
 

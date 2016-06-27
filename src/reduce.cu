@@ -33,7 +33,6 @@
 #include "copy_kernel.h"
 #include "enqueue.h"
 #include "reduce_kernel.h"
-#include "crc32.h"
 
 /* HIERARCHY
  *
@@ -264,7 +263,7 @@ __global__ void ReduceKernel(const ReduceKernelArgs<T> args) {
 }
 
 template<class FUNC, typename T>
-ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
+ncclResult_t RingReduce(const void* sendbuff, void* recvbuff,
     const int count, const int root, ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
@@ -341,13 +340,6 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
     ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
   }
 
-  // print CRC checksum of input
-  int myRank;
-  if (ncclPrintCRCs) {
-    myRank = comm->userFromRing[0][0];
-    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), myRank, stream);
-  }
-
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
@@ -360,62 +352,16 @@ ncclResult_t ncclReduceWithTypeAndFunc(const void* sendbuff, void* recvbuff,
 	  grid, block, argptrs, 0, stream));
   }
 
-  // print CRC checksum of output
-  if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)recvbuff, count*sizeof(T), myRank, stream);
-  }
 
   return ncclSuccess;
 }
 
-template <typename T>
-ncclResult_t ncclReduceWithType(const void* sendbuff,
-      void* recvbuff, int count, ncclRedOp_t op, int root,
-      ncclComm* comm, cudaStream_t stream) {
-
-  switch (op) {
-    case ncclSum:
-      return ncclReduceWithTypeAndFunc<FuncSum<T>, T>(
-          sendbuff, recvbuff, count, root, comm, stream);
-    case ncclProd:
-      return ncclReduceWithTypeAndFunc<FuncProd<T>, T>(
-          sendbuff, recvbuff, count, root, comm, stream);
-    case ncclMax:
-      return ncclReduceWithTypeAndFunc<FuncMax<T>, T>(
-          sendbuff, recvbuff, count, root, comm, stream);
-    case ncclMin:
-      return ncclReduceWithTypeAndFunc<FuncMin<T>, T>(
-          sendbuff, recvbuff, count, root, comm, stream);
-  }
-  return ncclInvalidOperation;
-}
-
-
+template<typename T, template<typename> class RedOp>
 class ReduceFunctor {
-public:
-  ncclResult_t operator()(const void* sendbuff,
-      void* recvbuff, int count, ncclDataType_t datatype, ncclRedOp_t op,
-      int root, ncclComm* comm, cudaStream_t stream) {
-
-    switch (datatype) {
-    case ncclChar:
-      return ncclReduceWithType<char>(sendbuff, recvbuff, count, op, root, comm, stream);
-    case ncclInt:
-      return ncclReduceWithType<int>(sendbuff, recvbuff, count, op, root, comm, stream);
-#ifdef CUDA_HAS_HALF
-    case ncclHalf:
-      return ncclReduceWithType<half>(sendbuff, recvbuff, count, op, root, comm, stream);
-#endif
-    case ncclFloat:
-      return ncclReduceWithType<float>(sendbuff, recvbuff, count, op, root, comm, stream);
-    case ncclDouble:
-      return ncclReduceWithType<double>(sendbuff, recvbuff, count, op, root, comm, stream);
-    case ncclInt64:
-      return ncclReduceWithType<long long>(sendbuff, recvbuff, count, op, root, comm, stream);
-    case ncclUint64:
-      return ncclReduceWithType<unsigned long long>(sendbuff, recvbuff, count, op, root, comm, stream);
-    }
-    return ncclInvalidType;
+  public:
+  static ncclResult_t entry(const void* sendbuff, void* recvbuff,
+      int count, int root, ncclComm* comm, cudaStream_t stream) {
+    return RingReduce<RedOp<T>, T>(sendbuff, recvbuff, count, root, comm, stream);
   }
 };
 
@@ -423,7 +369,6 @@ NCCL_API(ncclResult_t, ncclReduce, const void* sendbuff, void* recvbuff, int cou
     ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclReduce(const void* sendbuff, void* recvbuff, int count,
     ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
-  return enqueue(ReduceFunctor(), sendbuff, recvbuff, count, datatype, op,
-      root, comm, stream);
+  return enqueue<ReduceFunctor>(sendbuff, recvbuff, count, datatype, op, root, comm, stream);
 }
 
