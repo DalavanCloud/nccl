@@ -81,7 +81,7 @@ CUDA_MAJOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 1)
 CUDA_MINOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 2)
 CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 
-.PHONY : lib clean debclean test mpitest install
+.PHONY : lib clean test mpitest install deb debian debclean
 .DEFAULT : lib
 
 INCEXPORTS  := nccl.h
@@ -197,7 +197,9 @@ DEB_GEN    := $(DEB_GEN_IN:.in=)
 DEB_REVISION   ?= 1
 DEB_TIMESTAMP  := $(shell date -R)
 
-deb : lib $(DEB_GEN)
+debian : $(DEB_GEN)
+
+deb : lib debian
 	@printf "Building Debian package\n"
 	debuild -eBUILDDIR -eLD_LIBRARY_PATH -uc -us -d -b
 	mkdir -p $(BUILDDIR)/deb/
