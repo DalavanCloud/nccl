@@ -381,7 +381,7 @@ ncclResult_t RingBroadcast(void* buff, const int count, const int root,
   return ncclSuccess;
 }
 
-template<typename T>
+template<typename T, template <typename> class DummyOp>
 class Broadcast {
   public:
   static ncclResult_t entry(const void* sendbuff, void* recvbuff,
@@ -394,6 +394,6 @@ NCCL_API(ncclResult_t, ncclBcast, void* buff, int count, ncclDataType_t datatype
     ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclBcast(void* buff, int count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream) {
-  return enqueue<Broadcast>(nullptr, buff, count, datatype, root, comm, stream);
+  return enqueue<Broadcast, FuncNull>(nullptr, buff, count, datatype, root, comm, stream);
 }
 

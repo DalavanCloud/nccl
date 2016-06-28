@@ -457,7 +457,7 @@ ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
   return ncclSuccess;
 }
 
-template<typename T>
+template<typename T, template <typename> class DummyOp>
 class AllGather {
   public:
   static ncclResult_t entry(const void* sendbuff, void* recvbuff,
@@ -470,5 +470,5 @@ NCCL_API(ncclResult_t, ncclAllGather, const void* sendbuff, int count, ncclDataT
     void* recvbuff, ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclAllGather(const void* sendbuff, int count, ncclDataType_t datatype,
     void* recvbuff, ncclComm_t comm, cudaStream_t stream) {
-  return enqueue<AllGather>(sendbuff, recvbuff, count, datatype, 0, comm, stream);
+  return enqueue<AllGather, FuncNull>(sendbuff, recvbuff, count, datatype, 0, comm, stream);
 }
