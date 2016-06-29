@@ -34,6 +34,13 @@
 #include <limits>
 
 template<typename T>
+struct FuncNull {
+  __device__ T operator()(const T x, const T y) const {
+    return 0;
+  }
+};
+
+template<typename T>
 struct FuncSum {
   __device__ T operator()(const T x, const T y) const {
     return x + y;

@@ -45,9 +45,9 @@
  *         int root, ncclComm* comm, cudaStream_t stream);
  *   };
  * The entry() method can assume that the appropriate cuda device has been set. */
-template< template<typename, template<typename> class...> class ColFunc,
+template< template<typename, template<typename> class> class ColFunc,
           typename T,
-          template<typename> class... Op >
+          template<typename> class Op >
 ncclResult_t enqueue(const void* sendbuff,
                      void* recvbuff,
                      int count,
@@ -66,7 +66,7 @@ ncclResult_t enqueue(const void* sendbuff,
   }
 
   ncclResult_t ret;
-  ret = ColFunc<T, Op...>::entry(sendbuff, recvbuff, count, root, comm, stream);
+  ret = ColFunc<T, Op>::entry(sendbuff, recvbuff, count, root, comm, stream);
 
   // print CRC checksum of output
   if (ncclPrintCRCs) {
@@ -82,8 +82,8 @@ ncclResult_t enqueue(const void* sendbuff,
 
 
 // This version decodes type
-template< template<typename, template<typename> class...> class ColFunc,
-          template<typename> class... Op >
+template< template<typename, template<typename> class> class ColFunc,
+          template<typename> class Op >
 ncclResult_t enqueue(const void* sendbuff,
                      void* recvbuff,
                      int count,
@@ -94,21 +94,21 @@ ncclResult_t enqueue(const void* sendbuff,
 {
   switch(type) {
   case ncclChar:
-    return enqueue<ColFunc, char, Op...>(sendbuff, recvbuff, count, root, comm, stream);
+    return enqueue<ColFunc, char, Op>(sendbuff, recvbuff, count, root, comm, stream);
   case ncclInt:
-    return enqueue<ColFunc, int, Op...>(sendbuff, recvbuff, count, root, comm, stream);
+    return enqueue<ColFunc, int, Op>(sendbuff, recvbuff, count, root, comm, stream);
 #ifdef CUDA_HAS_HALF
   case ncclHalf:
-    return enqueue<ColFunc, half, Op...>(sendbuff, recvbuff, count, root, comm, stream);
+    return enqueue<ColFunc, half, Op>(sendbuff, recvbuff, count, root, comm, stream);
 #endif
   case ncclFloat:
-    return enqueue<ColFunc, float, Op...>(sendbuff, recvbuff, count, root, comm, stream);
+    return enqueue<ColFunc, float, Op>(sendbuff, recvbuff, count, root, comm, stream);
   case ncclDouble:
-    return enqueue<ColFunc, double, Op...>(sendbuff, recvbuff, count, root, comm, stream);
+    return enqueue<ColFunc, double, Op>(sendbuff, recvbuff, count, root, comm, stream);
   case ncclInt64:
-    return enqueue<ColFunc, long long, Op...>(sendbuff, recvbuff, count, root, comm, stream);
+    return enqueue<ColFunc, long long, Op>(sendbuff, recvbuff, count, root, comm, stream);
   case ncclUint64:
-    return enqueue<ColFunc, unsigned long long, Op...>(sendbuff, recvbuff, count, root, comm, stream);
+    return enqueue<ColFunc, unsigned long long, Op>(sendbuff, recvbuff, count, root, comm, stream);
   default:
     WARN("Invalid ncclType %d", type);
     return ncclInvalidType;
@@ -140,6 +140,23 @@ ncclResult_t enqueue(const void* sendbuff,
     return ncclInvalidOperation;
   }
 }
+
+#define KERNEL(K, THREADS) \
+  CUDACHECK(cudaLaunchKernel( \
+            (void*)K<THREADS, UNROLL, FUNC, T>, \
+            grid, block, argptrs, 0, stream))
+
+#define NCCL_UNROLL_SIZE (256*8) // Max Threads x Unroll (see below)
+
+#define LAUNCH_KERNEL(K, args, stream, nblocks, nvlink) do { \
+  enum {PCIE_THREADS = 256, NVLINK_THREADS = 128}; \
+  enum {UNROLL = 8}; \
+  int nthreads = nvlink ? NVLINK_THREADS : PCIE_THREADS; \
+  dim3 grid(nblocks, 1, 1); \
+  dim3 block(nthreads+1, 1, 1); \
+  void* argptrs[] = {&args}; \
+  if (nvlink) KERNEL(K, NVLINK_THREADS); else KERNEL(K, PCIE_THREADS); \
+}while (false)
 
 #endif // End include guard
 

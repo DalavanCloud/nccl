@@ -46,7 +46,7 @@
 } while(false)
 
 
-#define MAXRINGS  8
+#define MAXRINGS 12
 #define MAXFLAGS 16
 #define MAXRANKS 32
 #define DEFAULT_BUFFER_SIZE_BYTES (1UL << 25)
@@ -128,6 +128,9 @@ struct ncclComm {
   // GPUs. In single process mode this can be used as long as QPI links are
   // not present. In multi-process, we never push to a remote recvbuff.
   int globalMemSpace;
+
+  // P2P type : PCIe or NVLink
+  enum {PCIE, NVLINK} p2ptype;
 
   // Device copy of the communicator
   struct ncclComm *devComm;  // TODO: Remove this if not useful
