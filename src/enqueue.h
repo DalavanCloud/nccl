@@ -141,25 +141,21 @@ ncclResult_t enqueue(const void* sendbuff,
   }
 }
 
-#define KERNEL(K, THREADS, PUSHRECV) \
+#define KERNEL(K, THREADS) \
   CUDACHECK(cudaLaunchKernel( \
-            (void*)K<THREADS, UNROLL, FUNC, PUSHRECV, T>, \
+            (void*)K<THREADS, UNROLL, FUNC, T>, \
             grid, block, argptrs, 0, stream))
 
 #define NCCL_UNROLL_SIZE (256*8) // Max Threads x Unroll (see below)
 
-#define LAUNCH_KERNEL(K, args, stream, nblocks, pushrecv, nvlink) do { \
+#define LAUNCH_KERNEL(K, args, stream, nblocks, nvlink) do { \
   enum {PCIE_THREADS = 256, NVLINK_THREADS = 128}; \
   enum {UNROLL = 8}; \
   int nthreads = nvlink ? NVLINK_THREADS : PCIE_THREADS; \
   dim3 grid(nblocks, 1, 1); \
   dim3 block(nthreads+1, 1, 1); \
   void* argptrs[] = {&args}; \
-  if (nvlink) { \
-    if (pushrecv) KERNEL(K, NVLINK_THREADS, true); else KERNEL(K, NVLINK_THREADS, false); \
-  } else { \
-    if (pushrecv) KERNEL(K, PCIE_THREADS, true); else KERNEL(K, PCIE_THREADS, false); \
-  } \
+  if (nvlink) KERNEL(K, NVLINK_THREADS); else KERNEL(K, PCIE_THREADS); \
 }while (false)
 
 #endif // End include guard
