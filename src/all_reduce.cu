@@ -269,10 +269,6 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
   if (count == 0)
     return ncclSuccess;
 
-  enum {THREADS = 256};
-  enum {UNROLL = 8};
-  enum {UNROLL_SIZE = THREADS*UNROLL};
-
   AllReduceKernelArgs<T> args;
   args.NumGPUs = comm->nRanks;
   args.N = count;
@@ -280,7 +276,7 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
   args.opCounter = comm->opCounter;
   args.doneCount = comm->devMem->flags + MAXFLAGS-1;
 
-  const int minSlice = 2 * UNROLL_SIZE * sizeof(PackType) / sizeof(T);
+  const int minSlice = 2 * NCCL_UNROLL_SIZE * sizeof(PackType) / sizeof(T);
   const int atomSize = minSlice * comm->nRanks;
   const int numAtoms = (count + atomSize-1) / atomSize;
   const int nRings = min(numAtoms, comm->nRings);
@@ -314,18 +310,7 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    dim3 grid(nRings, 1, 1);
-    dim3 block(THREADS+1, 1, 1);
-    void* argptrs[] = {&args};
-    if( comm->globalMemSpace ) {
-      CUDACHECK(cudaLaunchKernel(
-          (void*)AllReduceKernel<THREADS, UNROLL, FUNC, true, T>,
-          grid, block, argptrs, 0, stream));
-    } else {
-      CUDACHECK(cudaLaunchKernel(
-          (void*)AllReduceKernel<THREADS, UNROLL, FUNC, false, T>,
-          grid, block, argptrs, 0, stream));
-    }
+    LAUNCH_KERNEL(AllReduceKernel, args, stream, nRings, comm->globalMemSpace, (comm->p2ptype == ncclComm::NVLINK));
   }
 
   return ncclSuccess;

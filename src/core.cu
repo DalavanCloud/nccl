@@ -413,6 +413,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   if (connect == _PCIE) {
     INFO("Using PCIe topology");
     comm->nRings = 1;
+    comm->p2ptype = ncclComm::PCIE;
     for(int ringPos=0; ringPos<ndev; ++ringPos) {
       int ncclPos = (ringPos+myNcclId) % ndev; // ring order relative to self
       int userRank = ranks[ncclPos].rank;
@@ -423,6 +424,8 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
     const int MAXNVLGPUS = 8; // whatever the biggest topology we know about is
     const int MAXNVLRINGS = 6; // usually based on how many NVLinks each GPU has
     int NVLRings[MAXNVLGPUS][MAXNVLRINGS]; // note this is transposed for ease of variable # of GPUs
+
+    comm->p2ptype = ncclComm::NVLINK;
 
     if (topo == _CUBEMESH) {
       INFO("Using Cube-Mesh topology");
@@ -483,10 +486,11 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       memcpy(NVLRings, FCRings, sizeof(FCRings));
     }
 
-    for(int r=0; r<comm->nRings; ++r) {
+    // Double the number of rings to improve bandwidth
+    for(int r=0; r<comm->nRings*2; ++r) {
       int myRingPos=-1;
       for(int p=0; p<ndev; ++p) {
-        if (myNcclId == NVLRings[p][r])
+        if (myNcclId == NVLRings[p][r%comm->nRings])
           myRingPos = p;
       }
       if (myRingPos == -1) {
@@ -497,12 +501,13 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
 
       for(int ringPos=0; ringPos<ndev; ++ringPos) {
         int absRingPos = (ringPos+myRingPos) % ndev;
-        int nccl = NVLRings[absRingPos][r];
+        int nccl = NVLRings[absRingPos][r%comm->nRings];
         int userRank = ranks[nccl].rank;
         comm->userFromRing[r][ringPos] = userRank;
         comm->ncclFromRing[r][ringPos] = nccl;
       }
     }
+    comm->nRings *= 2;
   }
 
   int myDev = ranks[myNcclId].cudaDev;
