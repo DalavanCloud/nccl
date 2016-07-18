@@ -397,6 +397,14 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   enum { _PCIE, _NVLINK } connect = _PCIE;
   enum { _CUBEMESH, _HALF_CUBEMESH, _4FC, _4RING, _3FC, _2FC } topo;
 
+  const char* linkName = getenv("NCCL_LINK");
+  if (linkName != NULL) {
+    if      ((strcmp(linkName, "NVLINK")        == 0) && (ndev == 8)) { connect = _NVLINK; topo = _CUBEMESH; }
+    else if ((strcmp(linkName, "NVLINK")        == 0) && (ndev == 4)) { connect = _NVLINK; topo = _HALF_CUBEMESH; }
+    else if ((strcmp(linkName, "NVLINK")        == 0) && (ndev == 3)) { connect = _NVLINK; topo = _3FC; }
+    else if ((strcmp(linkName, "NVLINK")        == 0) && (ndev == 2)) { connect = _NVLINK; topo = _2FC; }
+  }
+
   const char* topoName = getenv("NCCL_TOPOLOGY");
   if (topoName != NULL) {
     if      ((strcmp(topoName, "CUBEMESH")      == 0) && (ndev == 8)) { connect = _NVLINK; topo = _CUBEMESH; }
