@@ -73,7 +73,7 @@ endif
 
 NCCL_MAJOR   := 1
 NCCL_MINOR   := 5
-NCCL_PATCH   := 3
+NCCL_PATCH   := 4
 CXXFLAGS  += -DNCCL_MAJOR=$(NCCL_MAJOR) -DNCCL_MINOR=$(NCCL_MINOR) -DNCCL_PATCH=$(NCCL_PATCH)
 
 CUDA_VERSION ?= $(shell ls $(CUDA_LIB)/libcudart.so.* | head -1 | rev | cut -d "." -f -2 | rev)
