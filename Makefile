@@ -43,7 +43,7 @@ NVCC_GENCODE ?= -gencode=arch=compute_35,code=sm_35 \
                 -gencode=arch=compute_52,code=sm_52 \
                 -gencode=arch=compute_60,code=sm_60
 
-CXXFLAGS   := -I$(CUDA_INC) -fPIC -fvisibility=hidden
+CXXFLAGS   := -I$(CUDA_INC) -fPIC -fvisibility=hidden 
 NVCUFLAGS  := -ccbin $(CXX) $(NVCC_GENCODE) -lineinfo -std=c++11 -maxrregcount 96
 # Use addprefix so that we can specify more than one path
 LDFLAGS    := $(addprefix -L,${CUDA_LIB}) -lcudart
@@ -88,7 +88,7 @@ INCEXPORTS  := nccl.h
 LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
 LIBNAME     := libnccl.so
 TESTS       := all_gather_test     all_gather_scan \
-               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded \
+               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded all_reduce_debug \
                broadcast_test      broadcast_scan \
                reduce_test         reduce_scan \
                reduce_scatter_test reduce_scatter_scan
@@ -167,7 +167,7 @@ MPITESTBINS:= $(patsubst %, $(MPITSTDIR)/%, $(MPITESTS))
 
 test : $(TESTBINS)
 
-$(TSTDIR)/% : test/single/%.cu $(TSTDEP) 
+$(TSTDIR)/% : test/single/%.cu test/include/*.h $(TSTDEP) 
 	@printf "Building  %-25s > %-24s\n" $< $@
 	mkdir -p $(TSTDIR)
 	$(NVCC) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcuda -lcurand -lnvToolsExt

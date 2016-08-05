@@ -49,7 +49,7 @@
 #define MAXRINGS 12
 #define MAXFLAGS (2*MAXRINGS)
 #define MAXRANKS 32
-#define DEFAULT_BUFFER_SIZE_BYTES (1UL << 25)
+#define DEFAULT_BUFFER_SIZE_BYTES (1UL << 21)
 #define NCCL_MEM_PAD_ALIGN 65536
 
 
@@ -57,7 +57,9 @@ struct ncclMem {
   union { // Pad this block so that devBuff is correctly aligned
     struct {
       int   flags[MAXFLAGS];
-      void* recvPtrs[MAXFLAGS];
+      void* recvPtrs[MAXRINGS];
+      int   doneCount; // Used to count the number of done blocks before we
+                       // increment the Op counter
       int   opCounter; // Used to determine when remote Communicators are ready.
                        // Only used in host memory.
     };

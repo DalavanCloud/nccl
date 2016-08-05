@@ -52,21 +52,23 @@
 
 class WaitFlag {
   volatile int * const flag;
+  const int shift;
   public:
   __device__ __forceinline__
-  WaitFlag(volatile int * const flag) : flag(flag) { }
+  WaitFlag(volatile int * const flag, const int shift) : flag(flag), shift(shift) { }
   __device__ __forceinline__
-  void wait(int val) { while (*flag < val) /*SPIN*/; }
+  void wait(int val) { while (*flag < (val + shift)) /*SPIN*/; }
 };
 
 
 class PostFlag {
   volatile int * const flag;
+  const int shift;
   public:
   __device__ __forceinline__
-  PostFlag(volatile int* const flag) : flag(flag) { }
+  PostFlag(volatile int* const flag, const int shift) : flag(flag), shift(shift) { }
   __device__ __forceinline__
-  void post(int val) { *flag = val; }
+  void post(int val) { *flag = (val + shift); }
 };
 
 
@@ -156,7 +158,7 @@ class Primitives {
       for (int sub=0; sub<SUBSTEPS; ++sub) {
         if (AnyAre<WaitFlag>(flags...)) {
           if (threadIdx.x == 0) {
-            WaitOnFlags(SUBSTEPS*(step-1) + sub + 1, flags...);
+            WaitOnFlags(SUBSTEPS*step + sub + 1, flags...);
           }
           asm volatile ("bar.sync 1, %0;" :: "r"(THREADS));
         }

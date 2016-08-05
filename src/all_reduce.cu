@@ -32,19 +32,8 @@
 #include "enqueue.h"
 #include "primitives.h"
 
-
-__device__ inline void getSliceSizeAndOffset(int *size, int *offset, int slice,
-    int numSlices, int numBigSlices, int numSmallSlices, int bigSliceN,
-    int smallSliceN, int lastSliceN) {
-  if (slice < numBigSlices) {
-    *size = bigSliceN;
-    *offset = slice * bigSliceN;
-  } else {
-    *size = (slice < numBigSlices + numSmallSlices) ? smallSliceN
-        : ((slice == numSlices - 1) ? lastSliceN : 0);
-    *offset = numBigSlices * bigSliceN + (slice - numBigSlices) * smallSliceN;
-  }
-}
+#define NUM_SUBSTEPS 2
+#define NUM_BUFCHUNKS 2
 
 template <int THREADS, typename T> __device__ __forceinline__
 void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
@@ -62,7 +51,8 @@ void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
 template<typename T>
 struct AllReduceKernelArgs {
   // general parameters
-  int NumGPUs;
+  int nRanks;
+  int buffSize;
   int N;
   int opIndex;
   volatile int * __restrict__ opCounter;
@@ -82,6 +72,15 @@ struct AllReduceKernelArgs {
   DevRing<char>* rings;
 };
 
+// Increase Step and poffset/noffset for buffer sync
+#define NEXT_STEP \
+  step++; \
+  poffset = noffset; \
+  noffset += bufSliceSize; \
+  if (noffset == buffSize) noffset = 0;
+
+#define ALIGN_SIZE(size, align) \
+  size = ((size + (align) - 1) / (align)) * (align);
 
 template<int THREADS, int UNROLL, class FUNC, typename T>
 __launch_bounds__(THREADS+WARP_SIZE, 1)
@@ -96,165 +95,167 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   __syncthreads();
 
   if (tid == 0) {
+    WaitFlag prevCommOp(ring.prevOpCounter, 0);
+    WaitFlag nextCommOp(ring.nextOpCounter, 0);
+    prevCommOp.wait(args.opIndex);
+    nextCommOp.wait(args.opIndex);
     if (pushrecv) {
-      WaitFlag prevCommOp(ring.prevOpCounter);
-      prevCommOp.wait(args.opIndex);
-
       *ring.sendPtrToPrev = (T*)args.ThisOutput;
       Wait([=] {
         return *ring.recvPtrFromNext != nullptr;
       });
       sharedNextOutput = *ring.recvPtrFromNext;
       *ring.recvPtrFromNext = nullptr;
-    } else {
-      WaitFlag nextCommOp(ring.nextOpCounter);
-      nextCommOp.wait(args.opIndex);
     }
   }
   __syncthreads();
 
-  WaitFlag thisChunkDone(ring.recvFlagFromNext);
-  WaitFlag thisDataReady(ring.recvFlagFromPrev);
-  PostFlag prevChunkDone(ring.sendFlagToPrev);
-  PostFlag nextDataReady(ring.sendFlagToNext);
+  WaitFlag waitDoneFromNext(ring.recvFlagFromNext, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
+  WaitFlag waitReadyFromPrev(ring.recvFlagFromPrev, -1*NUM_SUBSTEPS);
+  PostFlag postDoneToPrev(ring.sendFlagToPrev, -1*NUM_SUBSTEPS);
+  PostFlag postReadyToNext(ring.sendFlagToNext, 0);
 
-  typedef Primitives<THREADS, UNROLL, 2, T, FUNC> Prims;
+  typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
+  const int size = args.N;
+  const int nranks = args.nRanks;
+  const int buffSize = args.buffSize / sizeof(T);
+  const int bufSliceSize = buffSize / NUM_BUFCHUNKS;
+  int sliceSize = bufSliceSize;
+  if (gridDim.x*nranks*sliceSize > size) {
+    // Try to better balance work for small sizes
+    sliceSize = size / (nranks*gridDim.x);
+    ALIGN_SIZE(sliceSize, UNROLL*THREADS);
+  }
+  
   int step = 0;
-  for (int chunk=bid; chunk<args.NumChunks; chunk+=gridDim.x) {
-    // calculate slice size.  for all chunks except (possibly) the last one,
-    // this will just be args.SliceSize. For the last one, it may be smaller
-    int bigSliceN   = args.SliceSize;
-    int smallSliceN = 0;
-    int lastSliceN  = 0;
-    int numSlices   = args.NumGPUs;
-    int numBigSlices   = numSlices;
-    int numSmallSlices = 0;
+  int poffset, noffset = 0;
 
-    // last chunk
-    if ((chunk + 1 == args.NumChunks) && (args.N % args.ChunkSize > 0)) {
-      if (!pushrecv) {
-        thisChunkDone.wait(2*step); // TODO handle slice resize more elegantly.
-      }
-      CalcLastChunk<THREADS, UNROLL, T>(&bigSliceN, &smallSliceN, &lastSliceN,
-          &numSlices, &numBigSlices, &numSmallSlices, args.N, args.NumChunks,
-          args.ChunkSize);
-    }
+  // Compute pointers
+  const T * __restrict__ thisInput = args.ThisInput;
+  T * __restrict__ thisOutput =  args.ThisOutput;
+  T * __restrict__ prevInput = ring.recvBuffer;
+  T * __restrict__ nextOutput =  ring.sendBuffer;
 
-    // this offset is only applied to Data pointers, not to Buffer pointers,
-    // since we only have one buffer per chunk
-    int chunkOffset = chunk * args.ChunkSize;
-
-    // Compute pointers
-    const T * __restrict__ thisInput = args.ThisInput  + chunkOffset;
-    T * __restrict__ thisOutput =  args.ThisOutput + chunkOffset;
-    T * __restrict__ prevInput = ring.recvBuffer;
-    T * __restrict__ nextOutput =  ring.sendBuffer;
-
+  for (int chunkOffset = bid*nranks*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*nranks*sliceSize) {
     /////////////// begin AllReduce steps ///////////////
+    int offset;
+    int opSize;
+    int slice;
 
     // step 0: push data to next GPU
-    int slice = ring.userRank[args.NumGPUs-1];
-    int offset;
-    int sliceSize;
-    getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
-        numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
+    slice = ring.userRank[nranks-1];
+    offset = chunkOffset + slice * sliceSize;
+    opSize = max(0, min(sliceSize, size-offset));
 
-    if (pushrecv) {
-      Prims::Copy(
-          thisInput  + offset,
-          nextOutput + offset,
-          sliceSize,
-          step++, nextDataReady);
-    } else {
-      Prims::Copy(
-          thisInput  + offset,
-          nextOutput + offset,
-          sliceSize,
-          step++, thisChunkDone, nextDataReady);
-    }
+    Prims::Copy(
+        thisInput  + offset,
+        nextOutput + noffset,
+        opSize,
+        step,
+        waitDoneFromNext, waitReadyFromPrev,
+        postReadyToNext, postDoneToPrev);
+
+    NEXT_STEP; // Increases step, poffset, noffset
 
     // k-2 steps: reduce and copy to next GPU
-    for (int j=2; j<args.NumGPUs; ++j) {
-      slice = ring.userRank[args.NumGPUs-j];
-      getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
-          numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
+    for (int j=2; j<nranks; ++j) {
+      slice = ring.userRank[nranks-j];
+      offset = chunkOffset + slice * sliceSize;
+      opSize = max(0, min(sliceSize, size-offset));
 
       Prims::Reduce(
-          prevInput  + offset,
+          prevInput  + poffset,
           thisInput  + offset,
-          nextOutput + offset,
-          sliceSize,
-          step++, thisDataReady, nextDataReady);
-    }
+          nextOutput + noffset,
+          opSize,
+          step,
+          waitDoneFromNext, waitReadyFromPrev,
+          postReadyToNext, postDoneToPrev);
 
-    if (pushrecv) nextOutput = sharedNextOutput + chunkOffset;
+      NEXT_STEP;
+    }
 
     // step k - 1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
     slice = ring.userRank[0];
-    getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
-        numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
+    offset = chunkOffset + slice * sliceSize;
+    opSize = max(0, min(sliceSize, size-offset));
 
     Prims::ReduceCopy(
-        prevInput  + offset,
+        prevInput  + poffset,
         thisInput  + offset,
-        nextOutput + offset,
+        pushrecv ? (sharedNextOutput + offset) : (nextOutput + noffset),
         thisOutput + offset,
-        sliceSize,
-        step++, thisDataReady, nextDataReady);
+        opSize,
+        step,
+        waitDoneFromNext, waitReadyFromPrev,
+        postReadyToNext, postDoneToPrev);
 
-    // k-2 steps: copy result to next GPU
+    NEXT_STEP;
+
     if (pushrecv) {
-      for (int j=1; j<args.NumGPUs-1; ++j) {
-	slice = ring.userRank[args.NumGPUs - j];
-	getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
-	    numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
+      // k-2 steps: copy result to next GPU
+      for (int j=1; j<nranks-1; ++j) {
+        slice = ring.userRank[nranks - j];
+        offset = chunkOffset + slice * sliceSize;
+        opSize = max(0, min(sliceSize, size-offset));
 
-	Prims::Copy(
-	    thisOutput + offset,
-	    nextOutput + offset,
-	    sliceSize,
-	    step++, thisDataReady, nextDataReady);
+        Prims::Copy(
+            thisOutput + offset,
+            sharedNextOutput + offset,
+            opSize,
+            step,
+            waitDoneFromNext, waitReadyFromPrev,
+            postReadyToNext, postDoneToPrev);
+
+        NEXT_STEP;
       }
     } else {
-      for (int j=1; j<args.NumGPUs-1; ++j) {
-	slice = ring.userRank[args.NumGPUs - j];
-	getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
-	    numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
+      // k-2 steps: copy result to next GPU
+      for (int j=1; j<nranks-1; ++j) {
+        slice = ring.userRank[nranks - j];
+        offset = chunkOffset + slice * sliceSize;
+        opSize = max(0, min(sliceSize, size-offset));
 
-	Prims::DoubleCopy(
-	    prevInput  + offset,
-	    nextOutput + offset,
-	    thisOutput + offset,
-	    sliceSize,
-	    step++, thisDataReady, nextDataReady);
+        Prims::DoubleCopy(
+            prevInput + poffset,
+            thisOutput + offset,
+            nextOutput + noffset,
+            opSize,
+            step,
+            waitDoneFromNext, waitReadyFromPrev,
+            postReadyToNext, postDoneToPrev);
+
+        NEXT_STEP;
       }
 
       // Make final copy from buffer to dest.
       slice = ring.userRank[1];
-      getSliceSizeAndOffset(&sliceSize, &offset, slice, numSlices,
-          numBigSlices, numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
+      offset = chunkOffset + slice * sliceSize;
+      opSize = max(0, min(sliceSize, size-offset));
 
       // Here we need to copy from buffer to this output.
       Prims::Copy(
-          prevInput  + offset,
+          prevInput + poffset,
           thisOutput + offset,
-          sliceSize,
-          step++, thisDataReady, prevChunkDone);
+          opSize,
+          step,
+	  waitDoneFromNext, waitReadyFromPrev,
+	  postReadyToNext, postDoneToPrev);
+
+      NEXT_STEP;
     }
   }
 
   // wait for the last data to be pushed to us
   if (tid == 0) {
-    if (pushrecv) {
-      thisDataReady.wait(2*step); // wait to receive last data
-    } else {
-      thisChunkDone.wait(2*step); // wait for last flag update
-      *ring.recvFlagFromNext = 0;
-    }
+    // Wait for last update from next then reset the flag
+    waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
+    *ring.recvFlagFromNext = 0;
 
-    // Each CTA resets its own flags
+    // Wait for last update from prev then reset the flag
+    waitReadyFromPrev.wait(NUM_SUBSTEPS*(step+1));
     *ring.recvFlagFromPrev = 0;
 
     // Last CTA increments comm's operation counts
@@ -267,6 +268,21 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   }
 }
 
+#define KERNEL(K, THREADS) \
+  CUDACHECK(cudaLaunchKernel( \
+            (void*)K<THREADS, UNROLL, FUNC, T>, \
+            grid, block, argptrs, 0, stream))
+
+#define LAUNCH_KERNEL(K, args, stream, nblocks, nvlink) do { \
+  enum {PCIE_THREADS = 512, NVLINK_THREADS = 128}; \
+  enum {UNROLL = 8}; \
+  int nthreads = nvlink ? NVLINK_THREADS : PCIE_THREADS; \
+  dim3 grid(nblocks, 1, 1); \
+  dim3 block(nthreads+1, 1, 1); \
+  void* argptrs[] = {&args}; \
+  if (nvlink) KERNEL(K, NVLINK_THREADS); else KERNEL(K, PCIE_THREADS); \
+}while (false)
+
 template<class FUNC, typename T>
 ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     const int count, ncclComm* comm, cudaStream_t stream) {
@@ -274,37 +290,12 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     return ncclSuccess;
 
   AllReduceKernelArgs<T> args;
-  args.NumGPUs = comm->nRanks;
+  args.nRanks = comm->nRanks;
+  args.buffSize = comm->buffSizePerRing;
   args.N = count;
   args.opIndex = comm->opSched;
   args.opCounter = comm->opCounter;
-  args.doneCount = comm->devMem->flags + MAXFLAGS-1;
-
-  const int minSlice = 2 * NCCL_UNROLL_SIZE * sizeof(PackType) / sizeof(T);
-  const int atomSize = minSlice * comm->nRanks;
-  const int numAtoms = (count + atomSize-1) / atomSize;
-  const int nRings = min(numAtoms, comm->nRings);
-  const int maxAtomsPerChunk = comm->buffSizePerRing / (sizeof(T) * atomSize);
-  assert (maxAtomsPerChunk > 1);
-
-  if (numAtoms == nRings) {
-    args.SliceSize = minSlice;
-    args.ChunkSize = atomSize;
-    args.NumChunks = numAtoms;
-  } else { // numAtoms > nRings
-    int minNumChunks = (numAtoms + maxAtomsPerChunk-1) / maxAtomsPerChunk;
-    int targetChunks = ((minNumChunks + nRings-1) / nRings) * nRings;
-    int atomsPerChunk = numAtoms / targetChunks;
-    if (numAtoms % targetChunks > 1) {
-      atomsPerChunk += 1;
-      args.NumChunks = (numAtoms+atomsPerChunk-1) / atomsPerChunk;
-    } else {
-      args.NumChunks = targetChunks;
-    }
-
-    args.SliceSize = minSlice * atomsPerChunk;
-    args.ChunkSize = atomSize * atomsPerChunk;
-  }
+  args.doneCount = &comm->devMem->doneCount;
 
   args.ThisInput = (const T*)sendbuff;
   args.ThisOutput = (T*)recvbuff;
@@ -315,7 +306,7 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    LAUNCH_KERNEL(AllReduceKernel, args, stream, nRings, (comm->p2ptype == ncclComm::NVLINK));
+    LAUNCH_KERNEL(AllReduceKernel, args, stream, comm->nRings, (comm->p2ptype == ncclComm::NVLINK));
   }
 
   return ncclSuccess;

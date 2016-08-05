@@ -658,8 +658,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   free(orderedList);
 
   // Setup device-side ring-views
-  int maxBuffPerRing = (comm->buffSize / (comm->nRings * 128)) * 128;
-  comm->buffSizePerRing = maxBuffPerRing;
+  int maxBuffPerRing = comm->buffSizePerRing;
   for(int r=0; r<comm->nRings; ++r) {
     if (cudaMemcpy(comm->devUserFromRing[r], comm->userFromRing[r], ndev*sizeof(int),
         cudaMemcpyHostToDevice) != cudaSuccess) {
@@ -794,16 +793,17 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* 
   const char* str = getenv("NCCL_BUFFSIZE");
   if (str != NULL) {
     errno = 0;
-    comm->buffSize = strtol(str, NULL, 10);
-    if (errno == ERANGE || comm->buffSize == 0) {
+    comm->buffSizePerRing = strtol(str, NULL, 10);
+    if (errno == ERANGE || comm->buffSizePerRing == 0) {
       INFO("rank %d invalid NCCL_BUFFSIZE: %s, using default %lu",
           rank, str, DEFAULT_BUFFER_SIZE_BYTES);
-      comm->buffSize = DEFAULT_BUFFER_SIZE_BYTES;
+      comm->buffSizePerRing = DEFAULT_BUFFER_SIZE_BYTES;
     }
   } else {
-    comm->buffSize = DEFAULT_BUFFER_SIZE_BYTES;
+    comm->buffSizePerRing = DEFAULT_BUFFER_SIZE_BYTES;
   }
-  INFO("rank %d using buffSize = %lu", rank, comm->buffSize);
+  comm->buffSize = comm->buffSizePerRing * MAXRINGS;
+  INFO("rank %d using buffSize = %lu, buffSizePerRing = %lu", rank, comm->buffSize, comm->buffSizePerRing);
 
 
   ncclResult_t res;
