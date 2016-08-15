@@ -26,427 +26,220 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  ************************************************************************/
 
-#include <cassert>
+#include <assert.h>
 
 #include "core.h"
-#include "common_kernel.h"
-#include "copy_kernel.h"
 #include "enqueue.h"
-#include "reduce_kernel.h"
+#include "primitives.h"
 
-/* HIERARCHY
- *
- * The data is split into CHUNKS, and each CHUNK is split into NUM_SUBCHUNKS
- * SUBCHUNKS, where each SUBCHUNK is an independent, complete reduction. Each
- * GPU has a buffer that can fit an entire CHUNK, so that all SUBCHUNKS can be
- * processed without checking that the buffer on the receiving GPU is empty. A
- * SUBCHUNK is split into NUM_GPUS SLICES and each GPU works on a different
- * SLICE at the same time. Before moving on the the next SLICE in the reduction
- * algorithm, the GPU has to check whether it has received the data from the
- * previous GPU it needs for this SLICE. To hide the latency of this
- * communication, each GPU processes all the SLICES of all the SUBCHUNKS in
- * sequence before moving on to the next SLICE. Each SLICE is split into a
- * certain number of UNROLLS (determined by the buffer size) and each thread
- * performs UNROLL_COUNT single-data-element operations inside an UNROLL. As the
- * name suggests, the UNROLL_COUNT operations within an UNROLL are unrolled.
-*/
+#define NUM_SUBSTEPS 2
+#define NUM_BUFCHUNKS 2
 
-// Number of threads used to perform copies, etc. Must be multiple of 32.
-// An additional thread is used to handle threadfences, so the CUDA blocks
-// have dimension NUM_THREADS+1.
-#define NUM_THREADS     256
-
-// Each thread unrolls the innermost loop of the copy or reduction operations
-// to this many single-data-element instructions
-#define UNROLL_COUNT    8
-
-#define UNROLL_SIZE     (UNROLL_COUNT * NUM_THREADS)
-
-// To hide the latency associated with the synchronization between different
-// subchunks, we interleave the independent subchunks so that more data can be
-// transferred while the sync is in progress. This is the number of subchunks
-// that are active at the same time
-#define NUM_SUBCHUNKS   2
-
-/*
- * numGPUs BLOCKs consisting of recvcount words each
- * BLOCK is split up into NumChunks CHUNKs
- * CHUNK is split up into NUM_SUBCHUNKS SUBCHUNKs
- * SUBCHUNK consists of exactly one SLICE
- * SLICE is most efficiently processed in multiples of UNROLL_SIZE
- *
- * The algorithm has numGPUs steps and each step processes a SLICE (i.e.
- * SUBCHUNK) of a different BLOCK. Only data of the BLOCKs not resident on the
- * GPU need to be communicated, hence (numGPUs - 1) BLOCKs. So the buffer needs
- * to have room for (numGPUs - 1) SLICEs.
- */
-
-
-// do not encode the subchunk number into the flag, because there is a separate
-// flag for each subchunk
-
-// If this is called with STEP, it means that we just finished processing the
-// data for step STEP on this GPU, which is the data required on the next GPU
-// for step STEP + 1, so we signal the next GPU that its data for step STEP + 1
-// is available. This is called by one particular consumer warp and so we select
-// the first thread in the warp to set the flag.
-#define SIGNAL_NEW_DATA_AVAILABLE(chunk, subchunk, step)     \
-    do {                                                     \
-      __threadfence_system();                                \
-      *ring.NextNewDataAvailableFlag = subchunk + 1          \
-          + NUM_SUBCHUNKS*((chunk) * args.NumGPUs + (step)); \
-    } while (0)
-
-// This is called by all producer threads, but only thread 0 spins on the flag,
-// all threads synchronize after thread 0 is done spinning.
-#define WAIT_FOR_NEW_DATA(chunk, subchunk, step)                    \
-    do {                                                            \
-      if (tid == 0) {                                               \
-        int val = subchunk + 1                                      \
-            + NUM_SUBCHUNKS*((int)(chunk) * args.NumGPUs + (step)); \
-        Wait([=] { return *ring.ThisNewDataAvailableFlag >= val;}); \
-      }                                                             \
-      BAR(sync, 1, NUM_THREADS);                                    \
-    } while (0)
-
-// If this is called with CHUNK, it means that this GPU has just finished
-// processing the chunk CHUNK and so the previous GPU can start with CHUNK + 1
-#define SIGNAL_CHUNK_DONE(chunk, subchunk)                            \
-    do {                                                              \
-      __threadfence_system();                                         \
-      *ring.PrevChunkDoneFlag = NUM_SUBCHUNKS*(chunk) + subchunk + 1; \
-    } while (0)
-
-// This is called by all producer threads, but only thread 0 spins on the flag,
-// all threads synchronize after thread 0 is done spinning.
-#define WAIT_FOR_CHUNK(chunk, subchunk)                       \
-    do {                                                      \
-      if (tid == 0) {                                         \
-        int val = NUM_SUBCHUNKS*(int)(chunk) + subchunk + 1;  \
-        Wait([=] { return *ring.ThisChunkDoneFlag >= val; }); \
-      }                                                       \
-      BAR(sync, 1, NUM_THREADS);                              \
-    } while (0)
-
-
-__device__ inline void getSliceSizeAndChunkSize(int *sliceSize, int slice,
-    int numSlices, int numBigSlices, int numSmallSlices, int bigSliceN,
-    int smallSliceN, int lastSliceN) {
-  if (slice < numBigSlices) {
-    *sliceSize = bigSliceN;
-  } else {
-    *sliceSize = (slice < numBigSlices + numSmallSlices) ? smallSliceN
-        : ((slice == numSlices - 1) ? lastSliceN : 0);
+template <int THREADS, typename T> __device__ __forceinline__
+void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
+  enum { NUM_WORDS = sizeof(DevRing<char>) / sizeof(long long) };
+  static_assert(sizeof(DevRing<char>) % sizeof(long long) == 0, "Bad alignment");
+  static_assert(THREADS >= NUM_WORDS, "Not enough threads to load DevRing");
+  static_assert(sizeof(DevRing<char>) == sizeof(DevRing<T>), "DevRing size mismatch");
+  long long* lldst = reinterpret_cast<long long*>(dst);
+  const long long* llsrc = reinterpret_cast<const long long*>(src);
+  if (threadIdx.x < NUM_WORDS) {
+    lldst[threadIdx.x] = llsrc[threadIdx.x];
   }
-
-/*  if (threadIdx.x == 0)
-    printf("[sliceSize=%d] slice=%d numSlices=%d "
-        "numBigSlices=%d numSmallSlices=%d bigSliceN=%d smallSliceN=%d "
-        "lastSliceN=%d\n", *sliceSize, slice, numSlices, numBigSlices,
-        numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
-*/
 }
-
-template<typename T>
-struct ReduceScatterRingArgs {
-  int * UserFromRing;
-
-  T ** ThisPtrToNextOutput;
-  T ** PrevPtrToThisOutput;
-  volatile int * __restrict__ NextOpCounter;
-
-  volatile T * __restrict__ ThisBuffer;
-  volatile T * __restrict__ NextBuffer;
-
-  // local and remote flags
-  volatile int * __restrict__ ThisNewDataAvailableFlag;
-  volatile int * __restrict__ NextNewDataAvailableFlag;
-  volatile int * __restrict__ ThisChunkDoneFlag;
-  volatile int * __restrict__ PrevChunkDoneFlag;
-};
 
 template<typename T>
 struct ReduceScatterKernelArgs {
   // general parameters
-  int NumGPUs;
+  int nRanks;
+  int buffSize;
   int N;
   int opIndex;
-  volatile int* __restrict__ opCounter;
+  volatile int * __restrict__ opCounter;
   int * __restrict__ doneCount;
+  bool pushrecv;
 
   // some pre-computed sizes
   int SliceSize;
+  int SliceOffset;
   int ChunkSize;
   int NumChunks;
-  int BufferSliceStride;
 
-  // local input and output
+  // local and remote input, output, and buffer
   const T * __restrict__ ThisInput;
-  volatile T * __restrict__ ThisOutput;
+  T * __restrict__ ThisOutput;
 
-  ReduceScatterRingArgs<T> rings[MAXRINGS];
+  DevRing<char>* rings;
 };
 
-__device__ inline int GetBlock(const int step,
-    const int * const userFromRing, const int numGPUs) {
-  return userFromRing[(numGPUs - 1 - step) % numGPUs];
-}
+// Increase Step and poffset/noffset for buffer sync
+#define NEXT_STEP \
+  step++; \
+  poffset = noffset; \
+  noffset += bufSliceSize; \
+  if (noffset == buffSize) noffset = 0;
+
+#define ALIGN_SIZE(size, align) \
+  size = ((size + (align) - 1) / (align)) * (align);
 
 template<int THREADS, int UNROLL, class FUNC, typename T>
+__launch_bounds__(THREADS+WARP_SIZE, 1)
 __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
-  int tid = threadIdx.x;
-  int bid = blockIdx.x;
-  __shared__ ReduceScatterRingArgs<T> ring;
-  ring = args.rings[bid];
+  const int tid = threadIdx.x;
+  const int bid = blockIdx.x;
+  __shared__ DevRing<T> ring;
+
+  LoadRing<THREADS>(args.rings+bid, &ring);
+  __syncthreads();
 
   if (tid == 0) {
-    Wait([=] { return *ring.NextOpCounter == args.opIndex; });
+    WaitFlag prevCommOp(ring.prevOpCounter, 0);
+    WaitFlag nextCommOp(ring.nextOpCounter, 0);
+    prevCommOp.wait(args.opIndex);
+    nextCommOp.wait(args.opIndex);
   }
   __syncthreads();
 
-  int chunk;
-  for (chunk = bid; chunk < args.NumChunks; chunk+=gridDim.x) {
-    // calculate slice size.  for all chunks except (possibly) the last one,
-    // this will just be args.SliceSize. For the last one, it may be smaller
-    int bigSliceN   = args.SliceSize;
-    int smallSliceN = 0;
-    int lastSliceN  = 0;
-    int numSlices   = NUM_SUBCHUNKS;
-    int numBigSlices   = numSlices;
-    int numSmallSlices = 0;
+  WaitFlag waitDoneFromNext(ring.recvFlagFromNext, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
+  WaitFlag waitReadyFromPrev(ring.recvFlagFromPrev, -1*NUM_SUBSTEPS);
+  PostFlag postDoneToPrev(ring.sendFlagToPrev, -1*NUM_SUBSTEPS);
+  PostFlag postReadyToNext(ring.sendFlagToNext, 0);
 
-    // last chunk
-    if ((chunk + 1 == args.NumChunks) && (args.N % args.ChunkSize > 0))
-      CalcLastChunk<THREADS, UNROLL, T>(&bigSliceN, &smallSliceN, &lastSliceN,
-          &numSlices, &numBigSlices, &numSmallSlices, args.N, args.NumChunks,
-          args.ChunkSize);
+  typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
+  const int size = args.N;
+  const int nranks = args.nRanks;
+  const int buffSize = args.buffSize / sizeof(T);
+  const int bufSliceSize = buffSize / NUM_BUFCHUNKS;
+  int sliceSize = bufSliceSize;
+  if (gridDim.x*nranks*sliceSize > size) {
+    // Try to better balance work for small sizes
+    sliceSize = size / gridDim.x;
+    ALIGN_SIZE(sliceSize, UNROLL*THREADS);
+  }
+  
+  int step = 0;
+  int poffset, noffset = 0;
 
-    // this offset is only applied to Data pointers, not to Buffer pointers,
-    // since we only have one buffer per chunk
-    int chunkOffset = chunk * args.ChunkSize;
+  // Compute pointers
+  const T * __restrict__ thisInput = args.ThisInput;
+  T * __restrict__ thisOutput =  args.ThisOutput;
+  T * __restrict__ prevInput = ring.recvBuffer;
+  T * __restrict__ nextOutput =  ring.sendBuffer;
+
+  for (int chunkOffset = bid*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*sliceSize) {
+    /////////////// begin ReduceScatter steps ///////////////
+    int offset;
+    int opSize = max(0, min(sliceSize, size-chunkOffset));
+    int rankDest;
 
     // step 0: push data to next GPU
-    int step = 0;
-    int block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
-    int blockOffset = chunkOffset + block * args.N;
-    int bufferOffset = block * args.BufferSliceStride;
-    int sliceSize;
+    rankDest = ring.userRank[nranks-1];
+    offset = chunkOffset + rankDest * size;
 
-    if (tid < NUM_THREADS) {
-      for(int s=0; s<NUM_SUBCHUNKS; ++s) {
-        getSliceSizeAndChunkSize(&sliceSize, s, numSlices, numBigSlices,
-            numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
+    Prims::Copy(
+        thisInput  + offset,
+        nextOutput + noffset,
+        opSize,
+        step,
+        waitDoneFromNext, waitReadyFromPrev,
+        postReadyToNext, postDoneToPrev);
 
-        WAIT_FOR_CHUNK(chunk-gridDim.x, s);
-        Copy<UNROLL, THREADS>(
-            ring.NextBuffer + bufferOffset,
-            args.ThisInput + blockOffset,
-            sliceSize);
-        __syncthreads();
-        bufferOffset += sliceSize;
-        blockOffset += sliceSize;
-      }
-    } else { // Is consumer
-      for(int s=0; s<NUM_SUBCHUNKS; ++s) {
-        __syncthreads();
-        SIGNAL_NEW_DATA_AVAILABLE(chunk, s, step);
-      }
-    }
+    NEXT_STEP; // Increases step, poffset, noffset
 
-    // steps j with 0 < j < k - 1, where k = number of GPUs: reduce and copy to
-    // next GPU
-    for (step = 1; step < args.NumGPUs - 1; ++step) {
-      int block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
-      int blockOffset = chunkOffset + block * args.N;
-      int bufferOffset = block * args.BufferSliceStride;
+    // k-2 steps: reduce and copy to next GPU
+    for (int j=2; j<nranks; ++j) {
+      rankDest = ring.userRank[nranks-j];
+      offset = chunkOffset + rankDest * size;
 
-      if (tid < NUM_THREADS) {
-        for(int s=0; s<NUM_SUBCHUNKS; ++s) {
-            getSliceSizeAndChunkSize(&sliceSize, s, numSlices, numBigSlices,
-                numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
-          WAIT_FOR_NEW_DATA(chunk, s, step-1);
-          Reduce<UNROLL, THREADS, FUNC>(
-              ring.NextBuffer + bufferOffset,
-              ring.ThisBuffer + bufferOffset,
-              args.ThisInput + blockOffset,
-              sliceSize);
-          __syncthreads();
-          bufferOffset += sliceSize;
-          blockOffset += sliceSize;
-        }
-      } else {
-        for(int s=0; s<NUM_SUBCHUNKS; ++s) {
-          __syncthreads();
-          SIGNAL_NEW_DATA_AVAILABLE(chunk, s, step);
-        }
-      }
+      Prims::Reduce(
+          prevInput  + poffset,
+          thisInput  + offset,
+          nextOutput + noffset,
+          opSize,
+          step,
+          waitDoneFromNext, waitReadyFromPrev,
+          postReadyToNext, postDoneToPrev);
+
+      NEXT_STEP;
     }
 
     // step k - 1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
-    step = args.NumGPUs - 1;
-    block = GetBlock(step, ring.UserFromRing, args.NumGPUs);
-    blockOffset = chunkOffset + block * args.N;
-    bufferOffset = block * args.BufferSliceStride;
+    rankDest = ring.userRank[0];
+    offset = chunkOffset + rankDest * size;
 
-    if (tid < NUM_THREADS) {
-      int outputOffset = 0;
-      for (int s=0; s<NUM_SUBCHUNKS; ++s) {
-        getSliceSizeAndChunkSize(&sliceSize, s, numSlices, numBigSlices,
-            numSmallSlices, bigSliceN, smallSliceN, lastSliceN);
-        WAIT_FOR_NEW_DATA(chunk, s, step-1);
-        Reduce<UNROLL, THREADS, FUNC>(
-            args.ThisOutput + (chunkOffset + outputOffset),
-            ring.ThisBuffer + bufferOffset,
-            args.ThisInput + blockOffset,
-            sliceSize);
-        __syncthreads();
-        outputOffset += sliceSize;
-        bufferOffset += sliceSize;
-        blockOffset += sliceSize;
-      }
-    } else {
-      for (int s=0; s<NUM_SUBCHUNKS; ++s) {
-        __syncthreads();
-        // signal that chunk is done if this is not the last chunk
-        if (chunk + gridDim.x < args.NumChunks) {
-          SIGNAL_CHUNK_DONE(chunk, s);
-        }
-      }
-    }
+    Prims::Reduce(
+        prevInput  + poffset,
+        thisInput  + offset,
+        thisOutput + chunkOffset,
+        opSize,
+        step,
+        waitDoneFromNext, waitReadyFromPrev,
+        postReadyToNext, postDoneToPrev);
+
+    NEXT_STEP;
   }
 
   // wait for the last data to be pushed to us
   if (tid == 0) {
-    *ring.ThisNewDataAvailableFlag = 0;
-    *ring.ThisChunkDoneFlag = 0;
+    // Wait for last update from next then reset the flag
+    waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
+    *ring.recvFlagFromNext = 0;
 
+    // Wait for last update from prev then reset the flag
+    waitReadyFromPrev.wait(NUM_SUBSTEPS*(step+1));
+    *ring.recvFlagFromPrev = 0;
+
+    // Last CTA increments comm's operation counts
     if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
       *args.doneCount = 0;
-      __threadfence_system();
-
+      __threadfence_system(); // Technically need to ensure that cleared flags
+                              // are visible before incrementing op counter.
       *args.opCounter = args.opIndex+1;
     }
   }
 }
 
+#define KERNEL(K, THREADS) \
+  CUDACHECK(cudaLaunchKernel( \
+            (void*)K<THREADS, UNROLL, FUNC, T>, \
+            grid, block, argptrs, 0, stream))
+
+#define LAUNCH_KERNEL(K, args, stream, nblocks, nvlink) do { \
+  enum {PCIE_THREADS = 512, NVLINK_THREADS = 128}; \
+  enum {UNROLL = 8}; \
+  int nthreads = nvlink ? NVLINK_THREADS : PCIE_THREADS; \
+  dim3 grid(nblocks, 1, 1); \
+  dim3 block(nthreads+1, 1, 1); \
+  void* argptrs[] = {&args}; \
+  if (nvlink) KERNEL(K, NVLINK_THREADS); else KERNEL(K, PCIE_THREADS); \
+}while (false)
+
 template<class FUNC, typename T>
-ncclResult_t RingReduceScatter(const void* sendbuff,
-    void* recvbuff, const int recvcount, ncclComm* comm, cudaStream_t stream) {
-  if (recvcount == 0)
+ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
+    const int count, ncclComm* comm, cudaStream_t stream) {
+  if (count == 0)
     return ncclSuccess;
 
   ReduceScatterKernelArgs<T> args;
-  args.NumGPUs = comm->nRanks;
-  args.N = recvcount;
+  args.nRanks = comm->nRanks;
+  args.buffSize = comm->buffSizePerRing;
+  args.N = count;
   args.opIndex = comm->opSched;
   args.opCounter = comm->opCounter;
-  args.doneCount = comm->devMem->flags + MAXFLAGS-1;
-
-  const int minSlice = UNROLL_SIZE * sizeof(PackType) / sizeof(T);
-  const int minChunk = NUM_SUBCHUNKS * minSlice;
-  const int atomSize = minChunk * comm->nRanks;
-  const int numAtoms = (recvcount + minChunk-1) / minChunk;
-  const int nRings = min(numAtoms, comm->nRings);
-
-  const int bufferVPerRing = comm->buffSize / (sizeof(PackType) * nRings);
-  const int bufferNPerRing = bufferVPerRing * sizeof(PackType) / sizeof(T);
-  const int misalignedN = recvcount % (sizeof(PackType) / sizeof(T));
-  const int maxAtomsPerChunk = (bufferNPerRing - misalignedN*comm->nRanks) / atomSize;
-  assert(maxAtomsPerChunk>1);
-
-  if (numAtoms == nRings) {
-    args.SliceSize = minSlice;
-    args.NumChunks = numAtoms;
-  } else {
-    int minNumChunks = (numAtoms + maxAtomsPerChunk-1) / maxAtomsPerChunk;
-    int targetChunks = ((minNumChunks + nRings-1) / nRings) * nRings;
-    int atomsPerChunk = numAtoms / targetChunks;
-    if (numAtoms % targetChunks > 1) {
-      atomsPerChunk += 1;
-      args.NumChunks = (numAtoms+atomsPerChunk-1) / atomsPerChunk;
-    } else {
-      args.NumChunks = targetChunks;
-    }
-    args.SliceSize = minSlice * atomsPerChunk;
-  }
-
-  args.ChunkSize = args.SliceSize * NUM_SUBCHUNKS;
-  args.BufferSliceStride = minChunk * maxAtomsPerChunk + misalignedN;
+  args.doneCount = &comm->devMem->doneCount;
 
   args.ThisInput = (const T*)sendbuff;
-  args.ThisOutput = (volatile T*)recvbuff;
-
-  for(int r=0; r<nRings; ++r) {
-    ReduceScatterRingArgs<T>& ring = args.rings[r];
-    int nextNcclId = comm->ncclFromRing[r][(comm->nRanks > 1) ? 1 : 0]; 
-    int prevNcclId = comm->ncclFromRing[r][comm->nRanks - 1];
-    NodeRef* next = comm->ptrs + nextNcclId;
-    NodeRef* prev = comm->ptrs + prevNcclId;
-
-
-    /* Block j must end up in recvbuff[j], which lives on device with logical
-     * index comm->ringFromUser[j]. But the block ordering does not necessarily
-     * follow the ring ordering. Hence the order in which a particular GPU
-     * processes the different blocks (the correspondence between the step in
-     * the reduction algorithm and the block on which a GPU operates in that
-     * particular step) is not the same as the ring order.
-     *
-     * Say we have 4 GPUs and comm->userFromRing = { 1, 2, 0, 3 }. Then there are 4
-     * step in the reduction algorithm and block 0 needs to end up device 2,
-     * block 1 on device 0, block 2 on device 1, and block 3 needs to end up on
-     * device 3. In the last step of the algorithm, each GPU must be processing
-     * the block that will end up on that GPU. The blocks that a GPU has to
-     * process in the previous steps is determined by the next step because each
-     * GPU only hands off data to the next GPU in the ring.
-     *
-     * In the above example, we get the following table of which block is
-     * processed by each GPU in a given step. The columns correspond to the
-     * different GPUs while the rows are the steps in the algorithm.
-     *
-     *      GPU 0   1   2   3
-     * step
-     *    0     3   1   2   0
-     *    1     0   3   1   2
-     *    2     2   0   3   1
-     *    3     1   2   0   3
-     *
-     * We note the the rows in the above table are just comm->userFromRing in the last
-     * step and the list is cyclicly permuted to the left for each previous
-     * step. The columns, which are what the individual GPUs need to know, are
-     * comm->userFromRing traversed backwards and starting at index k-1 for GPU k.
-     * These columns are what we put into args.BlockVsStep to tell the GPU which
-     * block it needs to be processing at a particular step. */
-    ring.UserFromRing = comm->devUserFromRing[r];
-
-
-    ring.ThisPtrToNextOutput = (T**)&(next->local->recvPtrs[r]);
-    ring.PrevPtrToThisOutput = (T**)&(prev->remote->recvPtrs[r]);
-    ring.NextOpCounter = next->opCounter;
-
-    ring.ThisBuffer = (volatile T*)prev->local->buff + r*bufferNPerRing;
-    ring.NextBuffer = (volatile T*)next->remote->buff + r*bufferNPerRing;
-
-    // we need 2 * NUM_SUBCHUNKS flags, so use the first NUM_SUBCHUNKS flags
-    // to signal the next GPU that new data is available and the following
-    // NUM_SUBCHUNKS to signal the previous GPU that a chunk is finished
-    ring.ThisNewDataAvailableFlag = prev->local->flags + r;
-    ring.NextNewDataAvailableFlag = next->remote->flags + r;
-    ring.ThisChunkDoneFlag = next->local->flags + nRings + r;
-    ring.PrevChunkDoneFlag = prev->remote->flags + nRings + r;
-  }
+  args.ThisOutput = (T*)recvbuff;
+  args.rings = comm->devRing;
+  args.pushrecv = comm->globalMemSpace;
 
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
-      CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, recvcount*sizeof(T), cudaMemcpyDeviceToDevice, stream));
+      CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    dim3 grid(nRings, 1, 1);
-    dim3 block(NUM_THREADS+1, 1, 1);
-    void* argptrs[] = {&args};
-    CUDACHECK(cudaLaunchKernel(
-	  (void*)ReduceScatterKernel<NUM_THREADS, UNROLL_COUNT, FUNC, T>,
-	  grid, block, argptrs, 0, stream));
+    LAUNCH_KERNEL(ReduceScatterKernel, args, stream, comm->nRings, (comm->p2ptype == ncclComm::NVLINK));
   }
 
   return ncclSuccess;
