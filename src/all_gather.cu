@@ -122,7 +122,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
   const int buffSize = args.buffSize / sizeof(T);
   const int bufSliceSize = buffSize / NUM_BUFCHUNKS;
   int sliceSize = bufSliceSize;
-  if (gridDim.x*nranks*sliceSize > size) {
+  if (gridDim.x*sliceSize > size) {
     // Try to better balance work for small sizes
     sliceSize = size / gridDim.x;
     ALIGN_SIZE(sliceSize, UNROLL*THREADS);
