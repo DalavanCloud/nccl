@@ -110,7 +110,7 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
   }
   __syncthreads();
 
-  WaitFlag waitDoneFromNext(ring.recvFlagFromNext, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
+  WaitFlag waitDoneFromNext(ring.recvFlagFromNext, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring.recvFlagFromPrev, 0);
   PostFlag postDoneToPrev(ring.sendFlagToPrev, 0);
   PostFlag postReadyToNext(ring.sendFlagToNext, 0);
