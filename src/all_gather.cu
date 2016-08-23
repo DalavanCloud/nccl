@@ -157,7 +157,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
           postReadyToNext, postDoneToPrev);
     } else {
       Prims::DoubleCopy(
-          thisInput  + chunkOffset,
+          thisInput  + offset,
           thisOutput + offset,
           pushrecv ? sharedNextOutput + offset : nextOutput + noffset,
           opSize,
