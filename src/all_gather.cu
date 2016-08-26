@@ -76,7 +76,7 @@ struct AllGatherKernelArgs {
 #define NEXT_STEP \
   step++; \
   poffset = noffset; \
-  noffset += bufSliceSize; \
+  noffset += sliceSize; \
   if (noffset == buffSize) noffset = 0;
 
 #define ALIGN_SIZE(size, align) \
@@ -120,13 +120,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
   const int size = args.N;
   const int nranks = args.nRanks;
   const int buffSize = args.buffSize / sizeof(T);
-  const int bufSliceSize = buffSize / NUM_BUFCHUNKS;
-  int sliceSize = bufSliceSize;
-  if (gridDim.x*sliceSize > size) {
-    // Try to better balance work for small sizes
-    sliceSize = size / gridDim.x;
-    ALIGN_SIZE(sliceSize, UNROLL*THREADS);
-  }
+  const int sliceSize = buffSize / NUM_BUFCHUNKS;
   
   int step = 0;
   int poffset, noffset = 0;
@@ -140,7 +134,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
   for (int chunkOffset = bid*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*sliceSize) {
     /////////////// begin AllGather steps ///////////////
     int offset;
-    int opSize = max(0, min(sliceSize, size-chunkOffset));
+    int maxOffset = size-chunkOffset;
     int rankDest;
 
     // step 0: push data to next GPU
@@ -151,7 +145,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
       Prims::Copy(
           thisInput  + offset,
           pushrecv ? sharedNextOutput + offset : nextOutput + noffset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitDoneFromNext, waitReadyFromPrev,
           postReadyToNext, postDoneToPrev);
@@ -160,7 +154,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
           thisInput  + chunkOffset,
           thisOutput + offset,
           pushrecv ? sharedNextOutput + offset : nextOutput + noffset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitDoneFromNext, waitReadyFromPrev,
           postReadyToNext, postDoneToPrev);
@@ -177,7 +171,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
         Prims::Copy(
             thisOutput + offset,
             sharedNextOutput + offset,
-            opSize,
+            sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
             postReadyToNext, postDoneToPrev);
@@ -193,7 +187,7 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
             prevInput + poffset,
             thisOutput + offset,
             nextOutput + noffset,
-            opSize,
+            sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
             postReadyToNext, postDoneToPrev);
@@ -209,10 +203,10 @@ __global__ void AllGatherKernel(const AllGatherKernelArgs<T> args) {
       Prims::Copy(
           prevInput + poffset,
           thisOutput + offset,
-          opSize,
+          sliceSize, maxOffset,
           step,
-	  waitDoneFromNext, waitReadyFromPrev,
-	  postReadyToNext, postDoneToPrev);
+          waitDoneFromNext, waitReadyFromPrev,
+          postReadyToNext, postDoneToPrev);
 
       NEXT_STEP;
     }

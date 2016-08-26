@@ -76,7 +76,7 @@ struct AllReduceKernelArgs {
 #define NEXT_STEP \
   step++; \
   poffset = noffset; \
-  noffset += bufSliceSize; \
+  noffset += sliceSize; \
   if (noffset == buffSize) noffset = 0;
 
 #define ALIGN_SIZE(size, align) \
@@ -120,13 +120,7 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   const int size = args.N;
   const int nranks = args.nRanks;
   const int buffSize = args.buffSize / sizeof(T);
-  const int bufSliceSize = buffSize / NUM_BUFCHUNKS;
-  int sliceSize = bufSliceSize;
-  if (gridDim.x*nranks*sliceSize > size) {
-    // Try to better balance work for small sizes
-    sliceSize = size / (nranks*gridDim.x);
-    ALIGN_SIZE(sliceSize, UNROLL*THREADS);
-  }
+  const int sliceSize = buffSize / NUM_BUFCHUNKS;
   
   int step = 0;
   int poffset, noffset = 0;
@@ -140,18 +134,18 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
   for (int chunkOffset = bid*nranks*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*nranks*sliceSize) {
     /////////////// begin AllReduce steps ///////////////
     int offset;
-    int opSize;
+    int maxOffset;
     int slice;
 
     // step 0: push data to next GPU
     slice = ring.userRank[nranks-1];
     offset = chunkOffset + slice * sliceSize;
-    opSize = max(0, min(sliceSize, size-offset));
+    maxOffset = size-offset;
 
     Prims::Copy(
         thisInput  + offset,
         nextOutput + noffset,
-        opSize,
+        sliceSize, maxOffset,
         step,
         waitDoneFromNext, waitReadyFromPrev,
         postReadyToNext, postDoneToPrev);
@@ -162,13 +156,13 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
     for (int j=2; j<nranks; ++j) {
       slice = ring.userRank[nranks-j];
       offset = chunkOffset + slice * sliceSize;
-      opSize = max(0, min(sliceSize, size-offset));
+      maxOffset = size-offset;
 
       Prims::Reduce(
           prevInput  + poffset,
           thisInput  + offset,
           nextOutput + noffset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitDoneFromNext, waitReadyFromPrev,
           postReadyToNext, postDoneToPrev);
@@ -180,14 +174,14 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
     // result that we store in this data and push to the next GPU
     slice = ring.userRank[0];
     offset = chunkOffset + slice * sliceSize;
-    opSize = max(0, min(sliceSize, size-offset));
+    maxOffset = size-offset;
 
     Prims::ReduceCopy(
         prevInput  + poffset,
         thisInput  + offset,
         pushrecv ? (sharedNextOutput + offset) : (nextOutput + noffset),
         thisOutput + offset,
-        opSize,
+        sliceSize, maxOffset,
         step,
         waitDoneFromNext, waitReadyFromPrev,
         postReadyToNext, postDoneToPrev);
@@ -199,12 +193,12 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
       for (int j=1; j<nranks-1; ++j) {
         slice = ring.userRank[nranks - j];
         offset = chunkOffset + slice * sliceSize;
-        opSize = max(0, min(sliceSize, size-offset));
+	maxOffset = size-offset;
 
         Prims::Copy(
             thisOutput + offset,
             sharedNextOutput + offset,
-            opSize,
+            sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
             postReadyToNext, postDoneToPrev);
@@ -216,13 +210,13 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
       for (int j=1; j<nranks-1; ++j) {
         slice = ring.userRank[nranks - j];
         offset = chunkOffset + slice * sliceSize;
-        opSize = max(0, min(sliceSize, size-offset));
+	maxOffset = size-offset;
 
         Prims::DoubleCopy(
             prevInput + poffset,
             thisOutput + offset,
             nextOutput + noffset,
-            opSize,
+            sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
             postReadyToNext, postDoneToPrev);
@@ -233,16 +227,16 @@ __global__ void AllReduceKernel(const AllReduceKernelArgs<T> args) {
       // Make final copy from buffer to dest.
       slice = ring.userRank[1];
       offset = chunkOffset + slice * sliceSize;
-      opSize = max(0, min(sliceSize, size-offset));
+      maxOffset = size-offset;
 
       // Here we need to copy from buffer to this output.
       Prims::Copy(
           prevInput + poffset,
           thisOutput + offset,
-          opSize,
+          sliceSize, maxOffset,
           step,
-	  waitDoneFromNext, waitReadyFromPrev,
-	  postReadyToNext, postDoneToPrev);
+          waitDoneFromNext, waitReadyFromPrev,
+          postReadyToNext, postDoneToPrev);
 
       NEXT_STEP;
     }

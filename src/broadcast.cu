@@ -76,7 +76,7 @@ struct BroadcastKernelArgs {
 // Increase Step and boffset for buffer sync
 #define NEXT_STEP \
   step++; \
-  boffset += bufSliceSize; \
+  boffset += sliceSize; \
   if (boffset == buffSize) boffset = 0;
 
 #define ALIGN_SIZE(size, align) \
@@ -122,13 +122,7 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
   const int nextRank = ring.userRank[1];
   const int root = args.root;
   const int buffSize = args.buffSize / sizeof(T);
-  const int bufSliceSize = buffSize / NUM_BUFCHUNKS;
-  int sliceSize = bufSliceSize;
-  if (gridDim.x*sliceSize > size) {
-    // Try to better balance work for small sizes
-    sliceSize = size / gridDim.x;
-    ALIGN_SIZE(sliceSize, UNROLL*THREADS);
-  }
+  const int sliceSize = buffSize / NUM_BUFCHUNKS;
   
   int step = 0;
   int boffset = 0;
@@ -140,21 +134,21 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
   T * __restrict__ nextOutput =  ring.sendBuffer;
 
   for (int offset = bid*sliceSize; offset < size; offset += gridDim.x*sliceSize) {
-    int opSize = max(0, min(sliceSize, size-offset));
+    int maxOffset = size-offset;
     if (rank == root) {
       Prims::Copy(
           thisInput + offset,
           pushrecv ? sharedNextOutput + offset : nextOutput + boffset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitDoneFromNext,
           postReadyToNext);
     } else if (nextRank == root) {
-      if (pushrecv) opSize = 0; // Only wait for signals
+      if (pushrecv) maxOffset = 0; // Only wait for signals
       Prims::Copy(
           prevInput  + boffset,
           thisOutput + offset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitReadyFromPrev,
           postDoneToPrev);
@@ -163,7 +157,7 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
         Prims::Copy(
             thisOutput + offset,
             sharedNextOutput + offset,
-            opSize,
+            sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
             postReadyToNext, postDoneToPrev);
@@ -172,7 +166,7 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
             prevInput + boffset,
             thisOutput + offset,
             nextOutput + boffset,
-            opSize,
+	    sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
             postReadyToNext, postDoneToPrev);

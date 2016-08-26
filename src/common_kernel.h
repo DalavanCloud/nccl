@@ -267,7 +267,7 @@ __device__ inline void ReduceOrCopy(const int tid,
     volatile T * __restrict__ dest0, volatile T * __restrict__ dest1,
     const volatile T * __restrict__ src0, const volatile T * __restrict__ src1,
     int N) {
-  if (N==0) {
+  if (N<=0) {
     return;
   }
 

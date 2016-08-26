@@ -140,7 +140,7 @@ class Primitives {
             const SRC2_T src2,
                   T*     dst1,
                   DST2_T dst2,
-            int len, int step, SYNC_Ts... flags) {
+            int len, int maxoffset, int step, SYNC_Ts... flags) {
 
     enum { noSrc2 = std::is_same<SRC2_T, nullptr_t>::value };
     enum { noDst2 = std::is_same<DST2_T, nullptr_t>::value };
@@ -177,7 +177,7 @@ class Primitives {
              ptradd(dst2, sliceOffset),
              ptradd(src1, sliceOffset),
              ptradd(src2, sliceOffset),
-             (sub == SUBSTEPS-1) ? len-sliceOffset : sliceSize
+             min(sliceSize, maxoffset-sliceOffset)
             );
         if (AnyAre<PostFlag>(flags...)) {
           __syncthreads();

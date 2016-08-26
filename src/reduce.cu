@@ -76,7 +76,7 @@ struct ReduceKernelArgs {
 // Increase Step and boffset for buffer sync
 #define NEXT_STEP \
   step++; \
-  boffset += bufSliceSize; \
+  boffset += sliceSize; \
   if (boffset == buffSize) boffset = 0;
 
 #define ALIGN_SIZE(size, align) \
@@ -113,13 +113,7 @@ __global__ void ReduceKernel(const ReduceKernelArgs<T> args) {
   const int prevRank = ring.userRank[nranks-1];
   const int root = args.root;
   const int buffSize = args.buffSize / sizeof(T);
-  const int bufSliceSize = buffSize / NUM_BUFCHUNKS;
-  int sliceSize = bufSliceSize;
-  if (gridDim.x*sliceSize > size) {
-    // Try to better balance work for small sizes
-    sliceSize = size / gridDim.x;
-    ALIGN_SIZE(sliceSize, UNROLL*THREADS);
-  }
+  const int sliceSize = buffSize / NUM_BUFCHUNKS;
   
   int step = 0;
   int boffset = 0;
@@ -131,12 +125,12 @@ __global__ void ReduceKernel(const ReduceKernelArgs<T> args) {
   T * __restrict__ nextOutput =  ring.sendBuffer;
 
   for (int offset = bid*sliceSize; offset < size; offset += gridDim.x*sliceSize) {
-    int opSize = max(0, min(sliceSize, size-offset));
+    int maxOffset = size-offset;
     if (prevRank == root) {
       Prims::Copy(
           thisInput + offset,
           nextOutput + boffset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitDoneFromNext,
           postReadyToNext);
@@ -145,7 +139,7 @@ __global__ void ReduceKernel(const ReduceKernelArgs<T> args) {
           prevInput  + boffset,
           thisInput + offset,
           thisOutput + offset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitReadyFromPrev,
           postDoneToPrev);
@@ -155,7 +149,7 @@ __global__ void ReduceKernel(const ReduceKernelArgs<T> args) {
           prevInput + boffset,
           thisOutput + offset,
           nextOutput + boffset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitDoneFromNext, waitReadyFromPrev,
           postReadyToNext, postDoneToPrev);

@@ -76,7 +76,7 @@ struct ReduceScatterKernelArgs {
 #define NEXT_STEP \
   step++; \
   poffset = noffset; \
-  noffset += bufSliceSize; \
+  noffset += sliceSize; \
   if (noffset == buffSize) noffset = 0;
 
 #define ALIGN_SIZE(size, align) \
@@ -110,13 +110,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
   const int size = args.N;
   const int nranks = args.nRanks;
   const int buffSize = args.buffSize / sizeof(T);
-  const int bufSliceSize = buffSize / NUM_BUFCHUNKS;
-  int sliceSize = bufSliceSize;
-  if (gridDim.x*sliceSize > size) {
-    // Try to better balance work for small sizes
-    sliceSize = size / gridDim.x;
-    ALIGN_SIZE(sliceSize, UNROLL*THREADS);
-  }
+  const int sliceSize = buffSize / NUM_BUFCHUNKS;
   
   int step = 0;
   int poffset, noffset = 0;
@@ -130,7 +124,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
   for (int chunkOffset = bid*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*sliceSize) {
     /////////////// begin ReduceScatter steps ///////////////
     int offset;
-    int opSize = max(0, min(sliceSize, size-chunkOffset));
+    int maxOffset = size-chunkOffset;
     int rankDest;
 
     // step 0: push data to next GPU
@@ -140,7 +134,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
     Prims::Copy(
         thisInput  + offset,
         nextOutput + noffset,
-        opSize,
+        sliceSize, maxOffset,
         step,
         waitDoneFromNext, waitReadyFromPrev,
         postReadyToNext, postDoneToPrev);
@@ -156,7 +150,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
           prevInput  + poffset,
           thisInput  + offset,
           nextOutput + noffset,
-          opSize,
+          sliceSize, maxOffset,
           step,
           waitDoneFromNext, waitReadyFromPrev,
           postReadyToNext, postDoneToPrev);
@@ -173,7 +167,7 @@ __global__ void ReduceScatterKernel(const ReduceScatterKernelArgs<T> args) {
         prevInput  + poffset,
         thisInput  + offset,
         thisOutput + chunkOffset,
-        opSize,
+        sliceSize, maxOffset,
         step,
         waitDoneFromNext, waitReadyFromPrev,
         postReadyToNext, postDoneToPrev);
