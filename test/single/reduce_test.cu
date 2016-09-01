@@ -37,6 +37,9 @@
 #include <nvToolsExt.h>
 
 int csv = false;
+int errors = 0;
+double min_bw = 10000.0;
+bool is_reduction = true;
 
 template<typename T>
 void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
@@ -116,6 +119,9 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     printf((csv)?"%f,%f,%f,%le,":"  %7.3f  %5.2f  %5.2f  %7.0le",
         elapsedSec * 1.0E3, algbw, busbw, maxDelta);
 
+    if (maxDelta > deltaMaxValue(type, is_reduction)) errors++;
+    if (busbw < min_bw) min_bw = busbw;
+
     nvtxRangePop();
   }
 
@@ -154,6 +160,9 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
 
     printf((csv)?"%f,%f,%f,%le,":"  %7.3f  %5.2f  %5.2f  %7.0le\n",
         elapsedSec * 1.0E3, algbw, busbw, maxDelta);
+
+    if (maxDelta > deltaMaxValue(type, is_reduction)) errors++;
+    if (busbw < min_bw) min_bw = busbw;
 
     nvtxRangePop();
   }
@@ -294,6 +303,12 @@ int main(int argc, char* argv[]) {
     ncclCommDestroy(comms[i]);
   free(comms);
 
-  exit(EXIT_SUCCESS);
+  printf(" Out of bounds values : %d\n", errors);
+  printf(" Min bus bandwidth    : %g\n", min_bw);
+  printf("\n");
+  if (errors)
+    exit(EXIT_FAILURE);
+  else 
+    exit(EXIT_SUCCESS);
 }
 
