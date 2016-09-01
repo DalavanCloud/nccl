@@ -415,6 +415,19 @@ size_t wordSize(ncclDataType_t type) {
   return 0;
 }
 
+double deltaMaxValue(ncclDataType_t type, bool is_reduction) {
+  if (is_reduction) {
+    switch(type) {
+#ifdef CUDA_HAS_HALF
+      case ncclHalf:   return 5e-2;
+#endif
+      case ncclFloat:  return 1e-5;
+      case ncclDouble: return 1e-12;
+    }
+  }
+  return 0.0;
+}
+
 ncclRedOp_t strToOp(const char* s) {
   if (strcmp(s, "sum") == 0)
     return ncclSum;
