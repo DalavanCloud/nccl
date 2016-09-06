@@ -403,7 +403,7 @@ double deltaMaxValue(ncclDataType_t type, bool is_reduction) {
       case ncclDouble: return 1e-12;
     }
   }
-  return 0.0;
+  return 1e-200;
 }
 
 ncclRedOp_t strToOp(const char* s) {
