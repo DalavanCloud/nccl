@@ -281,10 +281,13 @@ int main(int argc, char* argv[]) {
     ncclCommDestroy(comms[i]);
   free(comms);
 
-  printf(" Out of bounds values : %d\n", errors);
-  printf(" Min bus bandwidth    : %g\n", min_bw);
+  char* str = getenv("NCCL_TESTS_MIN_BW");
+  double check_min_bw = str ? atof(str) : -1;
+
+  printf(" Out of bounds values : %d %s\n", errors, errors ? "FAILED" : "OK");
+  printf(" Min bus bandwidth    : %g %s\n", min_bw, check_min_bw == -1 ? "" : (min_bw < check_min_bw ? "FAILED" : "OK"));
   printf("\n");
-  if (errors)
+  if (errors || min_bw < check_min_bw)
     exit(EXIT_FAILURE);
   else 
     exit(EXIT_SUCCESS);
