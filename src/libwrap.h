@@ -14,12 +14,12 @@
 
 typedef struct nvmlDevice_st* nvmlDevice_t;
 
-/** 
- * Generic enable/disable enum. 
+/**
+ * Generic enable/disable enum.
  */
-typedef enum nvmlEnableState_enum 
+typedef enum nvmlEnableState_enum
 {
-    NVML_FEATURE_DISABLED    = 0,     //!< Feature disabled 
+    NVML_FEATURE_DISABLED    = 0,     //!< Feature disabled
     NVML_FEATURE_ENABLED     = 1      //!< Feature enabled
 } nvmlEnableState_t;
 

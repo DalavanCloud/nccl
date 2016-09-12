@@ -378,10 +378,10 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   const char* linkName = getenv("NCCL_LINK");
   if(linkName == NULL)
   {
-      // Test NVLink exisitence
+      // Test NVLink existence
       nvmlDevice_t rank_device;
       ncclResult_t res = wrapNvmlDeviceGetHandleByIndex(ranks[myNcclId].sortId, &rank_device);
-      // XXX: 4 is hardcoded here as current limit.  Need to adjust potentiall in future
+      // XXX: 4 is hardcoded here as current limit. Need to adjust potentially in the future
       for(int link_num=0; link_num<4; link_num++){
           nvmlEnableState_t active = NVML_FEATURE_DISABLED;
           res = wrapNvmlDeviceGetNvLinkState(rank_device, link_num, &active);
