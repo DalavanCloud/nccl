@@ -376,11 +376,31 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   enum { _CUBEMESH, _HALF_CUBEMESH, _4FC, _4RING, _3FC, _2FC } topo;
 
   const char* linkName = getenv("NCCL_LINK");
-  if (linkName != NULL) {
-    if      ((strcmp(linkName, "NVLINK")        == 0) && (ndev == 8)) { connect = _NVLINK; topo = _CUBEMESH; }
-    else if ((strcmp(linkName, "NVLINK")        == 0) && (ndev == 4)) { connect = _NVLINK; topo = _HALF_CUBEMESH; }
-    else if ((strcmp(linkName, "NVLINK")        == 0) && (ndev == 3)) { connect = _NVLINK; topo = _3FC; }
-    else if ((strcmp(linkName, "NVLINK")        == 0) && (ndev == 2)) { connect = _NVLINK; topo = _2FC; }
+  if(linkName == NULL)
+  {
+      // Test NVLink exisitence
+      nvmlDevice_t rank_device;
+      ncclResult_t res = wrapNvmlDeviceGetHandleByIndex(ranks[myNcclId].sortId, &rank_device);
+      // XXX: 4 is hardcoded here as current limit.  Need to adjust potentiall in future
+      for(int link_num=0; link_num<4; link_num++){
+          nvmlEnableState_t active = NVML_FEATURE_DISABLED;
+          res = wrapNvmlDeviceGetNvLinkState(rank_device, link_num, &active);
+          if(res == ncclSuccess && active == NVML_FEATURE_ENABLED) {
+              connect = _NVLINK;
+          }
+      }
+  }
+  else if(strcmp(linkName, "NVLINK") == 0) {
+      connect = _NVLINK;
+  }
+
+  if (connect == _NVLINK) {
+    // XXX - Need to add support to differentiate on more than just
+    // ndev to handle DGX Station, IBM, etc.
+    if      (ndev == 8) { topo = _CUBEMESH; }
+    else if (ndev == 4) { topo = _HALF_CUBEMESH; }
+    else if (ndev == 3) { topo = _3FC; }
+    else if (ndev == 2) { topo = _2FC; }
   }
 
   const char* topoName = getenv("NCCL_TOPOLOGY");

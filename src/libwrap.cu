@@ -18,6 +18,8 @@ static RetCode (*nvmlInternalDeviceGetIndex)(nvmlDevice_t device, unsigned* inde
 static RetCode (*nvmlInternalDeviceSetCpuAffinity)(nvmlDevice_t device);
 static RetCode (*nvmlInternalDeviceClearCpuAffinity)(nvmlDevice_t device);
 static const char* (*nvmlInternalErrorString)(RetCode r);
+static RetCode (*nvmlInternalDeviceGetNvLinkState)(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive);
+static RetCode (*nvmlInternalDeviceGetHandleByIndex)(unsigned int index, nvmlDevice_t* device);
 
 ncclResult_t wrapSymbols(void) {
 
@@ -54,6 +56,8 @@ ncclResult_t wrapSymbols(void) {
   LOAD_SYM(nvmlhandle, "nvmlDeviceSetCpuAffinity", nvmlInternalDeviceSetCpuAffinity);
   LOAD_SYM(nvmlhandle, "nvmlDeviceClearCpuAffinity", nvmlInternalDeviceClearCpuAffinity);
   LOAD_SYM(nvmlhandle, "nvmlErrorString", nvmlInternalErrorString);
+  LOAD_SYM(nvmlhandle, "nvmlDeviceGetNvLinkState", nvmlInternalDeviceGetNvLinkState);
+  LOAD_SYM(nvmlhandle, "nvmlDeviceGetHandleByIndex", nvmlInternalDeviceGetHandleByIndex);
 
   symbolsLoaded = 1;
   return ncclSuccess;
@@ -65,6 +69,8 @@ ncclResult_t wrapSymbols(void) {
   nvmlInternalDeviceGetIndex = NULL;
   nvmlInternalDeviceSetCpuAffinity = NULL;
   nvmlInternalDeviceClearCpuAffinity = NULL;
+  nvmlInternalDeviceGetNvLinkState = NULL;
+  nvmlInternalDeviceGetHandleByIndex = NULL;
 
   if (nvmlhandle != NULL) dlclose(nvmlhandle);
   return ncclSystemError;
@@ -155,3 +161,30 @@ ncclResult_t wrapNvmlDeviceClearCpuAffinity(nvmlDevice_t device) {
   return ncclSuccess;
 }
 
+ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive) {
+  if (nvmlInternalDeviceGetNvLinkState == NULL) {
+    WARN("lib wrapper not initilaized.");
+    return ncclLibWrapperNotSet;
+  }
+  RetCode ret = nvmlInternalDeviceGetNvLinkState(device, link, isActive);
+  if (ret != SUCCESS) {
+    WARN("nvmlDeviceGetNvLinkState() failed: %s ",
+      nvmlInternalErrorString(ret));
+    return ncclSystemError;
+  }
+  return ncclSuccess;
+}
+
+ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t* device) {
+  if (nvmlInternalDeviceGetHandleByIndex == NULL) {
+    WARN("lib wrapper not initilaized.");
+    return ncclLibWrapperNotSet;
+  }
+  RetCode ret = nvmlInternalDeviceGetHandleByIndex(index, device);
+  if (ret != SUCCESS) {
+    WARN("nvmlDeviceGetHandleByIndex() failed: %s ",
+      nvmlInternalErrorString(ret));
+    return ncclSystemError;
+  }
+  return ncclSuccess;
+}
