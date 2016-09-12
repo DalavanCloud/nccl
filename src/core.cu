@@ -913,7 +913,7 @@ static void showVersion() {
   static int shown = 0;
   if (shown == 0 && ncclDebugLevel >= VERSION) {
     printf("NCCL version %d.%d.%d compiled with CUDA %d.%d\n", NCCL_MAJOR, NCCL_MINOR, NCCL_PATCH, CUDA_MAJOR, CUDA_MINOR);
-    fflush(stdout);                                              \
+    fflush(stdout);
     shown = 1;
   }
 }
