@@ -72,7 +72,7 @@ INCEXPORTS  := nccl.h
 LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
 LIBNAME     := libnccl.so
 TESTS       := all_gather_test     all_gather_scan \
-               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded all_reduce_debug \
+               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded \
                broadcast_test      broadcast_scan \
                reduce_test         reduce_scan \
                reduce_scatter_test reduce_scatter_scan
