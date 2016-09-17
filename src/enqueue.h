@@ -40,7 +40,7 @@ ncclResult_t enqueue(const void* sendbuff,
 
   // print CRC checksum of input
   if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), comm->userFromRing[0][0], stream);
+    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), comm->rank, stream);
   }
 
   ncclResult_t ret;
@@ -48,7 +48,7 @@ ncclResult_t enqueue(const void* sendbuff,
 
   // print CRC checksum of output
   if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)recvbuff, count*sizeof(T), comm->userFromRing[0][0], stream);
+    printCRCDev((unsigned char*)recvbuff, count*sizeof(T), comm->rank, stream);
   }
   
   // Always have to record done event because we don't know what stream next

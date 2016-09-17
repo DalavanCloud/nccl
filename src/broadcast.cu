@@ -13,44 +13,6 @@
 #define NUM_SUBSTEPS 2
 #define NUM_BUFCHUNKS 2
 
-template <int THREADS, typename T> __device__ __forceinline__
-void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
-  enum { NUM_WORDS = sizeof(DevRing<char>) / sizeof(long long) };
-  static_assert(sizeof(DevRing<char>) % sizeof(long long) == 0, "Bad alignment");
-  static_assert(THREADS >= NUM_WORDS, "Not enough threads to load DevRing");
-  static_assert(sizeof(DevRing<char>) == sizeof(DevRing<T>), "DevRing size mismatch");
-  long long* lldst = reinterpret_cast<long long*>(dst);
-  const long long* llsrc = reinterpret_cast<const long long*>(src);
-  if (threadIdx.x < NUM_WORDS) {
-    lldst[threadIdx.x] = llsrc[threadIdx.x];
-  }
-}
-
-template<typename T>
-struct BroadcastKernelArgs {
-  // general parameters
-  int nRanks;
-  int root;
-  int buffSize;
-  int N;
-  int opIndex;
-  volatile int * __restrict__ opCounter;
-  int * __restrict__ doneCount;
-  bool pushrecv;
-
-  // some pre-computed sizes
-  int SliceSize;
-  int SliceOffset;
-  int ChunkSize;
-  int NumChunks;
-
-  // local and remote input, output, and buffer
-  const T * __restrict__ ThisInput;
-  T * __restrict__ ThisOutput;
-
-  DevRing<char>* rings;
-};
-
 // Increase Step and boffset for buffer sync
 #define NEXT_STEP \
   step++; \
@@ -60,16 +22,16 @@ struct BroadcastKernelArgs {
 #define ALIGN_SIZE(size, align) \
   size = ((size + (align) - 1) / (align)) * (align);
 
-template<int THREADS, int UNROLL, typename T>
+template<int THREADS, int UNROLL, class FUNC, typename T>
 __launch_bounds__(THREADS+WARP_SIZE, 1)
-__global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
+__global__ void BroadcastKernel(const KernelArgs<T> args) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   __shared__ T* sharedNextOutput;
   __shared__ DevRing<T> ring;
   bool pushrecv = args.pushrecv;
 
-  LoadRing<THREADS>(args.rings+bid, &ring);
+  LoadRing<THREADS>(args.ring+bid, &ring);
   __syncthreads();
 
   if (tid == 0) {
@@ -166,64 +128,39 @@ __global__ void BroadcastKernel(const BroadcastKernelArgs<T> args) {
       *ring.recvFlagFromPrev = 0;
     }
 
-    // Last CTA increments comm's operation counts
-    if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
-      *args.doneCount = 0;
-      __threadfence_system(); // Technically need to ensure that cleared flags
-                              // are visible before incrementing op counter.
-      *args.opCounter = args.opIndex+1;
-    }
+    incrementOpCounter(&args);
   }
 }
 
-#define KERNEL(K, THREADS) \
-  CUDACHECK(cudaLaunchKernel( \
-            (void*)K<THREADS, UNROLL, T>, \
-            grid, block, argptrs, 0, stream))
+#define PCIE_THREADS 256
+#define NVLINK_THREADS 128
+#define UNROLL 8
 
-#define LAUNCH_KERNEL(K, args, stream, nblocks, nvlink) do { \
-  enum {PCIE_THREADS = 256, NVLINK_THREADS = 128}; \
-  enum {UNROLL = 8}; \
-  int nthreads = nvlink ? NVLINK_THREADS : PCIE_THREADS; \
-  dim3 grid(nblocks, 1, 1); \
-  dim3 block(nthreads+1, 1, 1); \
-  void* argptrs[] = {&args}; \
-  if (nvlink) KERNEL(K, NVLINK_THREADS); else KERNEL(K, PCIE_THREADS); \
-}while (false)
-
-template<typename T>
+template<class FUNC, typename T>
 ncclResult_t RingBroadcast(void* buff, const int count, const int root,
     ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
 
-  BroadcastKernelArgs<T> args;
-  args.nRanks = comm->nRanks;
-  args.root = root;
-  args.buffSize = comm->buffSizePerRing;
-  args.N = count;
-  args.opIndex = comm->opSched;
-  args.opCounter = comm->opCounter;
-  args.doneCount = &comm->devMem->doneCount;
-
-  args.ThisInput = (const T*)buff;
-  args.ThisOutput = (T*)buff;
-  args.rings = comm->devRing;
-  args.pushrecv = comm->globalMemSpace;
-
   if (comm->nRanks != 1) {
-    LAUNCH_KERNEL(BroadcastKernel, args, stream, comm->nRings, (comm->p2ptype == ncclComm::NVLINK));
+    KernelArgs<T> args;
+    ArgsSetup(&args, buff, buff, root, count, comm);
+    if (comm->p2ptype == ncclComm::NVLINK) {
+      LAUNCH_KERNEL(BroadcastKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
+    } else {
+      LAUNCH_KERNEL(BroadcastKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
+    }
   }
 
   return ncclSuccess;
 }
 
-template<typename T, template <typename> class DummyOp>
+template<typename T, template<typename> class RedOp>
 class Broadcast {
   public:
   static ncclResult_t entry(const void* sendbuff, void* recvbuff,
       int count, int root, ncclComm* comm, cudaStream_t stream) {
-    return RingBroadcast<T>(recvbuff, count, root, comm, stream);
+    return RingBroadcast<RedOp<T>, T>(recvbuff, count, root, comm, stream);
   }
 };
 

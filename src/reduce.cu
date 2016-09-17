@@ -13,44 +13,6 @@
 #define NUM_SUBSTEPS 2
 #define NUM_BUFCHUNKS 2
 
-template <int THREADS, typename T> __device__ __forceinline__
-void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
-  enum { NUM_WORDS = sizeof(DevRing<char>) / sizeof(long long) };
-  static_assert(sizeof(DevRing<char>) % sizeof(long long) == 0, "Bad alignment");
-  static_assert(THREADS >= NUM_WORDS, "Not enough threads to load DevRing");
-  static_assert(sizeof(DevRing<char>) == sizeof(DevRing<T>), "DevRing size mismatch");
-  long long* lldst = reinterpret_cast<long long*>(dst);
-  const long long* llsrc = reinterpret_cast<const long long*>(src);
-  if (threadIdx.x < NUM_WORDS) {
-    lldst[threadIdx.x] = llsrc[threadIdx.x];
-  }
-}
-
-template<typename T>
-struct ReduceKernelArgs {
-  // general parameters
-  int nRanks;
-  int root;
-  int buffSize;
-  int N;
-  int opIndex;
-  volatile int * __restrict__ opCounter;
-  int * __restrict__ doneCount;
-  bool pushrecv;
-
-  // some pre-computed sizes
-  int SliceSize;
-  int SliceOffset;
-  int ChunkSize;
-  int NumChunks;
-
-  // local and remote input, output, and buffer
-  const T * __restrict__ ThisInput;
-  T * __restrict__ ThisOutput;
-
-  DevRing<char>* rings;
-};
-
 // Increase Step and boffset for buffer sync
 #define NEXT_STEP \
   step++; \
@@ -62,12 +24,12 @@ struct ReduceKernelArgs {
 
 template<int THREADS, int UNROLL, class FUNC, typename T>
 __launch_bounds__(THREADS+WARP_SIZE, 1)
-__global__ void ReduceKernel(const ReduceKernelArgs<T> args) {
+__global__ void ReduceKernel(const KernelArgs<T> args) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   __shared__ DevRing<T> ring;
 
-  LoadRing<THREADS>(args.rings+bid, &ring);
+  LoadRing<THREADS>(args.ring+bid, &ring);
   __syncthreads();
 
   if (tid == 0) {
@@ -148,30 +110,13 @@ __global__ void ReduceKernel(const ReduceKernelArgs<T> args) {
       *ring.recvFlagFromPrev = 0;
     }
 
-    // Last CTA increments comm's operation counts
-    if (atomicAdd(args.doneCount, 1) == gridDim.x-1) {
-      *args.doneCount = 0;
-      __threadfence_system(); // Technically need to ensure that cleared flags
-                              // are visible before incrementing op counter.
-      *args.opCounter = args.opIndex+1;
-    }
+    incrementOpCounter(&args);
   }
 }
 
-#define KERNEL(K, THREADS) \
-  CUDACHECK(cudaLaunchKernel( \
-            (void*)K<THREADS, UNROLL, FUNC, T>, \
-            grid, block, argptrs, 0, stream))
-
-#define LAUNCH_KERNEL(K, args, stream, nblocks, nvlink) do { \
-  enum {PCIE_THREADS = 512, NVLINK_THREADS = 128}; \
-  enum {UNROLL = 8}; \
-  int nthreads = nvlink ? NVLINK_THREADS : PCIE_THREADS; \
-  dim3 grid(nblocks, 1, 1); \
-  dim3 block(nthreads+1, 1, 1); \
-  void* argptrs[] = {&args}; \
-  if (nvlink) KERNEL(K, NVLINK_THREADS); else KERNEL(K, PCIE_THREADS); \
-}while (false)
+#define PCIE_THREADS 512
+#define NVLINK_THREADS 128
+#define UNROLL 8
 
 template<class FUNC, typename T>
 ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const int count, const int root,
@@ -179,22 +124,14 @@ ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const int count, c
   if (count == 0)
     return ncclSuccess;
 
-  ReduceKernelArgs<T> args;
-  args.nRanks = comm->nRanks;
-  args.root = root;
-  args.buffSize = comm->buffSizePerRing;
-  args.N = count;
-  args.opIndex = comm->opSched;
-  args.opCounter = comm->opCounter;
-  args.doneCount = &comm->devMem->doneCount;
-
-  args.ThisInput = (const T*)sendbuff;
-  args.ThisOutput = (T*)recvbuff;
-  args.rings = comm->devRing;
-  args.pushrecv = comm->globalMemSpace;
-
   if (comm->nRanks != 1) {
-    LAUNCH_KERNEL(ReduceKernel, args, stream, comm->nRings, (comm->p2ptype == ncclComm::NVLINK));
+    KernelArgs<T> args;
+    ArgsSetup(&args, sendbuff, recvbuff, root, count, comm);
+    if (comm->p2ptype == ncclComm::NVLINK) {
+      LAUNCH_KERNEL(ReduceKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
+    } else {
+      LAUNCH_KERNEL(ReduceKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
+    }
   }
 
   return ncclSuccess;

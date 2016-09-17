@@ -293,13 +293,13 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
       cures = cudaHostUnregister(comm->ptrs[d].hostCleanup);
       if (cures != cudaSuccess) {
         WARN("rank %d failed to unregister handle to device %d",
-          comm->userFromRing[0][0], d);
+          comm->rank, d);
           retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
       }
       res = shmUnmap(comm->ptrs[d].hostCleanup, offsetof(ncclMem, buff) + comm->buffSize);
       if (res != ncclSuccess) {
         WARN("rank %d failed to unmap handle to device %d",
-          comm->userFromRing[0][0], d);
+          comm->rank, d);
           retval = (retval == ncclSuccess) ? res : retval;
       }
       comm->ptrs[d].hostCleanup = NULL;
@@ -309,7 +309,7 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
       cures = cudaIpcCloseMemHandle((void*)comm->ptrs[d].devCleanup);
       if (cures != cudaSuccess) {
         WARN("rank %d failed to close IPC handle to device %d: %s",
-          comm->userFromRing[0][0], d, cudaGetErrorString(cures));
+          comm->rank, d, cudaGetErrorString(cures));
         retval = (retval == ncclSuccess) ? ncclUnhandledCudaError : retval;
       }
     }
@@ -329,6 +329,7 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
       }
     }
   }
+
   if (comm->devRing != NULL) {
     cures = cudaMemset(comm->devRing, 0, MAXRINGS*sizeof(DevRing<char>));
     if (cures != cudaSuccess) {
@@ -342,6 +343,7 @@ static ncclResult_t commClearMaps(ncclComm_t comm) {
 
 static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int rank, RankEntry* ranks, int* globalMemSpaceBroke) {
   int ndev = comm->nRanks;
+  comm->rank = rank;
 
   if (ndev > MAXRANKS) {
     WARN("%d ranks exceeds MAXRANKS of %d", ndev, MAXRANKS);
@@ -385,6 +387,10 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       for(int link_num=0; link_num<4; link_num++){
           nvmlEnableState_t active = NVML_FEATURE_DISABLED;
           res = wrapNvmlDeviceGetNvLinkState(rank_device, link_num, &active);
+          if (res == ncclLibWrapperNotSet) {
+            // Stop immediately if the symbol is not present
+            break;
+          }
           if(res == ncclSuccess && active == NVML_FEATURE_ENABLED) {
               connect = _NVLINK;
           }
@@ -655,7 +661,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   }
   free(orderedList);
 
-  // Setup device-side ring-views
+  // Setup device-side ring view
   int maxBuffPerRing = comm->buffSizePerRing;
   for(int r=0; r<comm->nRings; ++r) {
     if (cudaMemcpy(comm->devUserFromRing[r], comm->userFromRing[r], ndev*sizeof(int),
@@ -789,17 +795,19 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* 
   cudaGetDevice(&comm->cudaDev);
 
   const char* str = getenv("NCCL_BUFFSIZE");
+  int buffsize;
   if (str != NULL) {
     errno = 0;
-    comm->buffSizePerRing = strtol(str, NULL, 10);
-    if (errno == ERANGE || comm->buffSizePerRing == 0) {
+    buffsize = strtol(str, NULL, 10);
+    if (errno == ERANGE || buffsize == 0) {
       INFO("rank %d invalid NCCL_BUFFSIZE: %s, using default %lu",
           rank, str, DEFAULT_BUFFER_SIZE_BYTES);
-      comm->buffSizePerRing = DEFAULT_BUFFER_SIZE_BYTES;
+      buffsize = DEFAULT_BUFFER_SIZE_BYTES;
     }
   } else {
-    comm->buffSizePerRing = DEFAULT_BUFFER_SIZE_BYTES;
+    buffsize = DEFAULT_BUFFER_SIZE_BYTES;
   }
+  comm->buffSizePerRing = buffsize;
   comm->buffSize = comm->buffSizePerRing * MAXRINGS;
   INFO("rank %d using buffSize = %lu, buffSizePerRing = %lu", rank, comm->buffSize, comm->buffSizePerRing);
 
@@ -1185,7 +1193,7 @@ ncclResult_t ncclCommCuDevice(const ncclComm_t comm, int* devid) {
 
 NCCL_API(ncclResult_t, ncclCommUserRank, const ncclComm_t comm, int* rank);
 ncclResult_t ncclCommUserRank(const ncclComm_t comm, int* rank) {
-  *rank = comm->userFromRing[0][0];
+  *rank = comm->rank;
   return ncclSuccess;
 }
 

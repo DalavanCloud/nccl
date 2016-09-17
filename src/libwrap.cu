@@ -18,8 +18,8 @@ static RetCode (*nvmlInternalDeviceGetIndex)(nvmlDevice_t device, unsigned* inde
 static RetCode (*nvmlInternalDeviceSetCpuAffinity)(nvmlDevice_t device);
 static RetCode (*nvmlInternalDeviceClearCpuAffinity)(nvmlDevice_t device);
 static const char* (*nvmlInternalErrorString)(RetCode r);
-static RetCode (*nvmlInternalDeviceGetNvLinkState)(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive);
 static RetCode (*nvmlInternalDeviceGetHandleByIndex)(unsigned int index, nvmlDevice_t* device);
+static RetCode (*nvmlInternalDeviceGetNvLinkState)(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive);
 
 ncclResult_t wrapSymbols(void) {
 
@@ -43,8 +43,17 @@ ncclResult_t wrapSymbols(void) {
     cast = (void**)&funcptr;                             \
     tmp = dlsym(handle, symbol);                         \
     if (tmp == NULL) {                                   \
-      WARN("dlsym failed on %s - %s", symbol, dlerror()); \
+      WARN("dlsym failed on %s - %s", symbol, dlerror());\
       goto teardown;                                     \
+    }                                                    \
+    *cast = tmp;                                         \
+  } while (0)
+
+  #define LOAD_SYM_OPTIONAL(handle, symbol, funcptr) do {\
+    cast = (void**)&funcptr;                             \
+    tmp = dlsym(handle, symbol);                         \
+    if (tmp == NULL) {                                   \
+      INFO("dlsym failed on %s, ignoring", symbol);      \
     }                                                    \
     *cast = tmp;                                         \
   } while (0)
@@ -56,8 +65,8 @@ ncclResult_t wrapSymbols(void) {
   LOAD_SYM(nvmlhandle, "nvmlDeviceSetCpuAffinity", nvmlInternalDeviceSetCpuAffinity);
   LOAD_SYM(nvmlhandle, "nvmlDeviceClearCpuAffinity", nvmlInternalDeviceClearCpuAffinity);
   LOAD_SYM(nvmlhandle, "nvmlErrorString", nvmlInternalErrorString);
-  LOAD_SYM(nvmlhandle, "nvmlDeviceGetNvLinkState", nvmlInternalDeviceGetNvLinkState);
   LOAD_SYM(nvmlhandle, "nvmlDeviceGetHandleByIndex", nvmlInternalDeviceGetHandleByIndex);
+  LOAD_SYM_OPTIONAL(nvmlhandle, "nvmlDeviceGetNvLinkState", nvmlInternalDeviceGetNvLinkState);
 
   symbolsLoaded = 1;
   return ncclSuccess;
@@ -79,7 +88,7 @@ ncclResult_t wrapSymbols(void) {
 
 ncclResult_t wrapNvmlInit(void) {
   if (nvmlInternalInit == NULL) {
-    WARN("lib wrapper not initilaized.");
+    WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
   RetCode ret = nvmlInternalInit();
@@ -93,7 +102,7 @@ ncclResult_t wrapNvmlInit(void) {
 
 ncclResult_t wrapNvmlShutdown(void) {
   if (nvmlInternalShutdown == NULL) {
-    WARN("lib wrapper not initilaized.");
+    WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
   RetCode ret = nvmlInternalShutdown();
@@ -107,7 +116,7 @@ ncclResult_t wrapNvmlShutdown(void) {
 
 ncclResult_t wrapNvmlDeviceGetHandleByPciBusId(const char* pciBusId, nvmlDevice_t* device) {
   if (nvmlInternalDeviceGetHandleByPciBusId == NULL) {
-    WARN("lib wrapper not initilaized.");
+    WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
   RetCode ret = nvmlInternalDeviceGetHandleByPciBusId(pciBusId, device);
@@ -121,7 +130,7 @@ ncclResult_t wrapNvmlDeviceGetHandleByPciBusId(const char* pciBusId, nvmlDevice_
 
 ncclResult_t wrapNvmlDeviceGetIndex(nvmlDevice_t device, unsigned* index) {
   if (nvmlInternalDeviceGetIndex == NULL) {
-    WARN("lib wrapper not initilaized.");
+    WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
   RetCode ret = nvmlInternalDeviceGetIndex(device, index);
@@ -135,7 +144,7 @@ ncclResult_t wrapNvmlDeviceGetIndex(nvmlDevice_t device, unsigned* index) {
 
 ncclResult_t wrapNvmlDeviceSetCpuAffinity(nvmlDevice_t device) {
   if (nvmlInternalDeviceSetCpuAffinity == NULL) {
-    WARN("lib wrapper not initilaized.");
+    WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
   RetCode ret = nvmlInternalDeviceSetCpuAffinity(device);
@@ -149,7 +158,7 @@ ncclResult_t wrapNvmlDeviceSetCpuAffinity(nvmlDevice_t device) {
 
 ncclResult_t wrapNvmlDeviceClearCpuAffinity(nvmlDevice_t device) {
   if (nvmlInternalInit == NULL) {
-    WARN("lib wrapper not initilaized.");
+    WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
   RetCode ret = nvmlInternalDeviceClearCpuAffinity(device);
@@ -163,7 +172,7 @@ ncclResult_t wrapNvmlDeviceClearCpuAffinity(nvmlDevice_t device) {
 
 ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive) {
   if (nvmlInternalDeviceGetNvLinkState == NULL) {
-    WARN("lib wrapper not initilaized.");
+    /* Do not warn, this symbol is optional. */
     return ncclLibWrapperNotSet;
   }
   RetCode ret = nvmlInternalDeviceGetNvLinkState(device, link, isActive);
@@ -177,7 +186,7 @@ ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link
 
 ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t* device) {
   if (nvmlInternalDeviceGetHandleByIndex == NULL) {
-    WARN("lib wrapper not initilaized.");
+    WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
   RetCode ret = nvmlInternalDeviceGetHandleByIndex(index, device);

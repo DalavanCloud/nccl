@@ -75,8 +75,9 @@ struct NodeRef {
 
 
 struct ncclComm {
+  int rank;    // my rank in the communicator
   int nRanks;  // number of GPUs in communicator
-  int cudaDev; // cuda device index
+  int cudaDev; // my cuda device index
   int nRings;  // number of hamiltonian cycles
 
   // Device and Host allocated chunks. Stored here to correctly free() memory.
@@ -115,7 +116,7 @@ struct ncclComm {
   // Device copy of the communicator
   struct ncclComm *devComm;  // TODO: Remove this if not useful
 
-  // Device-side ring views
+  // Device-side ring view
   DevRing<char>* devRing;
 
   // Device-to-device communication structures to access remote or local device
@@ -145,7 +146,6 @@ extern DebugLevel ncclDebugLevel;
     fflush(stdout);                                              \
   }                                                              \
 } while(0)
-
 
 #ifdef PROFAPI
 #define NCCL_API(ret, func, args...)        \
