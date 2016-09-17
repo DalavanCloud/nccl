@@ -375,7 +375,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   }
 
   enum { _PCIE, _NVLINK } connect = _PCIE;
-  enum { _CUBEMESH, _HALF_CUBEMESH, _4FC, _4RING, _3FC, _2FC } topo;
+  enum { _CUBEMESH, _HALF_CUBEMESH, _BB_CUBEMESH, _4FC, _4RING, _3FC, _2FC } topo;
 
   const char* linkName = getenv("NCCL_LINK");
   if(linkName == NULL)
@@ -413,6 +413,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   if (topoName != NULL) {
     if      ((strcmp(topoName, "CUBEMESH")      == 0) && (ndev == 8)) { connect = _NVLINK; topo = _CUBEMESH; }
     else if ((strcmp(topoName, "CUBEMESH")      == 0) && (ndev == 4)) { connect = _NVLINK; topo = _HALF_CUBEMESH; }
+    else if ((strcmp(topoName, "BB_CUBEMESH")   == 0) && (ndev == 8)) { connect = _NVLINK; topo = _BB_CUBEMESH; }
     else if ((strcmp(topoName, "4FC")           == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4FC; }
     else if ((strcmp(topoName, "4RING")         == 0) && (ndev == 4)) { connect = _NVLINK; topo = _4RING; }
     else if ((strcmp(topoName, "3FC")           == 0) && (ndev == 3)) { connect = _NVLINK; topo = _3FC; }
@@ -461,6 +462,17 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
           2, 1, 3, 1, 2, 1,
           3, 3, 2, 0, 0, 0};
       memcpy(NVLRings, HCMRings, sizeof(HCMRings));
+    } else if (topo == _BB_CUBEMESH) {
+      const int CMRings[8][MAXNVLRINGS] = {
+          0, 0, 0, 0, -1, -1,
+          1, 6, 2, 7, -1, -1,
+          7, 1, 5, 5, -1, -1,
+          6, 3, 3, 4, -1, -1,
+          4, 2, 4, 2, -1, -1,
+          3, 4, 6, 3, -1, -1,
+          5, 5, 7, 1, -1, -1,
+          2, 7, 1, 6, -1, -1}; 
+      memcpy(NVLRings, CMRings, sizeof(CMRings));
     } else if (topo == _4FC) {
       INFO("Using 4-FC topology");
       comm->nRings = 4;
