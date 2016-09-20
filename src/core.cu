@@ -399,7 +399,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       }
       if(res == ncclSuccess && active == NVML_FEATURE_ENABLED) {
         int canpeer_0_6 = 0;
-        cudaError_t res = cudaDeviceCanAccessPeer(&canpeer_0_6, 0, 6);
+        cudaError_t res = cudaDeviceCanAccessPeer(&canpeer_0_6, ranks[0].cudaDev, ranks[6].cudaDev);
         if (res == cudaSuccess && canpeer_0_6) {
           platform = _BB;
         } else {
