@@ -16,12 +16,18 @@ CUDA_LIB ?= $(CUDA_HOME)/lib64
 CUDA_INC ?= $(CUDA_HOME)/include
 NVCC ?= $(CUDA_HOME)/bin/nvcc
 
-NVCC_GENCODE ?= -gencode=arch=compute_35,code=sm_35 \
-                -gencode=arch=compute_50,code=sm_50 \
-                -gencode=arch=compute_52,code=sm_52 \
-                -gencode=arch=compute_60,code=sm_60
+# Better define NVCC_GENCODE in your environment to the minimal set
+# of archs to reduce compile time.
+#NVCC_GENCODE ?= -gencode=arch=compute_35,code=sm_35 \
+#                -gencode=arch=compute_50,code=sm_50 \
+#                -gencode=arch=compute_52,code=sm_52 \
+#                -gencode=arch=compute_60,code=sm_60 \
+#                -gencode=arch=compute_60,code=compute_60
+ifndef NVCC_GENCODE
+$(error Please define NVCC_GENCODE according to your architecture and CUDA version)
+endif
 
-CXXFLAGS   := -I$(CUDA_INC) -fPIC -fvisibility=hidden
+CXXFLAGS   := -I$(CUDA_INC) -fPIC -fvisibility=hidden 
 NVCUFLAGS  := -ccbin $(CXX) $(NVCC_GENCODE) -lineinfo -std=c++11 -maxrregcount 96
 # Use addprefix so that we can specify more than one path
 LDFLAGS    := $(addprefix -L,${CUDA_LIB}) -lcudart
@@ -50,8 +56,8 @@ CXXFLAGS += -DPROFAPI
 endif
 
 NCCL_MAJOR   := 1
-NCCL_MINOR   := 5
-NCCL_PATCH   := 4
+NCCL_MINOR   := 6
+NCCL_PATCH   := 0
 CXXFLAGS  += -DNCCL_MAJOR=$(NCCL_MAJOR) -DNCCL_MINOR=$(NCCL_MINOR) -DNCCL_PATCH=$(NCCL_PATCH)
 
 CUDA_VERSION ?= $(shell ls $(CUDA_LIB)/libcudart.so.* | head -1 | rev | cut -d "." -f -2 | rev)
@@ -59,14 +65,14 @@ CUDA_MAJOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 1)
 CUDA_MINOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 2)
 CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 
-.PHONY : lib clean debclean test mpitest install
+.PHONY : lib clean test mpitest install deb debian debclean
 .DEFAULT : lib
 
 INCEXPORTS  := nccl.h
 LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
 LIBNAME     := libnccl.so
 TESTS       := all_gather_test     all_gather_scan \
-               all_reduce_test     all_reduce_scan \
+               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded \
                broadcast_test      broadcast_scan \
                reduce_test         reduce_scan \
                reduce_scatter_test reduce_scatter_scan
@@ -145,7 +151,7 @@ MPITESTBINS:= $(patsubst %, $(MPITSTDIR)/%, $(MPITESTS))
 
 test : $(TESTBINS)
 
-$(TSTDIR)/% : test/single/%.cu $(TSTDEP) 
+$(TSTDIR)/% : test/single/%.cu test/include/*.h $(TSTDEP) 
 	@printf "Building  %-25s > %-24s\n" $< $@
 	mkdir -p $(TSTDIR)
 	$(NVCC) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcuda -lcurand -lnvToolsExt

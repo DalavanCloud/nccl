@@ -5,6 +5,7 @@ Optimized primitives for collective multi-GPU communication.
 ## Introduction
 
 NCCL (pronounced "Nickel") is a stand-alone library of standard collective communication routines, such as all-gather, reduce, broadcast, etc., that have been optimized to achieve high bandwidth over PCIe. NCCL supports an arbitrary number of GPUs installed in a single node and can be used in either single- or multi-process (e.g., MPI) applications.
+[This blog post](https://devblogs.nvidia.com/parallelforall/fast-multi-gpu-collectives-nccl/) provides details on NCCL functionality, goals, and performance.
 
 ## What's inside
 
@@ -77,7 +78,7 @@ To install, run `make PREFIX=<install dir> install` and add `<instal dir>/lib` t
 
 ## Usage
 
-NCCL follows the MPI collectives API fairly closely. Before any collectives can be called, a communicator object must be initialized on each GPU. On a single-process machine, all GPUs can be conveniently initialized using `ncclCommInitAll`. For multi-process applications (e.g., with MPI), `ncclCommInitRank` must be called for each GPU. Internally `ncclCommInitRank` invokes a synchronization among all GPUs, so these calls must be invoked in different host threads (or processes) for each GPU. A brief single-process example follows, for an MPI example see nccl/test/mpi/mpi_test.cu. For details about the API see nccl.h.
+NCCL follows the MPI collectives API fairly closely. Before any collectives can be called, a communicator object must be initialized on each GPU. On a single-process machine, all GPUs can be conveniently initialized using `ncclCommInitAll`. For multi-process applications (e.g., with MPI), `ncclCommInitRank` must be called for each GPU. Internally `ncclCommInitRank` invokes a synchronization among all GPUs, so these calls must be invoked in different host threads (or processes) for each GPU. A brief single-process example follows, for an MPI example see test/mpi/mpi_test.cu. For details about the API see nccl.h.
 
 ```c
 #include <nccl.h>

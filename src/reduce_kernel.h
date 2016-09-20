@@ -1,7 +1,7 @@
 /*************************************************************************
  * Copyright (c) 2015-2016, NVIDIA CORPORATION. All rights reserved.
  *
- * See LICENCE.txt for license information
+ * See LICENSE.txt for license information
  ************************************************************************/
 
 
@@ -10,6 +10,13 @@
 
 #include "common_kernel.h"
 #include <limits>
+
+template<typename T>
+struct FuncNull {
+  __device__ T operator()(const T x, const T y) const {
+    return 0;
+  }
+};
 
 template<typename T>
 struct FuncSum {
