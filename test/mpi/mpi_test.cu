@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
 
   // CUDA stream creation
   cudaStream_t stream;
-  cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  CUDACHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
 
   // Initialize input values
   int *dptr;
