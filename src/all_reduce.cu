@@ -4,8 +4,6 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#include <assert.h>
-
 #include "core.h"
 #include "enqueue.h"
 #include "primitives.h"
