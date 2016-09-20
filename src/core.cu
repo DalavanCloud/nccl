@@ -382,7 +382,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
 
   enum { _NONE, _CUBEMESH, _HALF_CUBEMESH, _BB_CUBEMESH, _4FC, _4RING, _3FC, _2FC, _TOPO_COUNT } topo = _NONE;
   const char* topoNames[_TOPO_COUNT] = { "none", "cube-mesh", "half cube-mesh", "BigBasin cube-mesh",
-    "4 fully-connected", "4 ring", "3 fully-connected", "3 fully-connected" };
+    "4 fully-connected", "4 ring", "3 fully-connected", "2 fully-connected" };
 
   const char* platformName = getenv("NCCL_PLATFORM");
   if(platformName == NULL) {
