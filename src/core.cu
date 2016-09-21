@@ -377,11 +377,11 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   enum { _PCIE, _NVLINK, _LINK_COUNT } link = _PCIE;
   const char* linkNames[_LINK_COUNT] = { "PCIe", "NVLink" };
 
-  enum { _UNKNOWN, _DGX1, _BB, _PLATFORM_COUNT } platform = _UNKNOWN;
-  const char* platformNames[_PLATFORM_COUNT] = { "Unknown", "DGX-1", "BigBasin" };
+  enum { _UNKNOWN, _DGX1, _VAR2, _PLATFORM_COUNT } platform = _UNKNOWN;
+  const char* platformNames[_PLATFORM_COUNT] = { "Unknown", "DGX-1", "VAR-2" };
 
-  enum { _NONE, _CUBEMESH, _HALF_CUBEMESH, _BB_CUBEMESH, _4FC, _4RING, _3FC, _2FC, _TOPO_COUNT } topo = _NONE;
-  const char* topoNames[_TOPO_COUNT] = { "none", "cube-mesh", "half cube-mesh", "BigBasin cube-mesh",
+  enum { _NONE, _CUBEMESH, _HALF_CUBEMESH, _CUBEMESH2, _4FC, _4RING, _3FC, _2FC, _TOPO_COUNT } topo = _NONE;
+  const char* topoNames[_TOPO_COUNT] = { "none", "cube-mesh", "half cube-mesh", "cube-mesh variation 2",
     "4 fully-connected", "4 ring", "3 fully-connected", "2 fully-connected" };
 
   const char* platformName = getenv("NCCL_PLATFORM");
@@ -401,7 +401,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
         int canpeer_0_6 = 0;
         cudaError_t res = cudaDeviceCanAccessPeer(&canpeer_0_6, ranks[0].cudaDev, ranks[6].cudaDev);
         if (res == cudaSuccess && canpeer_0_6) {
-          platform = _BB;
+          platform = _VAR2;
         } else {
           platform = _DGX1;
         }
@@ -410,22 +410,22 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
     }
   }
   else if(strcmp(platformName, "DGX1") == 0) { platform = _DGX1; }
-  else if(strcmp(platformName, "BB") == 0) { platform = _BB; }
+  else if(strcmp(platformName, "VAR2") == 0) { platform = _VAR2; }
 
   if      ((platform == _DGX1) && (ndev == 8)) { link = _NVLINK; topo = _CUBEMESH; }
   else if ((platform == _DGX1) && (ndev == 4)) { link = _NVLINK; topo = _HALF_CUBEMESH; }
   else if ((platform == _DGX1) && (ndev == 3)) { link = _NVLINK; topo = _3FC; }
   else if ((platform == _DGX1) && (ndev == 2)) { link = _NVLINK; topo = _2FC; }
-  else if ((platform == _BB)   && (ndev == 8)) { link = _NVLINK; topo = _BB_CUBEMESH; }
-  else if ((platform == _BB)   && (ndev == 4)) { link = _NVLINK; topo = _HALF_CUBEMESH; }
-  else if ((platform == _BB)   && (ndev == 3)) { link = _NVLINK; topo = _3FC; }
-  else if ((platform == _BB)   && (ndev == 2)) { link = _NVLINK; topo = _2FC; }
+  else if ((platform == _VAR2) && (ndev == 8)) { link = _NVLINK; topo = _CUBEMESH2; }
+  else if ((platform == _VAR2) && (ndev == 4)) { link = _NVLINK; topo = _HALF_CUBEMESH; }
+  else if ((platform == _VAR2) && (ndev == 3)) { link = _NVLINK; topo = _3FC; }
+  else if ((platform == _VAR2) && (ndev == 2)) { link = _NVLINK; topo = _2FC; }
 
   const char* topoName = getenv("NCCL_TOPOLOGY");
   if (topoName != NULL) {
     if      ((strcmp(topoName, "CUBEMESH")      == 0) && (ndev == 8)) { link = _NVLINK; topo = _CUBEMESH; }
     else if ((strcmp(topoName, "CUBEMESH")      == 0) && (ndev == 4)) { link = _NVLINK; topo = _HALF_CUBEMESH; }
-    else if ((strcmp(topoName, "BB_CUBEMESH")   == 0) && (ndev == 8)) { link = _NVLINK; topo = _BB_CUBEMESH; }
+    else if ((strcmp(topoName, "CUBEMESH2")     == 0) && (ndev == 8)) { link = _NVLINK; topo = _CUBEMESH2; }
     else if ((strcmp(topoName, "4FC")           == 0) && (ndev == 4)) { link = _NVLINK; topo = _4FC; }
     else if ((strcmp(topoName, "4RING")         == 0) && (ndev == 4)) { link = _NVLINK; topo = _4RING; }
     else if ((strcmp(topoName, "3FC")           == 0) && (ndev == 3)) { link = _NVLINK; topo = _3FC; }
@@ -476,7 +476,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
           2, 1, 3, 1, 2, 1,
           3, 3, 2, 0, 0, 0};
       memcpy(NVLRings, HCMRings, sizeof(HCMRings));
-    } else if (topo == _BB_CUBEMESH) {
+    } else if (topo == _CUBEMESH2) {
       comm->nRings = 4;
       const int Rings[8][MAXNVLRINGS] = {
           0, 0, 0, 0, -1, -1,
