@@ -23,9 +23,6 @@ NVCC ?= $(CUDA_HOME)/bin/nvcc
 #                -gencode=arch=compute_52,code=sm_52 \
 #                -gencode=arch=compute_60,code=sm_60 \
 #                -gencode=arch=compute_60,code=compute_60
-ifndef NVCC_GENCODE
-$(error Please define NVCC_GENCODE according to your architecture and CUDA version)
-endif
 
 CXXFLAGS   := -I$(CUDA_INC) -fPIC -fvisibility=hidden 
 NVCUFLAGS  := -ccbin $(CXX) $(NVCC_GENCODE) -lineinfo -std=c++11 -maxrregcount 96
@@ -65,7 +62,7 @@ CUDA_MAJOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 1)
 CUDA_MINOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 2)
 CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 
-.PHONY : lib clean test mpitest install deb debian debclean
+.PHONY : lib clean test mpitest install deb debian debclean gencode_check
 .DEFAULT : lib
 
 INCEXPORTS  := nccl.h
@@ -93,6 +90,11 @@ lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 
 -include $(DEPFILES)
 
+gencode_check:
+	ifeq ($(NVCC_GENCODE), "")
+		$(error Please define NVCC_GENCODE according to your architecture and CUDA version)
+	endif
+
 $(LIBDIR)/$(LIBTARGET) : $(LIBOBJ)
 	@printf "Linking   %-25s\n" $@
 	mkdir -p $(LIBDIR)
@@ -105,7 +107,7 @@ $(INCDIR)/%.h : src/%.h
 	mkdir -p $(INCDIR)
 	cp -f $< $@
 
-$(OBJDIR)/%.o : src/%.cu
+$(OBJDIR)/%.o : src/%.cu gencode_check
 	@printf "Compiling %-25s > %-25s\n" $< $@
 	mkdir -p $(OBJDIR)
 	$(NVCC) -c $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -o $@
@@ -151,7 +153,7 @@ MPITESTBINS:= $(patsubst %, $(MPITSTDIR)/%, $(MPITESTS))
 
 test : $(TESTBINS)
 
-$(TSTDIR)/% : test/single/%.cu test/include/*.h $(TSTDEP) 
+$(TSTDIR)/% : test/single/%.cu test/include/*.h $(TSTDEP) gencode_check
 	@printf "Building  %-25s > %-24s\n" $< $@
 	mkdir -p $(TSTDIR)
 	$(NVCC) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcuda -lcurand -lnvToolsExt
@@ -163,7 +165,7 @@ $(TSTDIR)/% : test/single/%.cu test/include/*.h $(TSTDEP)
 
 mpitest : $(MPITESTBINS)
 
-$(MPITSTDIR)/% : test/mpi/%.cu $(TSTDEP) 
+$(MPITSTDIR)/% : test/mpi/%.cu $(TSTDEP) gencode_check
 	@printf "Building  %-25s > %-24s\n" $< $@
 	mkdir -p $(MPITSTDIR)
 	$(NVCC) $(MPIFLAGS) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcurand
