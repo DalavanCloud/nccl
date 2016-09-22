@@ -437,7 +437,9 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
 
   INFO("Topology detection : platform %s, link %s, topo %s", platformNames[platform], linkNames[link], topoNames[topo]);
 
-  if (link == _PCIE) {
+  if (comm->nRanks == 1) {
+    comm->nRings = 0;
+  } else if (link == _PCIE) {
     INFO("Using PCIe topology");
     comm->nRings = 1;
     comm->p2ptype = ncclComm::PCIE;
@@ -557,7 +559,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   int* orderedList = (int*)malloc(ndev*sizeof(int));
   int nList = 0;
   for (int r=0; r<comm->nRings; ++r) {
-    int nextIdx = (comm->nRanks>0) ? 1 : 0;
+    int nextIdx = 1;
     int nextDev = comm->ncclFromRing[r][nextIdx];
     int found = 0;
     for (int p=0; p<nList; ++p) {
