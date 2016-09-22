@@ -122,7 +122,10 @@ ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const int count, c
   if (count == 0)
     return ncclSuccess;
 
-  if (comm->nRanks != 1) {
+  if (comm->nRanks == 1) {
+    if (sendbuff != recvbuff)
+      CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
+  } else {
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, root, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {
