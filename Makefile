@@ -91,9 +91,10 @@ lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 -include $(DEPFILES)
 
 gencode_check:
-	ifeq ($(NVCC_GENCODE), "")
-		$(error Please define NVCC_GENCODE according to your architecture and CUDA version)
-	endif
+	if [ "$(NVCC_GENCODE)" == "" ] ; then \
+	  echo "Please define NVCC_GENCODE according to your architecture and CUDA version"; \
+	  false; \
+	fi
 
 $(LIBDIR)/$(LIBTARGET) : $(LIBOBJ)
 	@printf "Linking   %-25s\n" $@
