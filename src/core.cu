@@ -1041,8 +1041,8 @@ ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId
   return res;
 }
 
-NCCL_API(ncclResult_t, ncclCommInitAll, ncclComm_t* comms, int ndev, int* devlist);
-ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, int* devlist) {
+NCCL_API(ncclResult_t, ncclCommInitAll, ncclComm_t* comms, int ndev, const int* devlist);
+ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   initDebug();
 
   showVersion();
