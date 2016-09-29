@@ -377,15 +377,38 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
 
   int nRings;
   int* rings;
-  int devs[ndev];
-  for (int i=0; i<ndev; i++)
-    devs[i] = ranks[i].cudaDev;
-  ncclTopoGetRings(devs, ndev, &nRings, &rings);
+  const char* envRings = getenv("NCCL_RINGS");
+  if (envRings != NULL) {
+    INFO("Rings provided by environment");
+    const char* ptr = envRings;
+    nRings = 0;
+    rings = (int*)malloc(sizeof(int)*MAXRINGS*ndev);
+    for (int r=0; r<MAXRINGS; r++) {
+      for (int d=0; d<ndev; d++) {
+        char* next_ptr;
+        long int val = strtol(ptr, &next_ptr, 10);
+        if (ptr == next_ptr || val < 0 || val > ndev) {
+          ptr = NULL;
+          break;
+        }
+        rings[r*ndev+d] = val;
+        ptr = next_ptr;
+      }
+      if (ptr == NULL) break;
+      nRings++;
+    }
+  } else {
+    INFO("Auto-detecting topology and rings");
+    int devs[ndev];
+    for (int i=0; i<ndev; i++)
+      devs[i] = ranks[i].cudaDev;
+    ncclTopoGetRings(devs, ndev, &nRings, &rings);
+  }
 
   if (comm->nRanks == 1) {
     comm->nRings = 0;
   } else if (nRings == 0) {
-    INFO("Using PCIe topology");
+    INFO("Using a single ring");
     comm->nRings = 1;
     comm->p2ptype = ncclComm::PCIE;
     for(int ringPos=0; ringPos<ndev; ++ringPos) {
@@ -398,7 +421,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
     const int MAXNVLGPUS = 8; // whatever the biggest topology we know about is
     const int MAXNVLRINGS = 6; // usually based on how many NVLinks each GPU has
     int NVLRings[MAXNVLGPUS][MAXNVLRINGS]; // note this is transposed for ease of variable # of GPUs
-    INFO("Using NVLink topology, %d rings", nRings);
+    INFO("Using %d rings", nRings);
     char ringLine[ndev*3];
 
     comm->p2ptype = ncclComm::NVLINK;
@@ -411,6 +434,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       ringLine[ndev*3-1] = '\0';
       INFO(ringLine);
     }
+    free(rings);
 
     // Double the number of rings to improve bandwidth
     for(int r=0; r<comm->nRings*2; ++r) {
