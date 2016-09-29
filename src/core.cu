@@ -434,6 +434,9 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       }
     }
     comm->nRings *= 2;
+
+    // Also divide the buffer size per ring by 2
+    comm->buffSizePerRing /= 2;
   }
 
   int myDev = ranks[myNcclId].cudaDev;
@@ -722,7 +725,8 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* 
     buffsize = DEFAULT_BUFFER_SIZE_BYTES;
   }
   comm->buffSizePerRing = buffsize;
-  comm->buffSize = comm->buffSizePerRing * MAXRINGS;
+  // When we double the number of rings, we also divide buffSize by two
+  comm->buffSize = comm->buffSizePerRing * MAXRINGS / 2;
   INFO("rank %d using buffSize = %lu, buffSizePerRing = %lu", rank, comm->buffSize, comm->buffSizePerRing);
 
 
