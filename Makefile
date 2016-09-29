@@ -54,7 +54,7 @@ endif
 
 NCCL_MAJOR   := 1
 NCCL_MINOR   := 6
-NCCL_PATCH   := 0
+NCCL_PATCH   := 1
 CXXFLAGS  += -DNCCL_MAJOR=$(NCCL_MAJOR) -DNCCL_MINOR=$(NCCL_MINOR) -DNCCL_PATCH=$(NCCL_PATCH)
 
 CUDA_VERSION ?= $(shell ls $(CUDA_LIB)/libcudart.so.* | head -1 | rev | cut -d "." -f -2 | rev)
@@ -66,7 +66,7 @@ CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 .DEFAULT : lib
 
 INCEXPORTS  := nccl.h
-LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
+LIBSRCFILES := libwrap.cu core.cu crc32.cu all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu topo.cu
 LIBNAME     := libnccl.so
 TESTS       := all_gather_test     all_gather_scan \
                all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded \

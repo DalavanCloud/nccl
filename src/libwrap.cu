@@ -8,18 +8,20 @@
 #include <dlfcn.h>
 #include "core.h"
 
-typedef enum { SUCCESS = 0 } RetCode;
 int symbolsLoaded = 0;
 
-static RetCode (*nvmlInternalInit)(void);
-static RetCode (*nvmlInternalShutdown)(void);
-static RetCode (*nvmlInternalDeviceGetHandleByPciBusId)(const char* pciBusId, nvmlDevice_t* device);
-static RetCode (*nvmlInternalDeviceGetIndex)(nvmlDevice_t device, unsigned* index);
-static RetCode (*nvmlInternalDeviceSetCpuAffinity)(nvmlDevice_t device);
-static RetCode (*nvmlInternalDeviceClearCpuAffinity)(nvmlDevice_t device);
-static const char* (*nvmlInternalErrorString)(RetCode r);
-static RetCode (*nvmlInternalDeviceGetHandleByIndex)(unsigned int index, nvmlDevice_t* device);
-static RetCode (*nvmlInternalDeviceGetNvLinkState)(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive);
+static nvmlReturn_t (*nvmlInternalInit)(void);
+static nvmlReturn_t (*nvmlInternalShutdown)(void);
+static nvmlReturn_t (*nvmlInternalDeviceGetHandleByPciBusId)(const char* pciBusId, nvmlDevice_t* device);
+static nvmlReturn_t (*nvmlInternalDeviceGetIndex)(nvmlDevice_t device, unsigned* index);
+static nvmlReturn_t (*nvmlInternalDeviceSetCpuAffinity)(nvmlDevice_t device);
+static nvmlReturn_t (*nvmlInternalDeviceClearCpuAffinity)(nvmlDevice_t device);
+static const char* (*nvmlInternalErrorString)(nvmlReturn_t r);
+static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkState)(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive);
+static nvmlReturn_t (*nvmlInternalDeviceGetHandleByIndex)(unsigned int index, nvmlDevice_t* device);
+static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkRemotePciInfo)(nvmlDevice_t device, unsigned int link, nvmlPciInfo_t *pci);
+static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkCapability)(nvmlDevice_t device, unsigned int link,
+                                                   nvmlNvLinkCapability_t capability, unsigned int *capResult); 
 
 ncclResult_t wrapSymbols(void) {
 
@@ -67,6 +69,8 @@ ncclResult_t wrapSymbols(void) {
   LOAD_SYM(nvmlhandle, "nvmlErrorString", nvmlInternalErrorString);
   LOAD_SYM(nvmlhandle, "nvmlDeviceGetHandleByIndex", nvmlInternalDeviceGetHandleByIndex);
   LOAD_SYM_OPTIONAL(nvmlhandle, "nvmlDeviceGetNvLinkState", nvmlInternalDeviceGetNvLinkState);
+  LOAD_SYM_OPTIONAL(nvmlhandle, "nvmlDeviceGetNvLinkRemotePciInfo", nvmlInternalDeviceGetNvLinkRemotePciInfo);
+  LOAD_SYM_OPTIONAL(nvmlhandle, "nvmlDeviceGetNvLinkCapability", nvmlInternalDeviceGetNvLinkCapability);
 
   symbolsLoaded = 1;
   return ncclSuccess;
@@ -78,8 +82,10 @@ ncclResult_t wrapSymbols(void) {
   nvmlInternalDeviceGetIndex = NULL;
   nvmlInternalDeviceSetCpuAffinity = NULL;
   nvmlInternalDeviceClearCpuAffinity = NULL;
-  nvmlInternalDeviceGetNvLinkState = NULL;
   nvmlInternalDeviceGetHandleByIndex = NULL;
+  nvmlInternalDeviceGetNvLinkState = NULL;
+  nvmlInternalDeviceGetNvLinkRemotePciInfo = NULL;
+  nvmlInternalDeviceGetNvLinkCapability = NULL;
 
   if (nvmlhandle != NULL) dlclose(nvmlhandle);
   return ncclSystemError;
@@ -91,8 +97,8 @@ ncclResult_t wrapNvmlInit(void) {
     WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
-  RetCode ret = nvmlInternalInit();
-  if (ret != SUCCESS) {
+  nvmlReturn_t ret = nvmlInternalInit();
+  if (ret != NVML_SUCCESS) {
     WARN("nvmlInit() failed: %s",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
@@ -105,8 +111,8 @@ ncclResult_t wrapNvmlShutdown(void) {
     WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
-  RetCode ret = nvmlInternalShutdown();
-  if (ret != SUCCESS) {
+  nvmlReturn_t ret = nvmlInternalShutdown();
+  if (ret != NVML_SUCCESS) {
     WARN("nvmlShutdown() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
@@ -119,8 +125,8 @@ ncclResult_t wrapNvmlDeviceGetHandleByPciBusId(const char* pciBusId, nvmlDevice_
     WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
-  RetCode ret = nvmlInternalDeviceGetHandleByPciBusId(pciBusId, device);
-  if (ret != SUCCESS) {
+  nvmlReturn_t ret = nvmlInternalDeviceGetHandleByPciBusId(pciBusId, device);
+  if (ret != NVML_SUCCESS) {
     WARN("nvmlDeviceGetHandleByPciBusId() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
@@ -133,8 +139,8 @@ ncclResult_t wrapNvmlDeviceGetIndex(nvmlDevice_t device, unsigned* index) {
     WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
-  RetCode ret = nvmlInternalDeviceGetIndex(device, index);
-  if (ret != SUCCESS) {
+  nvmlReturn_t ret = nvmlInternalDeviceGetIndex(device, index);
+  if (ret != NVML_SUCCESS) {
     WARN("nvmlDeviceGetIndex() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
@@ -147,8 +153,8 @@ ncclResult_t wrapNvmlDeviceSetCpuAffinity(nvmlDevice_t device) {
     WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
-  RetCode ret = nvmlInternalDeviceSetCpuAffinity(device);
-  if (ret != SUCCESS) {
+  nvmlReturn_t ret = nvmlInternalDeviceSetCpuAffinity(device);
+  if (ret != NVML_SUCCESS) {
     WARN("nvmlDeviceSetCpuAffinity() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
@@ -161,23 +167,9 @@ ncclResult_t wrapNvmlDeviceClearCpuAffinity(nvmlDevice_t device) {
     WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
-  RetCode ret = nvmlInternalDeviceClearCpuAffinity(device);
-  if (ret != SUCCESS) {
+  nvmlReturn_t ret = nvmlInternalDeviceClearCpuAffinity(device);
+  if (ret != NVML_SUCCESS) {
     WARN("nvmlDeviceClearCpuAffinity() failed: %s ",
-      nvmlInternalErrorString(ret));
-    return ncclSystemError;
-  }
-  return ncclSuccess;
-}
-
-ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive) {
-  if (nvmlInternalDeviceGetNvLinkState == NULL) {
-    /* Do not warn, this symbol is optional. */
-    return ncclLibWrapperNotSet;
-  }
-  RetCode ret = nvmlInternalDeviceGetNvLinkState(device, link, isActive);
-  if (ret != SUCCESS) {
-    WARN("nvmlDeviceGetNvLinkState() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
   }
@@ -189,11 +181,55 @@ ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t* de
     WARN("lib wrapper not initialized.");
     return ncclLibWrapperNotSet;
   }
-  RetCode ret = nvmlInternalDeviceGetHandleByIndex(index, device);
-  if (ret != SUCCESS) {
+  nvmlReturn_t ret = nvmlInternalDeviceGetHandleByIndex(index, device);
+  if (ret != NVML_SUCCESS) {
     WARN("nvmlDeviceGetHandleByIndex() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
   }
   return ncclSuccess;
 }
+
+ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive) {
+  if (nvmlInternalDeviceGetNvLinkState == NULL) {
+    /* Do not warn, this symbol is optional. */
+    return ncclLibWrapperNotSet;
+  }
+  nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkState(device, link, isActive);
+  if (ret != NVML_SUCCESS) {
+    WARN("nvmlDeviceGetNvLinkState() failed: %s ",
+      nvmlInternalErrorString(ret));
+    return ncclSystemError;
+  }
+  return ncclSuccess;
+}
+
+ncclResult_t wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDevice_t device, unsigned int link, nvmlPciInfo_t *pci) {
+  if (nvmlInternalDeviceGetNvLinkRemotePciInfo == NULL) {
+    /* Do not warn, this symbol is optional. */
+    return ncclLibWrapperNotSet;
+  }
+  nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkRemotePciInfo(device, link, pci);
+  if (ret != NVML_SUCCESS) {
+    WARN("nvmlDeviceGetNvLinkRemotePciInfo() failed: %s ",
+      nvmlInternalErrorString(ret));
+    return ncclSystemError;
+  }
+  return ncclSuccess;
+}
+
+ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int link,
+		nvmlNvLinkCapability_t capability, unsigned int *capResult) {
+  if (nvmlInternalDeviceGetNvLinkCapability == NULL) {
+    /* Do not warn, this symbol is optional. */
+    return ncclLibWrapperNotSet;
+  }
+  nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkCapability(device, link, capability, capResult);
+  if (ret != NVML_SUCCESS) {
+    WARN("nvmlDeviceGetNvLinkCapability() failed: %s ",
+      nvmlInternalErrorString(ret));
+    return ncclSystemError;
+  }
+  return ncclSuccess;
+}
+
