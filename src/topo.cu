@@ -152,7 +152,7 @@ void ncclTopoGetRings(int* devs, int n, int* nringsPtr, int** ringsPtr) {
     goto end;
   }
   nRings = computeRings(matrix, n, tmpRings, nRingsMax);
-  if (nRings < nRingsMax) {
+  if (nRings < nRingsMax && n < 8) {
     // Try with 2x oversubscription
     for (int x=0; x<n; x++)
       for (int y=0; y<n; y++)
