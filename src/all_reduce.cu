@@ -70,12 +70,14 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = ring.recvBuffer;
   T * __restrict__ nextOutput =  ring.sendBuffer;
 
-  for (int chunkOffset = bid*nranks*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*nranks*sliceSize) {
+  for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*nranks*sliceSize) {
     /////////////// begin AllReduce steps ///////////////
     int offset;
     int maxOffset;
     int slice;
-    int chunkSize = min(sliceSize, DIVUP(size-chunkOffset,nranks));
+    int chunkSize = min(sliceSize, DIVUP(size-gridOffset,nranks*gridDim.x));
+    ALIGN_SIZE(chunkSize, THREADS*UNROLL);
+    int chunkOffset = gridOffset + bid*nranks*chunkSize;
 
     // step 0: push data to next GPU
     slice = ring.userRank[nranks-1];
