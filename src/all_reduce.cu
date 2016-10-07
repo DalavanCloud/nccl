@@ -134,8 +134,8 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
       // k-2 steps: copy result to next GPU
       for (int j=1; j<nranks-1; ++j) {
         slice = ring.userRank[nranks - j];
-	offset = chunkOffset + slice * chunkSize;
-	maxOffset = min(chunkSize, size-offset);
+        offset = chunkOffset + slice * chunkSize;
+        maxOffset = min(chunkSize, size-offset);
 
         Prims::Copy(
             thisOutput + offset,
@@ -151,8 +151,8 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
       // k-2 steps: copy result to next GPU
       for (int j=1; j<nranks-1; ++j) {
         slice = ring.userRank[nranks - j];
-	offset = chunkOffset + slice * chunkSize;
-	maxOffset = min(chunkSize, size-offset);
+        offset = chunkOffset + slice * chunkSize;
+        maxOffset = min(chunkSize, size-offset);
 
         Prims::DoubleCopy(
             prevInput + poffset,
