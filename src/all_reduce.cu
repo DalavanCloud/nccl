@@ -112,7 +112,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
       NEXT_STEP;
     }
 
-    // step k - 1: reduce this buffer and data, which will produce the final
+    // step k-1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
     slice = ring.userRank[0];
     offset = chunkOffset + slice * chunkSize;
