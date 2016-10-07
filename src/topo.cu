@@ -49,7 +49,7 @@ int getTopoMatrix(int* matrix, int* devs, int ndev) {
       nvmlEnableState_t linkState;
       CHECK(wrapNvmlDeviceGetNvLinkState(nvmlDev, l, &linkState));
       if (linkState == NVML_FEATURE_DISABLED) continue;
-      
+
       // nvmlDeviceGetNvLinkCapability(NVML_NVLINK_CAP_P2P_SUPPORTED) would seem to
       // report whether the NVLink connects to a peer GPU (versus a POWER CPU?). I
       // don't know whether nvmlDeviceGetNvLinkRemotePciInfo() would succeed in

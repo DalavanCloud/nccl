@@ -21,7 +21,7 @@ static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkState)(nvmlDevice_t device, uns
 static nvmlReturn_t (*nvmlInternalDeviceGetHandleByIndex)(unsigned int index, nvmlDevice_t* device);
 static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkRemotePciInfo)(nvmlDevice_t device, unsigned int link, nvmlPciInfo_t *pci);
 static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkCapability)(nvmlDevice_t device, unsigned int link,
-                                                   nvmlNvLinkCapability_t capability, unsigned int *capResult); 
+                                                   nvmlNvLinkCapability_t capability, unsigned int *capResult);
 
 ncclResult_t wrapSymbols(void) {
 

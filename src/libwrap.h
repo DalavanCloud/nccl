@@ -35,7 +35,7 @@ typedef enum nvmlNvLinkCapability_enum
     NVML_NVLINK_CAP_COUNT
 } nvmlNvLinkCapability_t;
 
-typedef enum nvmlReturn_enum 
+typedef enum nvmlReturn_enum
 {
     NVML_SUCCESS = 0,                   //!< The operation was successful
     NVML_ERROR_UNINITIALIZED = 1,       //!< NVML was not first initialized with nvmlInit()
@@ -60,17 +60,17 @@ typedef enum nvmlReturn_enum
     NVML_ERROR_UNKNOWN = 999            //!< An internal driver error occurred
 } nvmlReturn_t;
 
-typedef struct nvmlPciInfo_st 
+typedef struct nvmlPciInfo_st
 {
     char busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE]; //!< The tuple domain:bus:device.function PCI identifier (&amp; NULL terminator)
     unsigned int domain;             //!< The PCI domain on which the device's bus resides, 0 to 0xffff
     unsigned int bus;                //!< The bus on which the device resides, 0 to 0xff
     unsigned int device;             //!< The device's id on the bus, 0 to 31
     unsigned int pciDeviceId;        //!< The combined 16-bit device id and 16-bit vendor id
-    
+
     // Added in NVML 2.285 API
     unsigned int pciSubSystemId;     //!< The 32-bit Sub System Device ID
-    
+
     // NVIDIA reserved for internal use only
     unsigned int reserved0;
     unsigned int reserved1;
@@ -91,7 +91,7 @@ ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t *de
 ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive);
 ncclResult_t wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDevice_t device, unsigned int link, nvmlPciInfo_t *pci);
 ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int link,
-                                                   nvmlNvLinkCapability_t capability, unsigned int *capResult); 
+                                                   nvmlNvLinkCapability_t capability, unsigned int *capResult);
 
 #endif // End include guard
 
