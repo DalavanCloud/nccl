@@ -134,7 +134,7 @@ MPI_LIB ?= $(MPI_HOME)/lib
 MPIFLAGS   := -I$(MPI_INC) -L$(MPI_LIB) -lmpi
 
 TESTS       := all_gather_test     all_gather_scan \
-               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded \
+               all_reduce_test     all_reduce_scan \
                broadcast_test      broadcast_scan \
                reduce_test         reduce_scan \
                reduce_scatter_test reduce_scatter_scan
