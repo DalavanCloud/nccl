@@ -331,65 +331,6 @@ __device__ inline void ReduceOrCopy(const int tid,
   } // done fast path
 }
 
-template<int THREADS, int UNROLL, typename T>
-__device__ inline void CalcLastChunk(int * const bigSliceN,
-    int * const smallSliceN, int * const lastSliceN, int * const numSlices,
-    int * const numBigSlices, int * const numSmallSlices, const int N,
-    const int numChunks, const int chunkSize) {
-  int Nleft = N - ((numChunks - 1) * chunkSize);
-  // semi-equally split up the remaining work into numslices slices.
-  // it's "semi"-equal because we want the divisions to land as neatly as we
-  // can on alignable boundaries
-  int NperTile = UNROLL * THREADS * (sizeof(PackType)/sizeof(T));
-  int numTiles = (Nleft + NperTile - 1) / NperTile;
-  int numTilesPerBigSlice = (numTiles + *numSlices - 1)
-      / *numSlices;
-  int numTilesPerSmallSlice = numTiles / *numSlices;
-
-  *bigSliceN   = NperTile * numTilesPerBigSlice;
-  *smallSliceN = NperTile * numTilesPerSmallSlice;
-  *numBigSlices = numTiles % *numSlices;
-  *numSmallSlices = (*smallSliceN > 0) ?
-      *numSlices - *numBigSlices : 0;
-
-  // the lastSlice will take the place of one of the small slices unless
-  // there are no small slices (because this is a very small reduction), in
-  // which case we replace one of the big slices and leave the small slices
-  // as 0.
-  if (*numSmallSlices > 0) {
-    --*numSmallSlices;
-    if (*numSmallSlices == 0)
-      *smallSliceN = 0;
-  }
-  else {
-    --*numBigSlices;
-    if (*numBigSlices == 0)
-      *bigSliceN = 0;
-  }
-
-  *lastSliceN = Nleft -
-      (*numBigSlices * *bigSliceN
-          + *numSmallSlices * *smallSliceN);
-
-  // in cases where args.N % numSlices is pretty small, we'd rather have one
-  // slightly big last slice than one big slice, a bunch of small slices,
-  // and one smaller last slice
-  if ((*numBigSlices == 1) &&
-      (*numSmallSlices == *numSlices - 2) &&
-      (*lastSliceN < *smallSliceN)) {
-    *numBigSlices += *numSmallSlices;
-    *numSmallSlices = 0;
-    *bigSliceN = *smallSliceN;
-    *smallSliceN = 0;
-    *lastSliceN = Nleft -
-        *numBigSlices * *bigSliceN;
-  }
-
-  // done recalculating
-  *numSlices = *numBigSlices +
-      *numSmallSlices + 1;
-}
-
 // Kernel launch
 template<typename T>
 struct KernelArgs {
