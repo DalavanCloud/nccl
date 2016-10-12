@@ -143,6 +143,9 @@ int computeRings(int* matrix, int n, int* rings, int nRingsMax) {
 
 void ncclTopoGetRings(int* devs, int n, int* nringsPtr, int** ringsPtr) {
   int* matrix = (int*)malloc(sizeof(int)*n*n);
+  for (int i=0; i<n*n; i++)
+    matrix[i] = 0;
+
   int nRings = 0;
   int nRingsMax = getTopoMatrix(matrix, devs, n);
   int* tmpRings = (int*)malloc(sizeof(int)*n*nRingsMax);
