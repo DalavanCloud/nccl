@@ -335,43 +335,25 @@ __device__ inline void ReduceOrCopy(const int tid,
 template<typename T>
 struct KernelArgs {
   // general parameters
-  int nRanks;
   int root;
-  int buffSize;
   int N;
-  int opIndex;
-  volatile int * __restrict__ opCounter;
-  int * __restrict__ doneCount;
-  bool pushrecv;
-
-  // some pre-computed sizes
-  int SliceSize;
-  int SliceOffset;
-  int ChunkSize;
-  int NumChunks;
 
   // local and remote input, output, and buffer
   const T * __restrict__ ThisInput;
   T * __restrict__ ThisOutput;
 
-  DevRing<char>* ring;
+  struct ncclComm* comm;
   int nRings;
 };
 
 template<typename T>
 void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
 		const int root, const int count, ncclComm *comm) {
-  args->nRanks = comm->nRanks;
   args->root = root;
-  args->buffSize = comm->buffSizePerRing;
   args->N = count;
-  args->opIndex = comm->opSched;
-  args->opCounter = comm->opCounter;
-  args->doneCount = &comm->devMem->doneCount;
   args->ThisInput = (const T*)sendbuff;
   args->ThisOutput = (T*)recvbuff;
-  args->ring = comm->devRing;
-  args->pushrecv = comm->globalMemSpace;
+  args->comm = comm->devComm;
   args->nRings = comm->nRings;
 }
 
@@ -384,30 +366,5 @@ void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
             (void*)K<THREADS, UNROLL, FUNC, T>, \
             grid, block, argptrs, 0, stream)); \
 } while (0)
-
-template <typename T>
-__device__ inline void incrementOpCounter(const KernelArgs<T> *args) {
-  // Last CTA increments comm's operation counts
-  if (atomicAdd(args->doneCount, 1) == gridDim.x-1) {
-    *args->doneCount = 0;
-    __threadfence_system(); // Technically need to ensure that cleared flags
-                            // are visible before incrementing op counter.
-    *args->opCounter = args->opIndex+1;
-  }
-}
-
-template <int THREADS, typename T> __device__ __forceinline__
-void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
-  enum { NUM_WORDS = sizeof(DevRing<char>) / sizeof(long long) };
-  static_assert(sizeof(DevRing<char>) % sizeof(long long) == 0, "Bad alignment");
-  static_assert(THREADS >= NUM_WORDS, "Not enough threads to load DevRing");
-  static_assert(sizeof(DevRing<char>) == sizeof(DevRing<T>), "DevRing size mismatch");
-  long long* lldst = reinterpret_cast<long long*>(dst);
-  const long long* llsrc = reinterpret_cast<const long long*>(src);
-  if (threadIdx.x < NUM_WORDS) {
-    lldst[threadIdx.x] = llsrc[threadIdx.x];
-  }
-}
-
 
 #endif // COMMON_KERNEL_H_

@@ -26,29 +26,30 @@ __launch_bounds__(THREADS+WARP_SIZE, 1)
 __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
-  __shared__ DevRing<T> ring;
-
-  LoadRing<THREADS>(args.ring+bid, &ring);
-  __syncthreads();
+  struct ncclComm* comm = args.comm;
+  struct ncclRing* ring = comm->rings+bid;
 
   if (tid == 0) {
-    WaitFlag prevCommOp(ring.prevOpCounter, 0);
-    WaitFlag nextCommOp(ring.nextOpCounter, 0);
-    prevCommOp.wait(args.opIndex);
-    nextCommOp.wait(args.opIndex);
+    // Wait for prev and next to be ready
+    Wait([=] {
+        return *ring->sendrecv.recv.conn.head == 0;
+    });
+    Wait([=] {
+        return *ring->sendrecv.send.conn.tail == 0;
+    });
   }
   __syncthreads();
 
-  WaitFlag waitDoneFromNext(ring.recvFlagFromNext, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
-  WaitFlag waitReadyFromPrev(ring.recvFlagFromPrev, -1*NUM_SUBSTEPS);
-  PostFlag postDoneToPrev(ring.sendFlagToPrev, -1*NUM_SUBSTEPS);
-  PostFlag postReadyToNext(ring.sendFlagToNext, 0);
+  WaitFlag waitDoneFromNext(ring->sendrecv.send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
+  WaitFlag waitReadyFromPrev(ring->sendrecv.recv.conn.tail, -1*NUM_SUBSTEPS);
+  PostFlag postDoneToPrev(ring->sendrecv.recv.conn.head, -1*NUM_SUBSTEPS);
+  PostFlag postReadyToNext(ring->sendrecv.send.conn.tail, 0);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
   const int size = args.N;
-  const int nranks = args.nRanks;
-  const int buffSize = args.buffSize / sizeof(T);
+  const int nranks = comm->nRanks;
+  const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
   
   int step = 0;
@@ -56,9 +57,9 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
   // Compute pointers
   const T * __restrict__ thisInput = args.ThisInput;
-  T * __restrict__ thisOutput =  args.ThisOutput;
-  T * __restrict__ prevInput = ring.recvBuffer;
-  T * __restrict__ nextOutput =  ring.sendBuffer;
+  T * __restrict__ thisOutput = args.ThisOutput;
+  T * __restrict__ prevInput = (T*)ring->sendrecv.recv.conn.buff;
+  T * __restrict__ nextOutput = (T*)ring->sendrecv.send.conn.buff;
 
   for (int chunkOffset = bid*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*sliceSize) {
     /////////////// begin ReduceScatter steps ///////////////
@@ -67,7 +68,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
     int rankDest;
 
     // step 0: push data to next GPU
-    rankDest = ring.userRank[nranks-1];
+    rankDest = ring->userRanks[nranks-1];
     offset = chunkOffset + rankDest * size;
 
     Prims::Copy(
@@ -82,7 +83,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
     // k-2 steps: reduce and copy to next GPU
     for (int j=2; j<nranks; ++j) {
-      rankDest = ring.userRank[nranks-j];
+      rankDest = ring->userRanks[nranks-j];
       offset = chunkOffset + rankDest * size;
 
       Prims::Reduce(
@@ -99,7 +100,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
     // step k-1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
-    rankDest = ring.userRank[0];
+    rankDest = ring->userRanks[0];
     offset = chunkOffset + rankDest * size;
 
     Prims::Reduce(
@@ -118,13 +119,11 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   if (tid == 0) {
     // Wait for last update from next then reset the flag
     waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-    *ring.recvFlagFromNext = 0;
+    *ring->sendrecv.send.conn.head = 0;
 
     // Wait for last update from prev then reset the flag
     waitReadyFromPrev.wait(NUM_SUBSTEPS*(step+1));
-    *ring.recvFlagFromPrev = 0;
-
-    incrementOpCounter(&args);
+    *ring->sendrecv.recv.conn.tail = 0;
   }
 }
 

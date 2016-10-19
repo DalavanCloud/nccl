@@ -1,0 +1,52 @@
+#include <stdint.h>
+
+#define NTRANSPORTS 1
+
+extern struct ncclTransport ncclTransports[];
+
+#define RANK_INFO_SIZE 64
+typedef char ncclTinfo_t[RANK_INFO_SIZE];
+
+struct ncclInfo {
+  ncclTinfo_t tinfo[NTRANSPORTS];
+};
+
+#define CONNECT_SIZE 128
+struct ncclConnect {
+  char data[CONNECT_SIZE];
+};
+
+struct ncclTransportComm {
+  int (*setup)(ncclTinfo_t*, ncclTinfo_t*, struct ncclConnect*, struct ncclRing*);
+  int (*connect)(struct ncclConnect*, struct ncclConnector*);
+  int (*proxy)(void*);
+};
+
+struct ncclTransport {
+  int (*fillInfo)(ncclTinfo_t*);
+  struct ncclTransportComm send;
+  struct ncclTransportComm recv;
+};
+
+static uint64_t hostHash(const char* string) {
+  // Based on DJB2, result = result * 33 + char
+  uint64_t result = 5381;
+  for (int c = 0; string[c] != '\0'; c++){
+    result = ((result << 5) + result) + string[c];
+  }
+  return result;
+}
+
+#include <string.h>
+
+static int hostNumber(const char* string) {
+  int result = 0;
+  int len = strlen(string);
+  for (int offset = len-1; offset >= 0; offset --) {
+   int res = atoi(string+offset);
+   if (res <= 0)
+     break;
+   result = res;
+  }
+  return result;
+}

@@ -27,38 +27,43 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   __shared__ T* sharedNextOutput;
-  __shared__ DevRing<T> ring;
-  bool pushrecv = args.pushrecv;
-
-  LoadRing<THREADS>(args.ring+bid, &ring);
-  __syncthreads();
+  struct ncclComm* comm = args.comm;
+  struct ncclRing* ring = comm->rings+bid;
+  int prevdirect = ring->sendrecv.recv.conn.direct;
+  int nextdirect = ring->sendrecv.send.conn.direct;
 
   if (tid == 0) {
-    WaitFlag prevCommOp(ring.prevOpCounter, 0);
-    WaitFlag nextCommOp(ring.nextOpCounter, 0);
-    prevCommOp.wait(args.opIndex);
-    nextCommOp.wait(args.opIndex);
-    if (pushrecv) {
-      *ring.sendPtrToPrev = (T*)args.ThisOutput;
+    // Wait for prev and next to be ready
+    Wait([=] {
+        return *ring->sendrecv.recv.conn.head == 0;
+    });
+    Wait([=] {
+        return *ring->sendrecv.send.conn.tail == 0;
+    });
+    
+    if (prevdirect) {
+      *ring->sendrecv.recv.conn.ptrExchange = (T*)args.ThisOutput;
+    }
+    if (nextdirect) {
       Wait([=] {
-        return *ring.recvPtrFromNext != nullptr;
+        return *(ring->sendrecv.send.conn.ptrExchange) != nullptr;
       });
-      sharedNextOutput = *ring.recvPtrFromNext;
-      *ring.recvPtrFromNext = nullptr;
+      sharedNextOutput = (T*)*ring->sendrecv.send.conn.ptrExchange;
+      *ring->sendrecv.send.conn.ptrExchange = nullptr;
     }
   }
   __syncthreads();
 
-  WaitFlag waitDoneFromNext(ring.recvFlagFromNext, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
-  WaitFlag waitReadyFromPrev(ring.recvFlagFromPrev, -1*NUM_SUBSTEPS);
-  PostFlag postDoneToPrev(ring.sendFlagToPrev, -1*NUM_SUBSTEPS);
-  PostFlag postReadyToNext(ring.sendFlagToNext, 0);
+  WaitFlag waitDoneFromNext(ring->sendrecv.send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
+  WaitFlag waitReadyFromPrev(ring->sendrecv.recv.conn.tail, -1*NUM_SUBSTEPS);
+  PostFlag postDoneToPrev(ring->sendrecv.recv.conn.head, -1*NUM_SUBSTEPS);
+  PostFlag postReadyToNext(ring->sendrecv.send.conn.tail, 0);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
   const int size = args.N;
-  const int nranks = args.nRanks;
-  const int buffSize = args.buffSize / sizeof(T);
+  const int nranks = comm->nRanks;
+  const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
   
   int step = 0;
@@ -66,9 +71,9 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
   // Compute pointers
   const T * __restrict__ thisInput = args.ThisInput;
-  T * __restrict__ thisOutput =  args.ThisOutput;
-  T * __restrict__ prevInput = ring.recvBuffer;
-  T * __restrict__ nextOutput =  ring.sendBuffer;
+  T * __restrict__ thisOutput = args.ThisOutput;
+  T * __restrict__ prevInput = (T*)ring->sendrecv.recv.conn.buff;
+  T * __restrict__ nextOutput = (T*)ring->sendrecv.send.conn.buff;
 
   for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*nranks*sliceSize) {
     /////////////// begin AllReduce steps ///////////////
@@ -80,7 +85,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     int chunkOffset = gridOffset + bid*nranks*chunkSize;
 
     // step 0: push data to next GPU
-    slice = ring.userRank[nranks-1];
+    slice = ring->userRanks[nranks-1];
     offset = chunkOffset + slice * chunkSize;
     maxOffset = min(chunkSize, size-offset);
 
@@ -96,7 +101,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
     // k-2 steps: reduce and copy to next GPU
     for (int j=2; j<nranks; ++j) {
-      slice = ring.userRank[nranks-j];
+      slice = ring->userRanks[nranks-j];
       offset = chunkOffset + slice * chunkSize;
       maxOffset = min(chunkSize, size-offset);
 
@@ -114,14 +119,14 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
     // step k-1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
-    slice = ring.userRank[0];
+    slice = ring->userRanks[0];
     offset = chunkOffset + slice * chunkSize;
     maxOffset = min(chunkSize, size-offset);
 
     Prims::ReduceCopy(
         prevInput  + poffset,
         thisInput  + offset,
-        pushrecv ? (sharedNextOutput + offset) : (nextOutput + noffset),
+        nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
         thisOutput + offset,
         sliceSize, maxOffset,
         step,
@@ -130,16 +135,16 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
     NEXT_STEP;
 
-    if (pushrecv) {
-      // k-2 steps: copy result to next GPU
+    // k-2 steps: copy to next GPU
+    if (prevdirect) {
       for (int j=1; j<nranks-1; ++j) {
-        slice = ring.userRank[nranks - j];
+        slice = ring->userRanks[nranks - j];
         offset = chunkOffset + slice * chunkSize;
         maxOffset = min(chunkSize, size-offset);
 
         Prims::Copy(
             thisOutput + offset,
-            sharedNextOutput + offset,
+	    nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
             sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
@@ -148,16 +153,15 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
         NEXT_STEP;
       }
     } else {
-      // k-2 steps: copy result to next GPU
       for (int j=1; j<nranks-1; ++j) {
-        slice = ring.userRank[nranks - j];
+        slice = ring->userRanks[nranks - j];
         offset = chunkOffset + slice * chunkSize;
         maxOffset = min(chunkSize, size-offset);
 
         Prims::DoubleCopy(
             prevInput + poffset,
             thisOutput + offset,
-            nextOutput + noffset,
+	    nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
             sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
@@ -167,7 +171,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
       }
 
       // Make final copy from buffer to dest.
-      slice = ring.userRank[1];
+      slice = ring->userRanks[1];
       offset = chunkOffset + slice * chunkSize;
       maxOffset = min(chunkSize, size-offset);
 
@@ -188,13 +192,11 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   if (tid == 0) {
     // Wait for last update from next then reset the flag
     waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-    *ring.recvFlagFromNext = 0;
+    *ring->sendrecv.send.conn.head = 0;
 
     // Wait for last update from prev then reset the flag
     waitReadyFromPrev.wait(NUM_SUBSTEPS*(step+1));
-    *ring.recvFlagFromPrev = 0;
-
-    incrementOpCounter(&args);
+    *ring->sendrecv.recv.conn.tail = 0;
   }
 }
 

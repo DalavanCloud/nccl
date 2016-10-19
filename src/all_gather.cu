@@ -27,38 +27,43 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   __shared__ T* sharedNextOutput;
-  __shared__ DevRing<T> ring;
-  bool pushrecv = args.pushrecv;
-
-  LoadRing<THREADS>(args.ring+bid, &ring);
-  __syncthreads();
+  struct ncclComm* comm = args.comm;
+  struct ncclRing* ring = comm->rings+bid;
+  int prevdirect = ring->sendrecv.recv.conn.direct;
+  int nextdirect = ring->sendrecv.send.conn.direct;
 
   if (tid == 0) {
-    WaitFlag prevCommOp(ring.prevOpCounter, 0);
-    WaitFlag nextCommOp(ring.nextOpCounter, 0);
-    prevCommOp.wait(args.opIndex);
-    nextCommOp.wait(args.opIndex);
-    if (pushrecv) {
-      *ring.sendPtrToPrev = (T*)args.ThisOutput;
+    // Wait for prev and next to be ready
+    Wait([=] {
+        return *ring->sendrecv.recv.conn.head == 0;
+    });
+    Wait([=] {
+        return *ring->sendrecv.send.conn.tail == 0;
+    });
+    
+    if (prevdirect) {
+      *ring->sendrecv.recv.conn.ptrExchange = (T*)args.ThisOutput;
+    }
+    if (nextdirect) {
       Wait([=] {
-        return *ring.recvPtrFromNext != nullptr;
+        return *(ring->sendrecv.send.conn.ptrExchange) != nullptr;
       });
-      sharedNextOutput = *ring.recvPtrFromNext;
-      *ring.recvPtrFromNext = nullptr;
+      sharedNextOutput = (T*)*ring->sendrecv.send.conn.ptrExchange;
+      *ring->sendrecv.send.conn.ptrExchange = nullptr;
     }
   }
   __syncthreads();
 
-  WaitFlag waitDoneFromNext(ring.recvFlagFromNext, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
-  WaitFlag waitReadyFromPrev(ring.recvFlagFromPrev, -1*NUM_SUBSTEPS);
-  PostFlag postDoneToPrev(ring.sendFlagToPrev, -1*NUM_SUBSTEPS);
-  PostFlag postReadyToNext(ring.sendFlagToNext, 0);
+  WaitFlag waitDoneFromNext(ring->sendrecv.send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
+  WaitFlag waitReadyFromPrev(ring->sendrecv.recv.conn.tail, -1*NUM_SUBSTEPS);
+  PostFlag postDoneToPrev(ring->sendrecv.recv.conn.head, -1*NUM_SUBSTEPS);
+  PostFlag postReadyToNext(ring->sendrecv.send.conn.tail, 0);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T> Prims;
 
   const int size = args.N;
-  const int nranks = args.nRanks;
-  const int buffSize = args.buffSize / sizeof(T);
+  const int nranks = comm->nRanks;
+  const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
   
   int step = 0;
@@ -66,9 +71,9 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
 
   // Compute pointers
   const T * __restrict__ thisInput = args.ThisInput;
-  T * __restrict__ thisOutput =  args.ThisOutput;
-  T * __restrict__ prevInput = ring.recvBuffer;
-  T * __restrict__ nextOutput =  ring.sendBuffer;
+  T * __restrict__ thisOutput = args.ThisOutput;
+  T * __restrict__ prevInput = (T*)ring->sendrecv.recv.conn.buff;
+  T * __restrict__ nextOutput = (T*)ring->sendrecv.send.conn.buff;
 
   for (int chunkOffset = bid*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*sliceSize) {
     /////////////// begin AllGather steps ///////////////
@@ -77,13 +82,13 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
     int rankDest;
 
     // step 0: push data to next GPU
-    rankDest = ring.userRank[0];
+    rankDest = ring->userRanks[0];
     offset = chunkOffset + rankDest * size;
 
     if (thisInput == thisOutput) {
       Prims::Copy(
           thisInput  + offset,
-          pushrecv ? sharedNextOutput + offset : nextOutput + noffset,
+	  nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
           sliceSize, maxOffset,
           step,
           waitDoneFromNext, waitReadyFromPrev,
@@ -92,7 +97,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
       Prims::DoubleCopy(
           thisInput  + chunkOffset,
           thisOutput + offset,
-          pushrecv ? sharedNextOutput + offset : nextOutput + noffset,
+	  nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
           sliceSize, maxOffset,
           step,
           waitDoneFromNext, waitReadyFromPrev,
@@ -102,14 +107,14 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
     NEXT_STEP; // Increases step, poffset, noffset
 
     // k-2 steps: copy to next GPU
-    if (pushrecv) {
+    if (prevdirect) {
       for (int j=1; j<nranks-1; ++j) {
-        rankDest = ring.userRank[nranks-j];
+        rankDest = ring->userRanks[nranks-j];
         offset = chunkOffset + rankDest * size;
 
         Prims::Copy(
             thisOutput + offset,
-            sharedNextOutput + offset,
+	    nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
             sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
@@ -119,13 +124,13 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
       }
     } else {
       for (int j=1; j<nranks-1; ++j) {
-        rankDest = ring.userRank[nranks-j];
+        rankDest = ring->userRanks[nranks-j];
         offset = chunkOffset + rankDest * size;
 
         Prims::DoubleCopy(
             prevInput + poffset,
             thisOutput + offset,
-            nextOutput + noffset,
+	    nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
             sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
@@ -135,7 +140,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
       }
 
       // Make final copy from buffer to dest.
-      rankDest = ring.userRank[1];
+      rankDest = ring->userRanks[1];
       offset = chunkOffset + rankDest * size;
 
       // Here we need to copy from buffer to this output.
@@ -155,13 +160,11 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   if (tid == 0) {
     // Wait for last update from next then reset the flag
     waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-    *ring.recvFlagFromNext = 0;
+    *ring->sendrecv.send.conn.head = 0;
 
     // Wait for last update from prev then reset the flag
     waitReadyFromPrev.wait(NUM_SUBSTEPS*(step+1));
-    *ring.recvFlagFromPrev = 0;
-
-    incrementOpCounter(&args);
+    *ring->sendrecv.recv.conn.tail = 0;
   }
 }
 

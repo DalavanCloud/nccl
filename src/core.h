@@ -7,11 +7,9 @@
 #ifndef CORE_H_
 #define CORE_H_
 
-
 #include "nccl.h"
 #include <cstdio>
 #include <cuda_runtime.h>
-
 
 // DIE on error
 #define CUDACHECK(cmd) do {                              \
@@ -23,105 +21,79 @@
     }                                                    \
 } while(false)
 
-
 #define MAXRINGS 12
 #define MAXFLAGS (2*MAXRINGS)
 #define MAXRANKS 32
 #define DEFAULT_BUFFER_SIZE_BYTES (1UL << 21)
-#define NCCL_MEM_PAD_ALIGN 65536
 
+struct ncclConnInfo {
+  char *buff;         // Local for recv, remote for send
+  int *tail;          // Local for recv, remote for send
+  int *head;          // Local for send, remote for recv
 
-struct ncclMem {
-  union { // Pad this block so that devBuff is correctly aligned
+  int direct;         // Direct communication
+  void **ptrExchange; // Pointer exchange for direct communication
+};
+
+struct ncclConnector {
+  struct ncclTransport* transport;
+  void* transportResources; // Host-side resources
+  struct ncclConnInfo conn;
+};
+
+#define CACHE_LINE_SIZE 128
+#define PAGE_SIZE 4096
+
+struct ncclSendRecvMem {
+  union {
     struct {
-      int   flags[MAXFLAGS];
-      void* recvPtrs[MAXRINGS];
-      int   doneCount; // Used to count the number of done blocks before we
-                       // increment the Op counter
-      int   opCounter; // Used to determine when remote Communicators are ready.
-                       // Only used in host memory.
+      int head;
+      char pad1[CACHE_LINE_SIZE-sizeof(int)];
+      int tail;
+      char pad2[CACHE_LINE_SIZE-sizeof(int)];
+      void* ptrExchange;
+      char pad3[CACHE_LINE_SIZE-sizeof(int)];
     };
-    char pad[NCCL_MEM_PAD_ALIGN];
+    char pad4[PAGE_SIZE];
   };
-  // devBuff will be bigger ; we only use its offset/address.
-  char buff[1];
+  char buff[1]; // Actually larger than that
 };
 
-template <typename T>
-struct alignas(long long) DevRing {
-  volatile int* __restrict__ prevOpCounter;
-  volatile int* __restrict__ nextOpCounter;
-  volatile int* __restrict__ sendFlagToNext;
-  volatile int* __restrict__ sendFlagToPrev;
-  volatile int* __restrict__ recvFlagFromNext;
-  volatile int* __restrict__ recvFlagFromPrev;
-
-  T* volatile * __restrict__ recvPtrFromNext;
-  T* volatile * __restrict__ sendPtrToPrev;
-  T*   __restrict__ recvBuffer;
-  T*   __restrict__ sendBuffer;
-
-  int userRank[MAXRANKS];
+struct ncclSendRecv {
+  struct ncclSendRecvMem* devMem;   // CUDA-size resources
+  int devMemSize;    // Keep the size for IPCs
+  struct ncclConnector send;
+  struct ncclConnector recv;
 };
 
-struct NodeRef {
-  ncclMem* remote; // TODO: Verify if these
-  ncclMem* local;  //       are still needed.
-  enum {DEVICE, HOST} type;
-  ncclMem* devCleanup;  // Used only when remote comm uses same process & GPU
-  ncclMem* hostCleanup; // Used whenever target is in different process
-  int* opCounter; // TODO: see if this can be removed too.
+struct ncclRing {
+  int rank;
+  int id;
+  // Per ring resources
+  int buffSize;
+  struct ncclSendRecv sendrecv;
+  // Maps an internal nccl index to user-specified rank order. This is necessary
+  // since we need to know how the user expects data to be ordered across
+  // devices. Ordered from current device.
+  int* userRanks;
 };
-
 
 struct ncclComm {
   int rank;    // my rank in the communicator
   int nRanks;  // number of GPUs in communicator
   int cudaDev; // my cuda device index
-  int nRings;  // number of hamiltonian cycles
 
-  // Device and Host allocated chunks. Stored here to correctly free() memory.
-  ncclMem* devMem;
-  ncclMem* hostMem;
-  int hostMemState;
-  int opSched; // Scheduling operation index
-  int* opCounter; // Counter of completed operations
+  enum { PCIE, NVLINK } p2ptype;
 
   cudaStream_t prevStream; // cache last used stream
   cudaEvent_t doneEvent; // orders operations in different streams
 
-  // Maps an internal nccl index to user-specified rank order. This is necessary
-  // since we need to know how the user expects data to be ordered across
-  // devices. Ordered from current device.
-  int* userFromRing[MAXRINGS];
-
-  // copy of the above stored on each device
-  int* devUserFromRing[MAXRINGS];
-
-  // Ring orders
-  int* ncclFromRing[MAXRINGS]; // TODO: REMOVE IF NOT NEEDED BEYOND CORE.CU
-
-  // Size of temp buffer in bytes.
-  size_t buffSize;
-  size_t buffSizePerRing;
-
-  // Whether we have remote access to the recvbuff pointers passed from remote
-  // GPUs. In single process mode this can be used as long as QPI links are
-  // not present. In multi-process, we never push to a remote recvbuff.
-  int globalMemSpace;
-
-  // P2P type : PCIe or NVLink
-  enum {PCIE, NVLINK} p2ptype;
-
+  // Rings for collectives 
+  int nRings;
+  struct ncclRing rings[MAXRINGS];
+  
   // Device copy of the communicator
-  struct ncclComm *devComm;  // TODO: Remove this if not useful
-
-  // Device-side ring view
-  DevRing<char>* devRing;
-
-  // Device-to-device communication structures to access remote or local device
-  // memory. Actual allocation larger than 1.
-  NodeRef ptrs[1];
+  struct ncclComm *devComm;
 };
 
 

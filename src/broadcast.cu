@@ -26,63 +26,68 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   __shared__ T* sharedNextOutput;
-  __shared__ DevRing<T> ring;
-  bool pushrecv = args.pushrecv;
-
-  LoadRing<THREADS>(args.ring+bid, &ring);
-  __syncthreads();
+  struct ncclComm* comm = args.comm;
+  struct ncclRing* ring = comm->rings+bid;
+  int prevdirect = ring->sendrecv.recv.conn.direct;
+  int nextdirect = ring->sendrecv.send.conn.direct;
 
   if (tid == 0) {
-    WaitFlag prevCommOp(ring.prevOpCounter, 0);
-    WaitFlag nextCommOp(ring.nextOpCounter, 0);
-    prevCommOp.wait(args.opIndex);
-    nextCommOp.wait(args.opIndex);
-    if (pushrecv) {
-      *ring.sendPtrToPrev = (T*)args.ThisOutput;
+    // Wait for prev and next to be ready
+    Wait([=] {
+        return *ring->sendrecv.recv.conn.head == 0;
+    });
+    Wait([=] {
+        return *ring->sendrecv.send.conn.tail == 0;
+    });
+    
+    if (prevdirect) {
+      *ring->sendrecv.recv.conn.ptrExchange = (T*)args.ThisOutput;
+    }
+    if (nextdirect) {
       Wait([=] {
-        return *ring.recvPtrFromNext != nullptr;
+        return *(ring->sendrecv.send.conn.ptrExchange) != nullptr;
       });
-      sharedNextOutput = *ring.recvPtrFromNext;
-      *ring.recvPtrFromNext = nullptr;
+      sharedNextOutput = (T*)*ring->sendrecv.send.conn.ptrExchange;
+      *ring->sendrecv.send.conn.ptrExchange = nullptr;
     }
   }
   __syncthreads();
 
-  WaitFlag waitDoneFromNext(ring.recvFlagFromNext, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
-  WaitFlag waitReadyFromPrev(ring.recvFlagFromPrev, 0);
-  PostFlag postDoneToPrev(ring.sendFlagToPrev, 0);
-  PostFlag postReadyToNext(ring.sendFlagToNext, 0);
+  WaitFlag waitDoneFromNext(ring->sendrecv.send.conn.head, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
+  WaitFlag waitReadyFromPrev(ring->sendrecv.recv.conn.tail, 0);
+  PostFlag postDoneToPrev(ring->sendrecv.recv.conn.head, 0);
+  PostFlag postReadyToNext(ring->sendrecv.send.conn.tail, 0);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T> Prims;
 
   const int size = args.N;
-  const int rank = ring.userRank[0];
-  const int nextRank = ring.userRank[1];
-  const int root = args.root;
-  const int buffSize = args.buffSize / sizeof(T);
+  const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
+  const int rank = ring->userRanks[0];
+  const int nextRank = ring->userRanks[1];
+  const int root = args.root;
   
   int step = 0;
   int boffset = 0;
 
   // Compute pointers
   const T * __restrict__ thisInput = args.ThisInput;
-  T * __restrict__ thisOutput =  args.ThisOutput;
-  T * __restrict__ prevInput = ring.recvBuffer;
-  T * __restrict__ nextOutput =  ring.sendBuffer;
+  T * __restrict__ thisOutput = args.ThisOutput;
+  T * __restrict__ prevInput = (T*)ring->sendrecv.recv.conn.buff;
+  T * __restrict__ nextOutput = (T*)ring->sendrecv.send.conn.buff;
 
   for (int offset = bid*sliceSize; offset < size; offset += gridDim.x*sliceSize) {
     int maxOffset = size-offset;
     if (rank == root) {
       Prims::Copy(
           thisInput + offset,
-          pushrecv ? sharedNextOutput + offset : nextOutput + boffset,
+	  nextdirect ? (sharedNextOutput + offset) : (nextOutput + boffset),
           sliceSize, maxOffset,
           step,
           waitDoneFromNext,
           postReadyToNext);
     } else if (nextRank == root) {
-      if (pushrecv) maxOffset = 0; // Only wait for signals
+      if (prevdirect) maxOffset = 0; // Only wait for signals
       Prims::Copy(
           prevInput  + boffset,
           thisOutput + offset,
@@ -91,10 +96,10 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
           waitReadyFromPrev,
           postDoneToPrev);
     } else {
-      if (pushrecv) {
+      if (prevdirect) {
         Prims::Copy(
             thisOutput + offset,
-            sharedNextOutput + offset,
+	    nextdirect ? (sharedNextOutput + offset) : (nextOutput + boffset),
             sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
@@ -103,8 +108,8 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
         Prims::DoubleCopy(
             prevInput + boffset,
             thisOutput + offset,
-            nextOutput + boffset,
-	    sliceSize, maxOffset,
+	    nextdirect ? (sharedNextOutput + offset) : (nextOutput + boffset),
+            sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
             postReadyToNext, postDoneToPrev);
@@ -118,15 +123,13 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
     if (nextRank != root) {
       // Wait for last update from next then reset the flag
       waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-      *ring.recvFlagFromNext = 0;
+      *ring->sendrecv.send.conn.head = 0;
     }
 
     if (rank != root) {
       // reset the flag
-      *ring.recvFlagFromPrev = 0;
+      *ring->sendrecv.recv.conn.tail = 0;
     }
-
-    incrementOpCounter(&args);
   }
 }
 
