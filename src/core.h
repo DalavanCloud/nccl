@@ -21,6 +21,14 @@
     }                                                    \
 } while(false)
 
+// Propagate errors up
+#define NCCLCHECK(call) do { \
+  ncclResult_t res = call; \
+  if (call != ncclSuccess) { \
+    return res; \
+  } \
+} while (0);
+
 #define MAXRINGS 12
 #define MAXFLAGS (2*MAXRINGS)
 #define MAXRANKS 32

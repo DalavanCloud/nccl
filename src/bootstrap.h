@@ -11,11 +11,11 @@
 
 struct ncclBootstrap {
   ncclResult_t (*getUniqueId)(ncclUniqueId*);
-  struct ncclBootstrap* (*init)(ncclUniqueId*, int, int);
-  void (*allGather)(void*, int);
-  void (*ringExchange)(void*, int);
+  ncclResult_t (*init)(ncclUniqueId*, int, int, void**);
+  ncclResult_t (*allGather)(void*, void*, int);
+  ncclResult_t (*ringExchange)(void*, void*, int);
 };
 
 ncclResult_t bootstrapGetUniqueId(ncclUniqueId* out);
-struct ncclBootstrap* bootstrapInit(ncclUniqueId* id, int rank, int nranks);
+ncclResult_t bootstrapInit(ncclUniqueId* id, int rank, int nranks, struct ncclBootstrap** bootstrap, void** commState);
 #endif

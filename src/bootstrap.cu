@@ -1,7 +1,10 @@
+#include "core.h"
 #include "bootstrap.h"
-#include "bootstrap/socket.h"
 
 #define NBOOTSTRAPS 1
+
+extern struct ncclBootstrap bootstrapSocket;
+
 struct ncclBootstrap bootstraps[NBOOTSTRAPS] = {
   bootstrapSocket
 };
@@ -14,13 +17,20 @@ ncclResult_t bootstrapGetUniqueId(ncclUniqueId* out) {
   return ncclInternalError;
 }
 
-struct ncclBootstrap* bootstrapInit(ncclUniqueId* id, int rank, int nranks) {
-  struct ncclBootstrap* bootstrap = NULL;
+ncclResult_t bootstrapInit(ncclUniqueId* id, int rank, int nranks, struct ncclBootstrap** bootstrap, void** commState) {
   for (int b=0; b<NBOOTSTRAPS; b++) {
-    bootstrap = bootstraps[b].init(id, rank, nranks);
-    if (bootstrap != NULL)
-      break;
+    ncclResult_t res = bootstraps[b].init(id, rank, nranks, commState);
+    if (res != ncclSuccess) {
+      *bootstrap = NULL;
+      *commState = NULL;
+      return res;
+    }
+    if (*commState != NULL) {
+      *bootstrap = bootstraps+b;
+      return ncclSuccess;
+    }
   }
-  return bootstrap;
+  WARN("bootstrapInit : no bootstrap found");
+  return ncclInternalError;
 }
 

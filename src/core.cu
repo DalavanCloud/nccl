@@ -215,11 +215,13 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
 static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* commId) {
   int rank = comm->rank;
   int nranks = comm->nRanks;
-  struct ncclBootstrap* bootstrap = bootstrapInit(commId, rank, nranks);
+  void* commState;
+  struct ncclBootstrap* bootstrap;
+  NCCLCHECK(bootstrapInit(commId, rank, nranks, &bootstrap, &commState));
   
   struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
   fillInfo(allInfo+rank);
-  bootstrap->allGather(allInfo, sizeof(struct ncclInfo));
+  NCCLCHECK(bootstrap->allGather(commState, allInfo, sizeof(struct ncclInfo)));
 
   int *rings;
   int nrings = getRings(&rings, nranks);
@@ -237,7 +239,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     setupSendRecv(&ring->sendrecv);
     selectTransport<0>(allInfo+rank, allInfo+prev, connect+0, &ring->sendrecv.recv.transport, ring);
     selectTransport<1>(allInfo+rank, allInfo+next, connect+1, &ring->sendrecv.send.transport, ring);
-    bootstrap->ringExchange(connect, sizeof(struct ncclConnect));
+    NCCLCHECK(bootstrap->ringExchange(commState, connect, sizeof(struct ncclConnect)));
     ring->sendrecv.recv.transport->recv.connect(connect+0, &ring->sendrecv.recv);
     ring->sendrecv.send.transport->send.connect(connect+1, &ring->sendrecv.send);
   }
