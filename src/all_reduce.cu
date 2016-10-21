@@ -46,10 +46,10 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     }
     if (nextdirect) {
       Wait([=] {
-        return *(ring->send.conn.ptrExchange) != nullptr;
+        return ring->devMem->ptrExchange != nullptr;
       });
-      sharedNextOutput = (T*)*ring->send.conn.ptrExchange;
-      *ring->send.conn.ptrExchange = nullptr;
+      sharedNextOutput = (T*)ring->devMem->ptrExchange;
+      ring->devMem->ptrExchange = nullptr;
     }
   }
   __syncthreads();
