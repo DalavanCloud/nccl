@@ -24,7 +24,7 @@
 // Propagate errors up
 #define NCCLCHECK(call) do { \
   ncclResult_t res = call; \
-  if (call != ncclSuccess) { \
+  if (res != ncclSuccess) { \
     return res; \
   } \
 } while (0);
@@ -68,22 +68,22 @@ struct ncclSendRecvMem {
 };
 
 struct ncclSendRecv {
-  struct ncclSendRecvMem* devMem;   // CUDA-size resources
-  int devMemSize;    // Keep the size for IPCs
-  struct ncclConnector send;
-  struct ncclConnector recv;
 };
 
 struct ncclRing {
   int rank;
   int id;
   // Per ring resources
+  struct ncclSendRecvMem* devMem;   // CUDA-size resources
   int buffSize;
-  struct ncclSendRecv sendrecv;
+  int devMemSize;    // Keep the size for IPCs
+  struct ncclConnector send;
+  struct ncclConnector recv;
+
   // Maps an internal nccl index to user-specified rank order. This is necessary
   // since we need to know how the user expects data to be ordered across
   // devices. Ordered from current device.
-  int* userRanks;
+  int userRanks[MAXRANKS];
 };
 
 struct ncclComm {

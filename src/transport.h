@@ -1,3 +1,4 @@
+#include "nccl.h"
 #include <stdint.h>
 
 #define NTRANSPORTS 1
@@ -17,18 +18,30 @@ struct ncclConnect {
 };
 
 struct ncclTransportComm {
-  int (*setup)(ncclTinfo_t*, ncclTinfo_t*, struct ncclConnect*, struct ncclRing*);
-  int (*connect)(struct ncclConnect*, struct ncclConnector*);
+  ncclResult_t (*setup)(ncclTinfo_t*, ncclTinfo_t*, struct ncclConnect*, struct ncclRing*, int*);
+  ncclResult_t (*connect)(struct ncclConnect*, struct ncclConnector*);
   int (*proxy)(void*);
 };
 
 struct ncclTransport {
-  int (*fillInfo)(ncclTinfo_t*);
+  void (*fillInfo)(ncclTinfo_t*);
   struct ncclTransportComm send;
   struct ncclTransportComm recv;
 };
 
-static uint64_t hostHash(const char* string) {
+#include <unistd.h>
+
+static void getHostName(char* hostname, int maxlen) {
+  gethostname(hostname, maxlen);
+  for (int i=0; i< maxlen; i++) {
+    if (hostname[i] == '.') {
+      hostname[i] = '\0';
+      return;
+    }
+  }
+}
+
+static uint64_t getHostHash(const char* string) {
   // Based on DJB2, result = result * 33 + char
   uint64_t result = 5381;
   for (int c = 0; string[c] != '\0'; c++){
@@ -39,7 +52,7 @@ static uint64_t hostHash(const char* string) {
 
 #include <string.h>
 
-static int hostNumber(const char* string) {
+static int getHostNumber(const char* string) {
   int result = 0;
   int len = strlen(string);
   for (int offset = len-1; offset >= 0; offset --) {

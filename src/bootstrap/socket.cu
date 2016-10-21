@@ -215,33 +215,42 @@ ncclResult_t bootstrapSocketAllGather(void* commState, void* allData, int size) 
   return ncclSuccess;
 }
 
-ncclResult_t bootstrapSocketRingExchange(void* commState, void* prevNextData, int size) {
+ncclResult_t bootstrapSocketRingExchange(void* commState, void* prevNextData, int prev, int next, int size) {
   struct socketState* state = (struct socketState*)commState;
   char* mydata = (char*)prevNextData;
+  int prev_offset = next*2*size+size, next_offset = prev*2*size;
   if (state->root) {
     char* data = (char*)malloc(size*2*state->nranks);
     // Copy root prev/next 
-    memcpy(data+(state->nranks-1)*2*size+size, mydata, size);
-    memcpy(data+2*size, mydata+size, size);
+    memcpy(data, mydata, 2*size);
 
-    // Receive from others directly at the right place
+    // Receive from all and build total table
     for (int r=1; r<state->nranks; r++) {
-      SYSCHECK(recv(state->fds[r], data+(r-1)*2*size+size, size, 0), "recv");
-      SYSCHECK(recv(state->fds[r], data+((r+1)%state->nranks)*2*size, size, 0), "recv");
+      SYSCHECK(recv(state->fds[r], data+r*2*size, 2*size, 0), "recv");
     }
 
     // Get root prev/next
-    memcpy(mydata, data, 2*size);
+    memcpy(mydata, data+prev_offset, size);
+    memcpy(mydata+size, data+next_offset, size);
 
-    // Send to all
+    // Get prev/next request from everyone and answer.
     for (int r=1; r<state->nranks; r++) {
-      SYSCHECK(write(state->fds[r], data+r*2*size, 2*size), "write");
+      int offset;
+      SYSCHECK(recv(state->fds[r], &offset, sizeof(int), 0), "recv");
+      SYSCHECK(write(state->fds[r], data+offset, size), "write");
+      SYSCHECK(recv(state->fds[r], &offset, sizeof(int), 0), "recv");
+      SYSCHECK(write(state->fds[r], data+offset, size), "write");
     }
 
     free(data);
   } else {
+    // Send data to root
     SYSCHECK(write(state->fds[0], mydata, 2*size), "write");
-    SYSCHECK(recv(state->fds[0], mydata, 2*size, 0), "recv");
+    // Receive prev and next data
+    SYSCHECK(write(state->fds[0], &prev_offset, sizeof(int)), "write");
+    SYSCHECK(recv(state->fds[0], mydata, size, 0), "recv");
+    SYSCHECK(write(state->fds[0], &next_offset, sizeof(int)), "write");
+    SYSCHECK(recv(state->fds[0], mydata+size, size, 0), "recv");
   }
   return ncclSuccess;
 }

@@ -31,18 +31,18 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   if (tid == 0) {
     // Wait for prev and next to be ready
     Wait([=] {
-        return *ring->sendrecv.recv.conn.head == 0;
+        return *ring->recv.conn.head == 0;
     });
     Wait([=] {
-        return *ring->sendrecv.send.conn.tail == 0;
+        return *ring->send.conn.tail == 0;
     });
   }
   __syncthreads();
 
-  WaitFlag waitDoneFromNext(ring->sendrecv.send.conn.head, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
-  WaitFlag waitReadyFromPrev(ring->sendrecv.recv.conn.tail, 0);
-  PostFlag postDoneToPrev(ring->sendrecv.recv.conn.head, 0);
-  PostFlag postReadyToNext(ring->sendrecv.send.conn.tail, 0);
+  WaitFlag waitDoneFromNext(ring->send.conn.head, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
+  WaitFlag waitReadyFromPrev(ring->recv.conn.tail, 0);
+  PostFlag postDoneToPrev(ring->recv.conn.head, 0);
+  PostFlag postReadyToNext(ring->send.conn.tail, 0);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
@@ -60,8 +60,8 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   // Compute pointers
   const T * __restrict__ thisInput = args.ThisInput;
   T * __restrict__ thisOutput = args.ThisOutput;
-  T * __restrict__ prevInput = (T*)ring->sendrecv.recv.conn.buff;
-  T * __restrict__ nextOutput = (T*)ring->sendrecv.send.conn.buff;
+  T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
+  T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
   for (int offset = bid*sliceSize; offset < size; offset += gridDim.x*sliceSize) {
     int maxOffset = size-offset;
@@ -101,12 +101,12 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
     if (rank != root) {
       // Wait for last update from next then reset the flag
       waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-      *ring->sendrecv.send.conn.head = 0;
+      *ring->send.conn.head = 0;
     }
 
     if (prevRank != root) {
       // reset the flag
-      *ring->sendrecv.recv.conn.tail = 0;
+      *ring->recv.conn.tail = 0;
     }
   }
 }

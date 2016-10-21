@@ -13,7 +13,7 @@ struct ncclBootstrap {
   ncclResult_t (*getUniqueId)(ncclUniqueId*);
   ncclResult_t (*init)(ncclUniqueId*, int, int, void**);
   ncclResult_t (*allGather)(void*, void*, int);
-  ncclResult_t (*ringExchange)(void*, void*, int);
+  ncclResult_t (*ringExchange)(void*, void*, int, int, int);
 };
 
 ncclResult_t bootstrapGetUniqueId(ncclUniqueId* out);

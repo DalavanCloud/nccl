@@ -131,19 +131,21 @@ static ncclResult_t fillInfo(struct ncclInfo* info) {
 }
 
 template <int type>
-static int selectTransport(struct ncclInfo* myInfo, struct ncclInfo* peerInfo, struct ncclConnect* connect, struct ncclTransport** transport, struct ncclRing* ring) {
+static ncclResult_t selectTransport(struct ncclInfo* myInfo, struct ncclInfo* peerInfo, struct ncclConnect* connect, struct ncclTransport** transport, struct ncclRing* ring) {
   for (int t=0; t<NTRANSPORTS; t++) {
     struct ncclTransportComm* transportComm = type == 1 ? &ncclTransports[t].send : &ncclTransports[t].recv;
-    if (transportComm->setup(myInfo->tinfo, peerInfo->tinfo, connect, ring) == 0) {
+    int select = 0;
+    NCCLCHECK(transportComm->setup(myInfo->tinfo, peerInfo->tinfo, connect, ring, &select));
+    if (select == 1) {
       *transport = ncclTransports+t;
-      return 0;
+      return ncclSuccess;
     }
   }
   WARN("No transport found !");
-  return 1;
+  return ncclInternalError;
 }
 
-static ncclResult_t setupSendRecv(struct ncclSendRecv* sendrecv) {
+static ncclResult_t setupSendRecv(struct ncclRing* ring) {
   const char* str = getenv("NCCL_BUFFSIZE");
   int buffSize;
   if (str != NULL) {
@@ -157,15 +159,17 @@ static ncclResult_t setupSendRecv(struct ncclSendRecv* sendrecv) {
   } else {
     buffSize = DEFAULT_BUFFER_SIZE_BYTES;
   }
-  const int size = sendrecv->devMemSize = sizeof(ncclSendRecvMem)-1+buffSize;
+  ring->buffSize = buffSize;
+  const int size = ring->devMemSize = offsetof(struct ncclSendRecvMem, buff)+buffSize;
   struct ncclSendRecvMem* mem;
-  cudaMalloc(&mem, size);
-  sendrecv->devMem = mem;
-  sendrecv->recv.conn.buff = (char*)&mem->buff;
-  sendrecv->recv.conn.tail = &mem->tail;
-  sendrecv->recv.conn.direct = 0;
-  sendrecv->send.conn.head = &mem->head;
-  sendrecv->send.conn.direct = 0;
+  CUDACHECK(cudaMalloc(&mem, size));
+  CUDACHECK(cudaMemset(mem, 0, size));
+  ring->devMem = mem;
+  ring->recv.conn.buff = (char*)&mem->buff;
+  ring->recv.conn.tail = &mem->tail;
+  ring->recv.conn.direct = 0;
+  ring->send.conn.head = &mem->head;
+  ring->send.conn.direct = 0;
   return ncclSuccess;
 }
 
@@ -175,6 +179,31 @@ static int getRings(int** rings, int nranks) {
   for (int i=0; i<nranks; i++)
     rings[0][i] = i;
   return 1;
+}
+
+static ncclResult_t setupRing(struct ncclRing* ring, int rank, int nranks, int* ringRanks, struct ncclInfo* allInfo, struct ncclConnect* connect) { 
+  // Reorganize ranks to start with rank.
+  int shift;
+  for (shift = 0; shift<nranks; shift++) {
+    if (ringRanks[shift] == rank) {
+      break;
+    }
+  }
+  for (int i=0; i<nranks; i++) {
+    ring->userRanks[i] = ringRanks[(i+shift)%nranks];
+  }
+  int prev = ring->userRanks[nranks-1];
+  int next = ring->userRanks[1];
+
+  setupSendRecv(ring);
+  NCCLCHECK(selectTransport<0>(allInfo+rank, allInfo+prev, connect+0, &ring->recv.transport, ring));
+  NCCLCHECK(selectTransport<1>(allInfo+rank, allInfo+next, connect+1, &ring->send.transport, ring));
+  return ncclSuccess;
+}
+
+static void swap(void* mem1, void* mem2, int size) {
+  char tmp[size];
+  memcpy(tmp, mem1, size); memcpy(mem1, mem2, size); memcpy(mem2, tmp, size);
 }
 
 static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, int nranks) {
@@ -187,25 +216,31 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   int *rings;
   int nrings = getRings(&rings, nranks);
 
+  for (int rank=0; rank<nranks; rank++)
+    comms[rank]->nRings = nrings;
+
   for (int r=0; r<nrings; r++) {
     struct ncclConnect connect[2*nranks];
+    int* ringRanks = rings+r*nranks;
     for (int rank=0; rank<nranks; rank++) {
+      CUDACHECK(cudaSetDevice(devs[rank]));
       struct ncclRing *ring = comms[rank]->rings+r;
-      int *ringRanks = rings+nranks*r;
-      int prev = ringRanks[nranks-1], next = ringRanks[1];
-      for (int i=0; i<nranks-1; i++) {
-        if (ringRanks[i+1] == rank) break;   
-        prev = ringRanks[i]; 
-        next = ringRanks[i+2];
-      }
-      setupSendRecv(&ring->sendrecv);
-      selectTransport<0>(allInfo+rank, allInfo+prev, connect+2*prev+1, &ring->sendrecv.recv.transport, ring);
-      selectTransport<1>(allInfo+rank, allInfo+next, connect+2*next+0, &ring->sendrecv.send.transport, ring);
+      NCCLCHECK(setupRing(ring, rank, nranks, ringRanks, allInfo, connect+2*rank));
+    }
+    // RingExchange connect information
+    for (int rank=0; rank<nranks; rank++) {
+      // Swap rank->prev and prevRank->next
+      struct ncclRing *ring = comms[rank]->rings+r;
+      int prevRank = ring->userRanks[nranks-1];
+      struct ncclConnect* prevRankNextConnect = connect+2*prevRank+1;
+      struct ncclConnect* rankPrevConnect = connect+2*rank;
+      swap(prevRankNextConnect, rankPrevConnect, sizeof(struct ncclConnect));
     }
     for (int rank=0; rank<nranks; rank++) {
+      CUDACHECK(cudaSetDevice(devs[rank]));
       struct ncclRing *ring = comms[rank]->rings+r;
-      ring->sendrecv.recv.transport->recv.connect(connect+2*rank+0, &ring->sendrecv.recv);
-      ring->sendrecv.send.transport->send.connect(connect+2*rank+1, &ring->sendrecv.send);
+      NCCLCHECK(ring->recv.transport->recv.connect(connect+2*rank+0, &ring->recv));
+      NCCLCHECK(ring->send.transport->send.connect(connect+2*rank+1, &ring->send));
     }
   }
   free(rings);
@@ -227,21 +262,13 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   int nrings = getRings(&rings, nranks);
 
   for (int r=0; r<nrings; r++) {
+    int* ringRanks = rings+r*nranks;
+    struct ncclRing *ring = comm->rings+r;
     struct ncclConnect connect[2];
-    struct ncclRing* ring = comm->rings+r;
-    int *ringRanks = rings+nranks*r;
-    int prev = ringRanks[nranks-1], next = ringRanks[1];
-    for (int i=0; i<nranks-1; i++) {
-      if (ringRanks[i+1] == rank) break;   
-      prev = ringRanks[i]; 
-      next = ringRanks[i+2];
-    }
-    setupSendRecv(&ring->sendrecv);
-    selectTransport<0>(allInfo+rank, allInfo+prev, connect+0, &ring->sendrecv.recv.transport, ring);
-    selectTransport<1>(allInfo+rank, allInfo+next, connect+1, &ring->sendrecv.send.transport, ring);
-    NCCLCHECK(bootstrap->ringExchange(commState, connect, sizeof(struct ncclConnect)));
-    ring->sendrecv.recv.transport->recv.connect(connect+0, &ring->sendrecv.recv);
-    ring->sendrecv.send.transport->send.connect(connect+1, &ring->sendrecv.send);
+    NCCLCHECK(setupRing(ring, rank, nranks, ringRanks, allInfo, connect));
+    NCCLCHECK(bootstrap->ringExchange(commState, connect, ring->userRanks[nranks-1], ring->userRanks[1], sizeof(struct ncclConnect)));
+    NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
+    NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
   }
   free(rings);
   return ncclSuccess;
@@ -370,6 +397,12 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   }
 
   for(rank=0; rank<ndev; ++rank) {
+    cudaDev = (devlist == NULL) ? rank : devlist[rank];
+    if (cudaSetDevice(cudaDev) != cudaSuccess) {
+      WARN("rank %d failed to set cuda device %d", rank, cudaDev);
+      res = ncclInvalidDeviceIndex;
+      goto cleanup;
+    }
     res = devCommSetup(comms[rank]);
     if (res != ncclSuccess) {
       WARN("rank %d failed to copy dcomm", rank);
