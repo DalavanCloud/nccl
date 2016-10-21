@@ -42,14 +42,15 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     });
     
     if (prevdirect) {
-      *ring->recv.conn.ptrExchange = (T*)args.ThisOutput;
+      *ring->recv.conn.ptrExchange = args.ThisOutput;
     }
     if (nextdirect) {
+      void* volatile* ptr = &(ring->devMem->ptrExchange);
       Wait([=] {
-        return ring->devMem->ptrExchange != nullptr;
+        return (*ptr) != nullptr;
       });
-      sharedNextOutput = (T*)ring->devMem->ptrExchange;
-      ring->devMem->ptrExchange = nullptr;
+      sharedNextOutput = (T*)*ptr;
+      *ptr = nullptr;
     }
   }
   __syncthreads();
