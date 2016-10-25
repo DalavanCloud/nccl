@@ -8,26 +8,9 @@
 #define CORE_H_
 
 #include "nccl.h"
+#include "transport.h"
 #include <cstdio>
 #include <cuda_runtime.h>
-
-// DIE on error
-#define CUDACHECK(cmd) do {                              \
-    cudaError_t e = cmd;                                 \
-    if( e != cudaSuccess ) {                             \
-        printf("Cuda failure %s:%d '%s'\n",              \
-               __FILE__,__LINE__,cudaGetErrorString(e)); \
-        exit(EXIT_FAILURE);                              \
-    }                                                    \
-} while(false)
-
-// Propagate errors up
-#define NCCLCHECK(call) do { \
-  ncclResult_t res = call; \
-  if (res != ncclSuccess) { \
-    return res; \
-  } \
-} while (0);
 
 #define MAXRINGS 12
 #define MAXFLAGS (2*MAXRINGS)
@@ -44,6 +27,8 @@ struct ncclConnInfo {
 };
 
 struct ncclConnector {
+  int thread_running;
+  pthread_t thread;
   struct ncclTransport* transport;
   void* transportResources; // Host-side resources
   struct ncclConnInfo conn;
@@ -65,9 +50,6 @@ struct ncclSendRecvMem {
     char pad4[PAGE_SIZE];
   };
   char buff[1]; // Actually larger than that
-};
-
-struct ncclSendRecv {
 };
 
 struct ncclRing {
@@ -126,6 +108,25 @@ extern DebugLevel ncclDebugLevel;
     fflush(stdout);                                              \
   }                                                              \
 } while(0)
+
+// Check CUDA calls
+#define CUDACHECK(cmd) do {                              \
+    cudaError_t e = cmd;                                 \
+    if( e != cudaSuccess ) {                             \
+        WARN("Cuda failure %s:%d '%s'\n",                \
+               __FILE__,__LINE__,cudaGetErrorString(e)); \
+        return ncclUnhandledCudaError;                   \
+    }                                                    \
+} while(false)
+
+// Propagate errors up
+#define NCCLCHECK(call) do { \
+  ncclResult_t res = call; \
+  if (res != ncclSuccess) { \
+    return res; \
+  } \
+} while (0);
+
 
 #ifdef PROFAPI
 #define NCCL_API(ret, func, args...)        \

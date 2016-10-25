@@ -30,13 +30,10 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   struct ncclRing* ring = comm->rings+bid;
 
   if (tid == 0) {
+    volatile int *flagPrev = ring->recv.conn.head;
+    volatile int *flagNext = ring->send.conn.tail;
     // Wait for prev and next to be ready
-    Wait([=] {
-        return *ring->recv.conn.head == 0;
-    });
-    Wait([=] {
-        return *ring->send.conn.tail == 0;
-    });
+    while (((*flagPrev) | (*flagNext)) != 0);
   }
   __syncthreads();
 
@@ -115,14 +112,14 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
     NEXT_STEP;
   }
 
-  // wait for the last data to be pushed to us
-  if (tid == 0) {
-    // Wait for last update from next then reset the flag
-    waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-    *ring->send.conn.head = 0;
+  // Make all counters equal at the end
+  // and wait for the last flags to be acked
+  Prims::Copy(NULL, NULL, 0, 0, step, waitReadyFromPrev, waitDoneFromNext, postDoneToPrev);
+  NEXT_STEP;
+  Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
 
-    // Wait for last update from prev then reset the flag
-    waitReadyFromPrev.wait(NUM_SUBSTEPS*(step+1));
+  if (tid == 0) {
+    *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
   }
 }
@@ -141,6 +138,7 @@ ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
+    NCCLCHECK(LaunchProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks, comm->nRanks, count*sizeof(T), comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {
@@ -148,6 +146,7 @@ ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
     } else {
       LAUNCH_KERNEL(ReduceScatterKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
     }
+    //NCCLCHECK(WaitProxies(comm));
   }
 
   return ncclSuccess;

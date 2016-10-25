@@ -68,7 +68,7 @@ CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 INCEXPORTS  := nccl.h
 LIBSRCFILES := libwrap.cu core.cu crc32.cu topo.cu bootstrap.cu transport.cu \
 		bootstrap/socket.cu bootstrap/mpi.cu \
-		transport/p2p.cu transport/qpi.cu transport/socket.cu transport/mpi.cu \
+		transport/p2p.cu transport/shm.cu transport/socket.cu transport/mpi.cu \
 		all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
 LIBNAME     := libnccl.so
 
@@ -139,7 +139,7 @@ MPI_LIB ?= $(MPI_HOME)/lib
 MPIFLAGS   := -I$(MPI_INC) -L$(MPI_LIB) -lmpi
 
 TESTS       := all_gather_test     all_gather_scan \
-               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded \
+               all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded all_reduce_debug \
                broadcast_test      broadcast_scan \
                reduce_test         reduce_scan \
                reduce_scatter_test reduce_scatter_scan

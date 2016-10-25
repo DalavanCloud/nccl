@@ -76,7 +76,7 @@ static __global__ void CRCKernel(unsigned char* data, int bytes, int rank) {
     printf("NCCL Rank %d CRC 0x%.8x\n", rank, ~crc_val);
 }
 
-void printCRCDev(unsigned char* data,
+ncclResult_t printCRCDev(unsigned char* data,
                  int bytes,
                  int rank,
                  cudaStream_t stream)
@@ -85,5 +85,6 @@ void printCRCDev(unsigned char* data,
   const dim3 block(256, 1, 1);
   void* argptrs[] = {&data, &bytes, &rank};
   CUDACHECK(cudaLaunchKernel((void*)CRCKernel, grid, block, argptrs, 0, stream));
+  return ncclSuccess;
 }
 

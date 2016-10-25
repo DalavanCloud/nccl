@@ -33,23 +33,19 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   int nextdirect = ring->send.conn.direct;
 
   if (tid == 0) {
+    volatile int *flagPrev = ring->recv.conn.head;
+    volatile int *flagNext = ring->send.conn.tail;
     // Wait for prev and next to be ready
-    Wait([=] {
-        return *ring->recv.conn.head == 0;
-    });
-    Wait([=] {
-        return *ring->send.conn.tail == 0;
-    });
+    while (((*flagPrev) | (*flagNext)) != 0);
     
     if (prevdirect) {
-      *ring->recv.conn.ptrExchange = (T*)args.ThisOutput;
+      *ring->recv.conn.ptrExchange = args.ThisOutput;
     }
     if (nextdirect) {
-      Wait([=] {
-        return *(ring->send.conn.ptrExchange) != nullptr;
-      });
-      sharedNextOutput = (T*)*ring->send.conn.ptrExchange;
-      *ring->send.conn.ptrExchange = nullptr;
+      void* volatile* ptr = &(ring->devMem->ptrExchange);
+      while (*ptr == nullptr);
+      sharedNextOutput = (T*)*ptr;
+      *ptr = nullptr;
     }
   }
   __syncthreads();
@@ -122,6 +118,15 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
 
         NEXT_STEP;
       }
+      Prims::Copy(
+          NULL,
+          NULL,
+          0, 0,
+          step,
+          waitDoneFromNext, waitReadyFromPrev,
+          postReadyToNext, postDoneToPrev);
+
+      NEXT_STEP;
     } else {
       for (int j=1; j<nranks-1; ++j) {
         rankDest = ring->userRanks[nranks-j];
@@ -156,14 +161,15 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
     }
   }
 
-  // wait for the last data to be pushed to us
-  if (tid == 0) {
-    // Wait for last update from next then reset the flag
-    waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-    *ring->send.conn.head = 0;
+  // Make all counters equal at the end
+  // and wait for the last flags to be acked
+  Prims::Copy(NULL, NULL, 0, 0, step, waitReadyFromPrev, waitDoneFromNext, postDoneToPrev);
+  NEXT_STEP;
+  Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
 
-    // Wait for last update from prev then reset the flag
-    waitReadyFromPrev.wait(NUM_SUBSTEPS*(step+1));
+  if (tid == 0) {
+    //printf("Flags at end : %d %d %d %d\n", *ring->send.conn.head, *ring->send.conn.tail, *ring->recv.conn.head, *ring->recv.conn.tail);
+    *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
   }
 }
@@ -182,6 +188,7 @@ ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
+    NCCLCHECK(LaunchProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks, comm->nRanks, count*sizeof(T), comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {
@@ -189,6 +196,7 @@ ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
     } else {
       LAUNCH_KERNEL(AllGatherKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
     }
+    //NCCLCHECK(WaitProxies(comm));
   }
 
   return ncclSuccess;

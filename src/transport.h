@@ -1,7 +1,10 @@
+#ifndef TRANSPORT_H_
+#define TRANSPORT_H_
+
 #include "nccl.h"
 #include <stdint.h>
 
-#define NTRANSPORTS 1
+#define NTRANSPORTS 2
 
 extern struct ncclTransport ncclTransports[];
 
@@ -17,10 +20,16 @@ struct ncclConnect {
   char data[CONNECT_SIZE];
 };
 
+struct ncclProxyArgs {
+  struct ncclRing* ring;
+  int substeps;
+  int nsteps;
+};
+
 struct ncclTransportComm {
   ncclResult_t (*setup)(ncclTinfo_t*, ncclTinfo_t*, struct ncclConnect*, struct ncclRing*, int*);
   ncclResult_t (*connect)(struct ncclConnect*, struct ncclConnector*);
-  int (*proxy)(void*);
+  ncclResult_t (*proxy)(struct ncclProxyArgs*);
 };
 
 struct ncclTransport {
@@ -63,3 +72,4 @@ static int getHostNumber(const char* string) {
   }
   return result;
 }
+#endif

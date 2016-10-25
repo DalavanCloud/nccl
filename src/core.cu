@@ -58,15 +58,15 @@ static void initDebug() {
   }
 }
 
-static void commFree(ncclComm_t comm) {
+static ncclResult_t commFree(ncclComm_t comm) {
   if (comm == NULL)
-    return;
+    return ncclSuccess;
 
   if (comm->doneEvent != NULL)
-    if (cudaEventDestroy(comm->doneEvent) != cudaSuccess)
-      INFO("ncclComm failed to destroy doneEvent");
+    CUDACHECK(cudaEventDestroy(comm->doneEvent));
 
   free(comm);
+  return ncclSuccess;
 }
 
 static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
@@ -181,11 +181,13 @@ static int getRings(int** rings, int nranks) {
   return 1;
 }
 
-static ncclResult_t setupRing(struct ncclRing* ring, int rank, int nranks, int* ringRanks, struct ncclInfo* allInfo, struct ncclConnect* connect) { 
+static ncclResult_t setupRing(struct ncclRing* ring, int ringid, int rank, int nranks, int* ringRanks, struct ncclInfo* allInfo, struct ncclConnect* connect) { 
+  ring->id = ringid;
   // Reorganize ranks to start with rank.
   int shift;
   for (shift = 0; shift<nranks; shift++) {
     if (ringRanks[shift] == rank) {
+      ring->rank = shift;
       break;
     }
   }
@@ -225,7 +227,7 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
     for (int rank=0; rank<nranks; rank++) {
       CUDACHECK(cudaSetDevice(devs[rank]));
       struct ncclRing *ring = comms[rank]->rings+r;
-      NCCLCHECK(setupRing(ring, rank, nranks, ringRanks, allInfo, connect+2*rank));
+      NCCLCHECK(setupRing(ring, r, rank, nranks, ringRanks, allInfo, connect+2*rank));
     }
     // RingExchange connect information
     for (int rank=0; rank<nranks; rank++) {
@@ -265,7 +267,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     int* ringRanks = rings+r*nranks;
     struct ncclRing *ring = comm->rings+r;
     struct ncclConnect connect[2];
-    NCCLCHECK(setupRing(ring, rank, nranks, ringRanks, allInfo, connect));
+    NCCLCHECK(setupRing(ring, r, rank, nranks, ringRanks, allInfo, connect));
     NCCLCHECK(bootstrap->ringExchange(commState, connect, ring->userRanks[nranks-1], ring->userRanks[1], sizeof(struct ncclConnect)));
     NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
@@ -426,13 +428,13 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   return res;
 }
 
-NCCL_API(void, ncclCommDestroy, ncclComm_t comm);
-void ncclCommDestroy(ncclComm_t comm) {
+NCCL_API(ncclResult_t, ncclCommDestroy, ncclComm_t comm);
+ncclResult_t ncclCommDestroy(ncclComm_t comm) {
   if (comm == NULL)
-    return;
+    return ncclSuccess;
 
   int savedDevice;
-  cudaGetDevice(&savedDevice);
+  CUDACHECK(cudaGetDevice(&savedDevice));
   int commDevice = comm->cudaDev;
 
   if (savedDevice != commDevice) {
@@ -442,7 +444,9 @@ void ncclCommDestroy(ncclComm_t comm) {
   commFree(comm);
 
   if (savedDevice != commDevice)
-    cudaSetDevice(savedDevice);
+    CUDACHECK(cudaSetDevice(savedDevice));
+
+  return ncclSuccess;
 }
 
 NCCL_API(const char*, ncclGetErrorString, ncclResult_t code);
