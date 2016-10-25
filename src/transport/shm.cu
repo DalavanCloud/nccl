@@ -35,6 +35,7 @@ struct shmResourcesRecv {
   int localCudaDev;
   cudaStream_t prevStream;
   cudaStream_t localStream;
+  cudaEvent_t syncEvent;
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
   struct ncclSendRecvMem* remDevMem;
@@ -109,6 +110,7 @@ ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   resources->localCudaDev = myInfo->cudaDev;
   CUDACHECK(cudaSetDevice(myInfo->cudaDev));
   CUDACHECK(cudaStreamCreateWithFlags(&resources->localStream, cudaStreamNonBlocking));
+  CUDACHECK(cudaEventCreate(&resources->syncEvent));
 
   char shmname[1024];
   sprintf(shmname, "nccl-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
@@ -262,10 +264,13 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
     while ((head - *prevTail) == 0);
     while ((head - *nextHead) >= args->substeps);
     head++;
+    //printf("Proxy : %d : copying from/to %X\n", head, offset);
     CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, sliceSize, cudaMemcpyHostToDevice, resources->localStream));
     CUDACHECK(cudaMemcpyAsync(nextTail, &head, sizeof(int), cudaMemcpyHostToDevice, resources->localStream));
+    CUDACHECK(cudaEventRecord(resources->syncEvent, resources->localStream));
 
     CUDACHECK(cudaSetDevice(resources->prevCudaDev));
+    CUDACHECK(cudaStreamWaitEvent(resources->prevStream, resources->syncEvent, 0));
     CUDACHECK(cudaMemcpyAsync(prevHead, &head, sizeof(int), cudaMemcpyHostToDevice, resources->prevStream));
 
     offset += sliceSize;

@@ -72,4 +72,7 @@ static int getHostNumber(const char* string) {
   }
   return result;
 }
+
+ncclResult_t LaunchProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, struct ncclComm* comm);
+ncclResult_t WaitProxies(struct ncclComm* comm);
 #endif
