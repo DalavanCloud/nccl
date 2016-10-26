@@ -5,7 +5,7 @@
  ************************************************************************/
 
 #include "topo.h"
-#include "libwrap.h"
+#include "nvmlwrap.h"
 #include "nccl.h"
 #include <ctype.h>
 

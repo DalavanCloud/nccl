@@ -110,13 +110,12 @@ extern DebugLevel ncclDebugLevel;
 } while(0)
 
 // Check CUDA calls
-#define CUDACHECK(cmd) do {                              \
-    cudaError_t e = cmd;                                 \
-    if( e != cudaSuccess ) {                             \
-        WARN("Cuda failure %s:%d '%s'\n",                \
-               __FILE__,__LINE__,cudaGetErrorString(e)); \
-        return ncclUnhandledCudaError;                   \
-    }                                                    \
+#define CUDACHECK(cmd) do {                                 \
+    cudaError_t e = cmd;                                    \
+    if( e != cudaSuccess ) {                                \
+        WARN("Cuda failure '%s'\n", cudaGetErrorString(e)); \
+        return ncclUnhandledCudaError;                      \
+    }                                                       \
 } while(false)
 
 // Propagate errors up
@@ -144,6 +143,14 @@ extern DebugLevel ncclDebugLevel;
     ret func(args)
 #endif // end PROFAPI
 
+static void dump(void* data, int size) {
+  unsigned char* d = (unsigned char*)data;
+  for (int i=0; i<size; i++) {
+    if (i%32 == 0) printf("\n");
+    printf("%02X ", d[i]);
+  }
+  printf("\n");
+}
 
 #endif // end include guard
 

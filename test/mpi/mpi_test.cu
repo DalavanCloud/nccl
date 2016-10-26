@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
 
   // NCCL Communicator creation
   ncclComm_t comm;
-  NCCLCHECK(ncclGetUniqueId(&commId));
+  if (rank == 0) NCCLCHECK(ncclGetUniqueId(&commId));
   MPI_Bcast(&commId, NCCL_UNIQUE_ID_BYTES, MPI_CHAR, 0, MPI_COMM_WORLD);
   ret = ncclCommInitRank(&comm, size, commId, rank);
   if (ret != ncclSuccess) {

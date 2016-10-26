@@ -1,8 +1,11 @@
 #include "core.h"
+#include "utils.h"
 #include "transport.h"
+#include <unistd.h>
 #include <cuda_runtime.h>
 
 struct shmInfo {
+  int rank;
   int cudaDev;
   int pid;
   uint64_t hostHash;
@@ -43,14 +46,16 @@ struct shmResourcesRecv {
 
 /* Fill infomation necessary to exchange between ranks to choose whether or not
  * to use this transport */
-void shmFillInfo(ncclTinfo_t* opaqueInfo) {
+ncclResult_t shmFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct shmInfo* info = (struct shmInfo*)opaqueInfo;
   static_assert(sizeof(struct shmInfo) <= sizeof(ncclTinfo_t), "shm Info too large");
+  info->rank = rank;
   info->pid = getpid();
   char hostname[1024];
   getHostName(hostname, 1024);
   info->hostHash=getHostHash(hostname);
   info->hostNumber=getHostNumber(hostname);
+  return ncclSuccess;
 }
 
 #include <sys/types.h>
@@ -86,7 +91,8 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
       return ncclSuccess;
     }
   }
-  INFO("%d -> %d transport via shared memory", myInfo->cudaDev, peerInfo->cudaDev);
+  INFO("%d [%d] -> %d [%d] via shared memory", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+  static_assert(sizeof(struct shmConnectRecvInfo) <= sizeof(struct ncclConnect), "shm Connect Recv Info is too big");
   memcpy(connectInfo, &info, sizeof(struct shmConnectRecvInfo));
   *select = 1;
   return ncclSuccess;
@@ -157,10 +163,10 @@ ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
     return ncclSuccess;
   }
   resources->hostMem = (struct ncclSendRecvMem*)ptr;
-  INFO("SetupRecv : Shm %s mapped at %p / Dev %p", shmname, ptr, resources->devHostMem);
   
   struct shmConnectSendInfo info;
   info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid; info.shmsize = shmsize;
+  static_assert(sizeof(struct shmConnectRecvInfo) <= sizeof(struct ncclConnect), "shm Connect Send Info is too big");
   memcpy(connectInfo, &info, sizeof(struct shmConnectSendInfo));
   *select = 1;
   return ncclSuccess;
@@ -223,7 +229,6 @@ ncclResult_t shmConnectSend(struct ncclConnect* connectInfo, struct ncclConnecto
     munmap(ptr, shmsize);
     return ncclInternalError;
   }
-  INFO("ConnectSend : Shm %s mapped at %p/ Dev %p", shmname, ptr, &remHostMem);
 
   resources->remHostMem = remHostMem;
   send->transportResources = resources;
@@ -269,7 +274,7 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
     CUDACHECK(cudaMemcpyAsync(nextTail, &head, sizeof(int), cudaMemcpyHostToDevice, resources->localStream));
     CUDACHECK(cudaEventRecord(resources->syncEvent, resources->localStream));
 
-    CUDACHECK(cudaSetDevice(resources->prevCudaDev));
+    //CUDACHECK(cudaSetDevice(resources->prevCudaDev));
     CUDACHECK(cudaStreamWaitEvent(resources->prevStream, resources->syncEvent, 0));
     CUDACHECK(cudaMemcpyAsync(prevHead, &head, sizeof(int), cudaMemcpyHostToDevice, resources->prevStream));
 
@@ -277,7 +282,7 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
     if (offset == buffSize)
       offset = 0;
   }
-  // Ensure all updated are pushed
+  // Ensure all updates are pushed
   CUDACHECK(cudaSetDevice(resources->localCudaDev));
   CUDACHECK(cudaStreamSynchronize(resources->localStream));
   CUDACHECK(cudaSetDevice(resources->prevCudaDev));

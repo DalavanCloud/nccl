@@ -5,7 +5,7 @@
  ************************************************************************/
 
 #include "core.h"
-#include "libwrap.h"
+#include "nvmlwrap.h"
 #include "topo.h"
 #include "bootstrap.h"
 #include "transport.h"
@@ -27,7 +27,7 @@ int ncclPrintCRCs;
 NCCL_API(ncclResult_t, ncclGetUniqueId, ncclUniqueId* out);
 ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
   bootstrapGetUniqueId(out);
-  if(out == NULL) {
+  if (out == NULL) {
     WARN("Error : no bootstrap available");
     return ncclInternalError;
   }
@@ -123,9 +123,9 @@ static void showVersion() {
   }
 }
 
-static ncclResult_t fillInfo(struct ncclInfo* info) {
+static ncclResult_t fillInfo(struct ncclInfo* info, int rank) {
   for (int t=0; t<NTRANSPORTS; t++) {
-    ncclTransports[t].fillInfo(info->tinfo+t);
+    NCCLCHECK(ncclTransports[t].fillInfo(info->tinfo+t, rank));
   }
   return ncclSuccess;
 }
@@ -135,7 +135,7 @@ static ncclResult_t selectTransport(struct ncclInfo* myInfo, struct ncclInfo* pe
   for (int t=0; t<NTRANSPORTS; t++) {
     struct ncclTransportComm* transportComm = type == 1 ? &ncclTransports[t].send : &ncclTransports[t].recv;
     int select = 0;
-    NCCLCHECK(transportComm->setup(myInfo->tinfo, peerInfo->tinfo, connect, ring, &select));
+    NCCLCHECK(transportComm->setup(myInfo->tinfo+t, peerInfo->tinfo+t, connect, ring, &select));
     if (select == 1) {
       *transport = ncclTransports+t;
       return ncclSuccess;
@@ -212,7 +212,7 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
   for (int rank=0; rank<nranks; rank++) {
     cudaSetDevice(devs[rank]);
-    fillInfo(allInfo+rank);
+    fillInfo(allInfo+rank, rank);
   }
   
   int *rings;
@@ -257,11 +257,12 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   NCCLCHECK(bootstrapInit(commId, rank, nranks, &bootstrap, &commState));
   
   struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
-  fillInfo(allInfo+rank);
+  fillInfo(allInfo+rank, rank);
   NCCLCHECK(bootstrap->allGather(commState, allInfo, sizeof(struct ncclInfo)));
 
   int *rings;
   int nrings = getRings(&rings, nranks);
+  comm->nRings = nrings;
 
   for (int r=0; r<nrings; r++) {
     int* ringRanks = rings+r*nranks;
@@ -280,18 +281,12 @@ NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniq
 ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   if (myrank == 0) showVersion();
 
-  if (strlen(commId.internal) < 1 ||
-      strlen(commId.internal) >= NCCL_UNIQUE_ID_BYTES) {
-    WARN("rank %d invalid commId", myrank);
-    return ncclInvalidArgument;
-  }
-
   initDebug();
   ncclResult_t res;
 
-  res = wrapSymbols();
+  res = wrapNvmlSymbols();
   if (res != ncclSuccess) {
-    WARN("NCCL failed to initialize client libs");
+    WARN("NCCL failed to initialize NVML");
     return res;
   }
 
@@ -338,9 +333,9 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   nvmlDevice_t nvmlHandle;
   int affinity_set = 0;
 
-  res = wrapSymbols();
+  res = wrapNvmlSymbols();
   if (res != ncclSuccess) {
-    WARN("NCCL failed to initialize client libs");
+    WARN("NCCL failed to initialize NVML");
     return res;
   }
 

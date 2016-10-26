@@ -60,7 +60,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
   const int size = args.N;
-  const int rank = comm->rank;
+  //const int rank = comm->rank;
   const int nranks = comm->nRanks;
   const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
@@ -238,7 +238,6 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     } else {
       LAUNCH_KERNEL(AllReduceKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
     }
-    //NCCLCHECK(WaitProxies(comm));
   }
 
   return ncclSuccess;

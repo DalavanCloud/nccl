@@ -4,11 +4,11 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#include "libwrap.h"
+#include "nvmlwrap.h"
 #include <dlfcn.h>
 #include "core.h"
 
-int symbolsLoaded = 0;
+int nvmlSymbolsLoaded = 0;
 
 static nvmlReturn_t (*nvmlInternalInit)(void);
 static nvmlReturn_t (*nvmlInternalShutdown)(void);
@@ -23,9 +23,9 @@ static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkRemotePciInfo)(nvmlDevice_t dev
 static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkCapability)(nvmlDevice_t device, unsigned int link,
                                                    nvmlNvLinkCapability_t capability, unsigned int *capResult);
 
-ncclResult_t wrapSymbols(void) {
+ncclResult_t wrapNvmlSymbols(void) {
 
-  if (symbolsLoaded)
+  if (nvmlSymbolsLoaded)
     return ncclSuccess;
 
   static void* nvmlhandle = NULL;
@@ -72,7 +72,7 @@ ncclResult_t wrapSymbols(void) {
   LOAD_SYM_OPTIONAL(nvmlhandle, "nvmlDeviceGetNvLinkRemotePciInfo", nvmlInternalDeviceGetNvLinkRemotePciInfo);
   LOAD_SYM_OPTIONAL(nvmlhandle, "nvmlDeviceGetNvLinkCapability", nvmlInternalDeviceGetNvLinkCapability);
 
-  symbolsLoaded = 1;
+  nvmlSymbolsLoaded = 1;
   return ncclSuccess;
 
   teardown:

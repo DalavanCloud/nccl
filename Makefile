@@ -66,10 +66,12 @@ CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 .DEFAULT : lib
 
 INCEXPORTS  := nccl.h
-LIBSRCFILES := libwrap.cu core.cu crc32.cu topo.cu bootstrap.cu transport.cu \
-		bootstrap/socket.cu bootstrap/mpi.cu \
-		transport/p2p.cu transport/shm.cu transport/socket.cu transport/mpi.cu \
-		all_gather.cu all_reduce.cu broadcast.cu reduce.cu reduce_scatter.cu
+LIBSRCFILES := init.cu \
+		misc/nvmlwrap.cu misc/crc32.cu misc/topo.cu misc/utils.cu \
+		bootstrap/bootstrap.cu bootstrap/socket.cu bootstrap/mpi.cu \
+		transport/transport.cu transport/p2p.cu transport/shm.cu transport/socket.cu transport/mpi.cu \
+		collectives/all_gather.cu collectives/all_reduce.cu collectives/broadcast.cu \
+		collectives/reduce.cu collectives/reduce_scatter.cu
 LIBNAME     := libnccl.so
 
 INCDIR := $(BUILDDIR)/include
@@ -83,7 +85,7 @@ LIBLINK    := $(patsubst lib%.so, -l%, $(LIBNAME))
 LIBOBJ     := $(patsubst %.cu, $(OBJDIR)/%.o, $(filter %.cu, $(LIBSRCFILES)))
 DEPFILES   := $(patsubst %.o, %.d, $(LIBOBJ)) $(patsubst %, %.d, $(TESTBINS)) $(patsubst %, %.d, $(MPITESTBINS))
 
-CXXFLAGS    += -Isrc/
+CXXFLAGS    += -Isrc/include -Isrc/
 
 lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 

@@ -79,7 +79,7 @@ typedef struct nvmlPciInfo_st
 } nvmlPciInfo_t;
 /* End of nvml.h */
 
-ncclResult_t wrapSymbols(void);
+ncclResult_t wrapNvmlSymbols(void);
 
 ncclResult_t wrapNvmlInit(void);
 ncclResult_t wrapNvmlShutdown(void);

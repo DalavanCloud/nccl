@@ -1,8 +1,11 @@
 #include "core.h"
+#include "utils.h"
 #include "transport.h"
+#include <unistd.h>
 #include <cuda_runtime.h>
 
 struct p2pInfo {
+  int rank;
   int cudaDev;
   int pid;
   uint64_t hostHash;
@@ -21,15 +24,17 @@ struct p2pConnectInfo {
 
 /* Fill infomation necessary to exchange between ranks to choose whether or not
  * to use this transport */
-void p2pFillInfo(ncclTinfo_t* opaqueInfo) {
+ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct p2pInfo* info = (struct p2pInfo*)opaqueInfo;
   static_assert(sizeof(struct p2pInfo) <= sizeof(ncclTinfo_t), "p2p Info too large");
+  info->rank = rank;
   cudaGetDevice(&info->cudaDev);
   info->pid = getpid();
   char hostname[1024];
   getHostName(hostname, 1024);
   info->hostHash=getHostHash(hostname);
   info->hostNumber=getHostNumber(hostname);
+  return ncclSuccess;
 }
 
 /* Determine if we will use this transport for this peer and return connect
@@ -60,7 +65,7 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
     info.direct = 1;
     info.directPtr = ring->devMem;
     if (myInfo->cudaDev == peerInfo->cudaDev) {
-      INFO("%d <-> %d transport via P2P/common device", myInfo->cudaDev, peerInfo->cudaDev);
+      INFO("%d [%d] -> %d [%d] via P2P/common device", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
     } else {
       // Enable P2P access
       cudaError_t err = cudaDeviceEnablePeerAccess(peerInfo->cudaDev, 0);
@@ -74,7 +79,7 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
         *select = 0;
         return ncclSuccess;
       }
-      INFO("%d <-> %d transport via P2P/direct pointer", myInfo->cudaDev, peerInfo->cudaDev);
+      INFO("%d [%d] -> %d [%d] via P2P/direct pointer", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
     }
   } else {
     info.direct = 0;
@@ -86,8 +91,9 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
       *select = 0;
       return ncclSuccess;
     }
-    INFO("%d <-> %d transport via P2P/IPC", myInfo->cudaDev, peerInfo->cudaDev);
+    INFO("%d [%d] -> %d [%d] via P2P/IPC", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
   }
+  static_assert(sizeof(struct p2pConnectInfo) <= sizeof(struct ncclConnect), "p2p Connect Info is too big");
   memcpy(connectInfo, &info, sizeof(struct p2pConnectInfo));
   *select = 1;
   return ncclSuccess;
