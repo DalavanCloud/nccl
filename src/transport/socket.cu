@@ -133,7 +133,6 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
     head++;
     //printf("Sending data, head is %d\n", head);
     NCCLCHECK(socketSend(resources->fd, localBuff+offset, sliceSize));
-    printf("Done\n");
 
     CUDACHECK(cudaMemcpyAsync(prevHead, &head, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
 

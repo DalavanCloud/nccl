@@ -38,9 +38,7 @@ static void StartProxy(int substeps, int nsteps, struct ncclRing* ring) {
     args->nsteps = nsteps;
     //printf("Launching %s proxy, nsteps = %d\n", type == 0 ? "recv" : "send", nsteps);
     WaitSync(info, 0);
-    printf("Ready to start thread ...\n");
     SetSync(info, 1);
-    printf("Thread signaled.\n");
   }
 }
 
@@ -56,20 +54,19 @@ ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_r
 
 void* persistentThread(void *opaqueInfo) {
   struct transportProxyInfo* info = (struct transportProxyInfo*)opaqueInfo;
-  printf("Proxy initializing context ...\n");
+  // We need to initialize the context before launching any NCCL cuda kernel,
+  // otherwise we would create it during the first cudaMemcpyAsync inside the
+  // proxy function and that would cause a deadlock
   cudaFree(0);
+  // Signal the main thread the context is created and it can proceed.
   SetSync(info, 0);
-  printf("Proxy ready, acked\n");
   while (1) {
     WaitSync(info, 1);
-    printf("Persistent thread got signal and sync, starting function ...\n");
     ncclResult_t res = info->func(&info->args);
-    printf("Function done\n");
     if (res != ncclSuccess) {
       WARN("Persistent proxy : proxy function returned with code %d\n", res);
     }    
     SetSync(info, 0);
-    printf("Sync reset\n");
   }
 }
 
@@ -83,9 +80,8 @@ ncclResult_t transportCreateProxy(int type, struct ncclRing* ring) {
     info->mutex = PTHREAD_MUTEX_INITIALIZER;
     info->func = proxyfunc;
     pthread_create(&connector->proxyInfo->thread, NULL, persistentThread, info);
-    printf("Waiting for proxy to start and set CUDA CTX\n");
+    // Wait for thread to initialize its CUDA context.
     WaitSync(info, 0);
-    printf("Proxy acked\n");
   }
   return ncclSuccess;
 }
