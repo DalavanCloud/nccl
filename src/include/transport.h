@@ -4,7 +4,7 @@
 #include "nccl.h"
 #include <stdint.h>
 
-#define NTRANSPORTS 2
+#define NTRANSPORTS 3
 
 extern struct ncclTransport ncclTransports[];
 
@@ -38,6 +38,20 @@ struct ncclTransport {
   struct ncclTransportComm recv;
 };
 
-ncclResult_t LaunchProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, struct ncclComm* comm);
-ncclResult_t WaitProxies(struct ncclComm* comm);
+#include <pthread.h>
+
+typedef ncclResult_t (*threadFunc_t)(struct ncclProxyArgs*);
+
+struct transportProxyInfo {
+  pthread_t thread;
+  threadFunc_t func;
+  struct ncclProxyArgs args;
+  volatile int sync;
+  pthread_cond_t cond;
+  pthread_mutex_t mutex;
+};
+
+ncclResult_t transportCreateProxy(int type, struct ncclRing* ring);
+
+ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, struct ncclComm* comm);
 #endif

@@ -28,7 +28,7 @@ ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct p2pInfo* info = (struct p2pInfo*)opaqueInfo;
   static_assert(sizeof(struct p2pInfo) <= sizeof(ncclTinfo_t), "p2p Info too large");
   info->rank = rank;
-  cudaGetDevice(&info->cudaDev);
+  CUDACHECK(cudaGetDevice(&info->cudaDev));
   info->pid = getpid();
   char hostname[1024];
   getHostName(hostname, 1024);

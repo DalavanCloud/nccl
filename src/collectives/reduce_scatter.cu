@@ -138,7 +138,7 @@ ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(LaunchProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks, comm->nRanks, count*sizeof(T), comm));
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks, comm->nRanks, count*sizeof(T), comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {

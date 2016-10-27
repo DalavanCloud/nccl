@@ -117,21 +117,21 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
 
-  printf("Send proxy starting ...\n");
+  //printf("Send proxy starting ...\n");
   int val = 1;
   while (val != 0) {
-    printf("Waiting for prev to be ready ...\n");
+    //printf("Waiting for prev to be ready ...\n");
     CUDACHECK(cudaMemcpyAsync(&val, prevHead, sizeof(int), cudaMemcpyDeviceToHost, resources->stream));
     CUDACHECK(cudaStreamSynchronize(resources->stream));
   }
   int head = 0;
   int offset = 0;
 
-  printf("Send proxy pushing ...\n");
+  //printf("Send proxy pushing ...\n");
   while (head < args->nsteps) {
     while ((head - *prevTail) == 0);
     head++;
-    printf("Sending data, head is %d\n", head);
+    //printf("Sending data, head is %d\n", head);
     NCCLCHECK(socketSend(resources->fd, localBuff+offset, sliceSize));
     printf("Done\n");
 
@@ -147,7 +147,7 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   // Wait for last ack and reset
 //  printf("Flags at end : %d | %d\n", head, *prevTail);
   *prevTail = 0;
-  printf("Sendproxy exiting\n");
+  //printf("Sendproxy exiting\n");
   return ncclSuccess;
 }
 

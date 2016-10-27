@@ -175,9 +175,10 @@ static ncclResult_t setupSendRecv(struct ncclRing* ring) {
 
 static int getRings(int** rings, int nranks) {
   // TODO : something better !
-  *rings = (int*)malloc(sizeof(int)*nranks);
+  int *ptr = (int*)malloc(sizeof(int)*nranks);
   for (int i=0; i<nranks; i++)
-    rings[0][i] = i;
+    ptr[i] = i;
+  *rings = ptr;
   return 1;
 }
 
@@ -200,6 +201,8 @@ static ncclResult_t setupRing(struct ncclRing* ring, int ringid, int rank, int n
   setupSendRecv(ring);
   NCCLCHECK(selectTransport<0>(allInfo+rank, allInfo+prev, connect+0, &ring->recv.transport, ring));
   NCCLCHECK(selectTransport<1>(allInfo+rank, allInfo+next, connect+1, &ring->send.transport, ring));
+  NCCLCHECK(transportCreateProxy(0, ring));
+  NCCLCHECK(transportCreateProxy(1, ring));
   return ncclSuccess;
 }
 

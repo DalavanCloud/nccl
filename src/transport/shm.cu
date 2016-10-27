@@ -50,6 +50,7 @@ ncclResult_t shmFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct shmInfo* info = (struct shmInfo*)opaqueInfo;
   static_assert(sizeof(struct shmInfo) <= sizeof(ncclTinfo_t), "shm Info too large");
   info->rank = rank;
+  CUDACHECK(cudaGetDevice(&info->cudaDev));
   info->pid = getpid();
   char hostname[1024];
   getHostName(hostname, 1024);

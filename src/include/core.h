@@ -27,8 +27,7 @@ struct ncclConnInfo {
 };
 
 struct ncclConnector {
-  int thread_running;
-  pthread_t thread;
+  struct transportProxyInfo* proxyInfo;
   struct ncclTransport* transport;
   void* transportResources; // Host-side resources
   struct ncclConnInfo conn;
