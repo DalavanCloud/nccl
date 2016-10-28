@@ -165,7 +165,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   }
 }
 
-#define PCIE_THREADS 384
+#define PCIE_THREADS 512
 #define NVLINK_THREADS 128
 #define UNROLL 8
 

@@ -121,6 +121,8 @@ ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const int count, c
     ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
+  if (root < 0 || root >= comm->nRanks)
+    return ncclInvalidArgument;
 
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
