@@ -8,7 +8,7 @@
 #include "enqueue.h"
 #include "primitives.h"
 
-#define NUM_SUBSTEPS 2
+#define NUM_SUBSTEPS 4
 #define NUM_BUFCHUNKS 2
 
 // Increase Step and boffset for buffer sync
