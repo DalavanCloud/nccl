@@ -225,7 +225,7 @@ int main(int argc, char* argv[]) {
   avg_bw /= avg_count;
 
   printf(" Out of bounds values : %d %s\n", errors, errors ? "FAILED" : "OK");
-  printf(" Min bus bandwidth    : %g %s\n", avg_bw, check_avg_bw == -1 ? "" : (avg_bw < check_avg_bw ? "FAILED" : "OK"));
+  printf(" Avg bus bandwidth    : %g %s\n", avg_bw, check_avg_bw == -1 ? "" : (avg_bw < check_avg_bw ? "FAILED" : "OK"));
   printf("\n");
   if (errors || avg_bw < check_avg_bw)
     exit(EXIT_FAILURE);
