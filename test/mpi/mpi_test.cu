@@ -12,19 +12,20 @@
 #include "mpi.h"
 #include "test_utilities.h"
 
-#define SIZE 128
-#define NITERS 1
+#define MAXSIZE (1<<25)
+#define NITERS 50
 
 int main(int argc, char *argv[]) {
+  int failed = 0;
   ncclUniqueId commId;
-  int size, rank;
+  int nranks, rank;
   ncclResult_t ret;
 
   MPI_Init(&argc, &argv);
-  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  MPI_Comm_size(MPI_COMM_WORLD, &nranks);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-  if (argc < size) {
+  if (argc < nranks) {
     if (rank == 0)
       printf("Usage : %s <GPU list per rank>\n", argv[0]);
     exit(1);
@@ -40,7 +41,7 @@ int main(int argc, char *argv[]) {
   ncclComm_t comm;
   if (rank == 0) NCCLCHECK(ncclGetUniqueId(&commId));
   MPI_Bcast(&commId, NCCL_UNIQUE_ID_BYTES, MPI_CHAR, 0, MPI_COMM_WORLD);
-  ret = ncclCommInitRank(&comm, size, commId, rank);
+  ret = ncclCommInitRank(&comm, nranks, commId, rank);
   if (ret != ncclSuccess) {
     printf("NCCL Init failed (%d) '%s'\n", ret, ncclGetErrorString(ret));
     exit(1);
@@ -52,42 +53,54 @@ int main(int argc, char *argv[]) {
 
   // Initialize input values
   int *dptr;
-  CUDACHECK(cudaMalloc(&dptr, SIZE*2*sizeof(int)));
-  int *val = (int*) malloc(SIZE*sizeof(int));
-  for (int v=0; v<SIZE; v++) {
+  CUDACHECK(cudaMalloc(&dptr, MAXSIZE*2*sizeof(int)));
+  int *val = (int*) malloc(MAXSIZE*sizeof(int));
+  for (int v=0; v<MAXSIZE; v++) {
     val[v] = rank + 1;
   }
-  CUDACHECK(cudaMemcpy(dptr, val, SIZE*sizeof(int), cudaMemcpyHostToDevice));
+  CUDACHECK(cudaMemcpy(dptr, val, MAXSIZE*sizeof(int), cudaMemcpyHostToDevice));
 
   // Compute final value
-  int ref = size*(size+1)/2;
+  int ref = nranks*(nranks+1)/2;
 
-  // Run allreduce
-  int errors = 0;
-  for (int i=0; i<NITERS; i++) {
-    NCCLCHECK(ncclAllReduce((const void*)dptr, (void*)(dptr+SIZE), SIZE, ncclInt, ncclSum, comm, stream));
-  }
 
-  // Check results
+  // Warm-up
+  NCCLCHECK(ncclAllReduce((const void*)dptr, (void*)(dptr+MAXSIZE), MAXSIZE, ncclInt, ncclSum, comm, stream));
   CUDACHECK(cudaStreamSynchronize(stream));
-  CUDACHECK(cudaMemcpy(val, (dptr+SIZE), SIZE*sizeof(int), cudaMemcpyDeviceToHost));
-  for (int v=0; v<SIZE; v++) {
-    if (val[v] != ref) {
-      errors++;
-      printf("[%d] Error at %d : got %d instead of %d\n", rank, v, val[v], ref);
+
+  // Run allreduce benchmark
+  if (rank == 0) printf("\n        Size (B)       Time (us)   Alg BW (MB/s)   Bus BW (MB/s)          Errors\n");
+  for (int size = 1; size <= MAXSIZE; size<<=1) {
+    int errors = 0;
+    MPI_Barrier(MPI_COMM_WORLD);
+    double start = MPI_Wtime();
+    for (int i=0; i<NITERS; i++) {
+      NCCLCHECK(ncclAllReduce((const void*)dptr, (void*)(dptr+MAXSIZE), size, ncclInt, ncclSum, comm, stream));
     }
+    CUDACHECK(cudaStreamSynchronize(stream));
+    double delta = MPI_Wtime() - start;
+
+    // Check results
+    CUDACHECK(cudaMemcpy(val, (dptr+MAXSIZE), size*sizeof(int), cudaMemcpyDeviceToHost));
+    for (int v=0; v<size; v++) {
+      if (val[v] != ref) {
+        errors++;
+        failed = 1;
+        //printf("[%d] Error at %d : got %d instead of %d\n", rank, v, val[v], ref);
+      }
+    }
+    MPI_Allreduce(MPI_IN_PLACE, &errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD);
+    if (rank == 0) printf(" %15d %15.2f %15.2f %15.2f %15d\n", 
+        size*sizeof(int),
+        delta*1e6/NITERS,
+        size*sizeof(int)*NITERS/(delta*1e6),
+        size*sizeof(int)*NITERS/(delta*1e6)*2*(nranks-1)/nranks,
+        errors);
   }
+
   CUDACHECK(cudaFree(dptr));
 
-  MPI_Allreduce(MPI_IN_PLACE, &errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD);
-  if (rank == 0) {
-    if (errors)
-      printf("%d errors. Test FAILED.\n", errors);
-    else
-      printf("Test PASSED.\n");
-  }
-
   MPI_Finalize();
-  ncclCommDestroy(comm);
-  return errors ? 1 : 0;
+  //ncclCommDestroy(comm);
+  return failed;
 }

@@ -182,7 +182,7 @@ static int getRings(int** rings, int nranks) {
   return 1;
 }
 
-static ncclResult_t setupRing(struct ncclRing* ring, int ringid, int rank, int nranks, int* ringRanks, struct ncclInfo* allInfo, struct ncclConnect* connect) { 
+static ncclResult_t setupRing(struct ncclComm* comm, struct ncclRing* ring, int ringid, int rank, int nranks, int* ringRanks, struct ncclInfo* allInfo, struct ncclConnect* connect) { 
   ring->id = ringid;
   // Reorganize ranks to start with rank.
   int shift;
@@ -201,8 +201,8 @@ static ncclResult_t setupRing(struct ncclRing* ring, int ringid, int rank, int n
   setupSendRecv(ring);
   NCCLCHECK(selectTransport<0>(allInfo+rank, allInfo+prev, connect+0, &ring->recv.transport, ring));
   NCCLCHECK(selectTransport<1>(allInfo+rank, allInfo+next, connect+1, &ring->send.transport, ring));
-  NCCLCHECK(transportCreateProxy(0, ring));
-  NCCLCHECK(transportCreateProxy(1, ring));
+  NCCLCHECK(transportCreateProxy(0, ring, comm));
+  NCCLCHECK(transportCreateProxy(1, ring, comm));
   return ncclSuccess;
 }
 
@@ -230,7 +230,7 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
     for (int rank=0; rank<nranks; rank++) {
       CUDACHECK(cudaSetDevice(devs[rank]));
       struct ncclRing *ring = comms[rank]->rings+r;
-      NCCLCHECK(setupRing(ring, r, rank, nranks, ringRanks, allInfo, connect+2*rank));
+      NCCLCHECK(setupRing(comms[rank], ring, r, rank, nranks, ringRanks, allInfo, connect+2*rank));
     }
     // RingExchange connect information
     for (int rank=0; rank<nranks; rank++) {
@@ -271,7 +271,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     int* ringRanks = rings+r*nranks;
     struct ncclRing *ring = comm->rings+r;
     struct ncclConnect connect[2];
-    NCCLCHECK(setupRing(ring, r, rank, nranks, ringRanks, allInfo, connect));
+    NCCLCHECK(setupRing(comm, ring, r, rank, nranks, ringRanks, allInfo, connect));
     NCCLCHECK(bootstrap->ringExchange(commState, connect, ring->userRanks[nranks-1], ring->userRanks[1], sizeof(struct ncclConnect)));
     NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));

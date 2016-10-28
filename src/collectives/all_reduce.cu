@@ -8,7 +8,7 @@
 #include "enqueue.h"
 #include "primitives.h"
 
-#define NUM_SUBSTEPS 2
+#define NUM_SUBSTEPS 4
 
 // !!! Don't change that or the last sync will block
 #define NUM_BUFCHUNKS 2
