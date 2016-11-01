@@ -37,11 +37,11 @@
 #include "test_utilities.h"
 
 #define MAX_POW2 27 // 128 MB
-#define NREPS 1
+#define NREPS 4
+//#define CHECK 1
 
 int nDev;
 int* devList;
-ncclComm_t* comms;
 cudaStream_t* streams;
 char** sendbuff;
 char** recvbuff;
@@ -94,12 +94,13 @@ void RandomizeType(int type, char* devmem, int count, int seed) {
   }
 }
 
-typedef int (*test_func_t)(int, int, int, int);
+typedef int (*test_func_t)(int, int, int, int, int, ncclComm_t*);
 
-int testBcast(int count, int type, int op, int root) {
+int testBcast(int count, int type, int op, int root, int nranks, ncclComm_t *comms) {
   int errors = 0;
   int nbytes = count*typesSizes[type];
-  for (int i=0; i<nDev; ++i) {
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
     if (i == root) {
       RandomizeType(type, sendbuff[i], count, i);
@@ -108,43 +109,49 @@ int testBcast(int count, int type, int op, int root) {
       CUDACHECK(cudaMemset(recvbuff[i], 0, nbytes));
     }
   }
+#endif
 
   for (int rep=0; rep<NREPS; ++rep) {
-    for (int i=0; i<nDev; ++i) {
+    for (int i=0; i<nranks; ++i) {
       CUDACHECK(cudaSetDevice(devList[i]));
       ncclBcast((i == root) ? sendbuff[i] : recvbuff[i], count, (ncclDataType_t)type, root, comms[i], streams[i]);
     }
   }
-  for (int i=0; i<nDev; ++i) {
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
     CUDACHECK(cudaStreamSynchronize(streams[i]));
     double delta = CheckDelta<char>((i==root) ? sendbuff[i] : recvbuff[i], reference, nbytes);
     if (delta) errors++;
     if (delta) printf("Bcast size %d, type %d, root %d : delta %g\n", count, type, root, delta);
   }
+#endif
   return errors;
 }
 
-int testAllGather(int count, int type, int op, int root) {
+int testAllGather(int count, int type, int op, int root, int nranks, ncclComm_t *comms) {
   int errors = 0;
-  int sendcount = (count + nDev - 1) / nDev;
-  int recvcount = sendcount * nDev;
+  int sendcount = (count + nranks - 1) / nranks;
+  int recvcount = sendcount * nranks;
   int sendnbytes = sendcount*typesSizes[type];
   int recvnbytes = recvcount*typesSizes[type];
-  for (int i=0; i<nDev; ++i) {
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
     RandomizeType(type, sendbuff[i], sendcount, i);
     CUDACHECK(cudaMemcpy(reference+sendnbytes*i, sendbuff[i], sendnbytes, cudaMemcpyDeviceToHost));
     CUDACHECK(cudaMemset(recvbuff[i], 0, recvnbytes));
   }
+#endif
 
   for (int rep=0; rep<NREPS; ++rep) {
-    for (int i=0; i<nDev; ++i) {
+    for (int i=0; i<nranks; ++i) {
       CUDACHECK(cudaSetDevice(devList[i]));
       ncclAllGather(sendbuff[i], sendcount, (ncclDataType_t)type, recvbuff[i], comms[i], streams[i]);
     }
   }
-  for (int i=0; i<nDev; ++i) {
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
     CUDACHECK(cudaStreamSynchronize(streams[i]));
     double delta = CheckTypeDelta(type, recvbuff[i], reference, recvcount);
@@ -155,10 +162,10 @@ int testAllGather(int count, int type, int op, int root) {
       for (int c=1; c<count; c++) {
 	if (type == ncclFloat) {
           float res = *((float*)results+c), ref = *((float*)reference+c);
-          if (fabs(res-ref) > typesDeltas[type]*nDev) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
+          if (fabs(res-ref) > typesDeltas[type]*nranks) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
         } else if (type == ncclDouble) {
           double res = *((double*)results+c), ref = *((double*)reference+c);
-          if (fabs(ref-res) > typesDeltas[type]*nDev) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
+          if (fabs(ref-res) > typesDeltas[type]*nranks) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
         } else if (c*8 < count*typesSizes[type]) {
           uint64_t res = *((uint64_t*)results+c), ref = *((uint64_t*)reference+c);
           if (res != ref) printf("[%d/%3d] %16lX != %16lX\n", i, c, res, ref);
@@ -166,13 +173,15 @@ int testAllGather(int count, int type, int op, int root) {
       }
     }
   }
+#endif
   return errors;
 }
 
-int testAllReduce(int count, int type, int op, int root) {
+int testAllReduce(int count, int type, int op, int root, int nranks, ncclComm_t *comms) {
   int errors = 0;
   int nbytes = count*typesSizes[type];
-  for (int i=0; i<nDev; ++i) {
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
     RandomizeType(type, sendbuff[i], count, i);
     if(i == 0) {
@@ -182,29 +191,31 @@ int testAllReduce(int count, int type, int op, int root) {
     }
     CUDACHECK(cudaMemset(recvbuff[i], 0, nbytes));
   }
+#endif
 
   for (int rep=0; rep<NREPS; ++rep) {
-    for (int i=0; i<nDev; ++i) {
+    for (int i=0; i<nranks; ++i) {
       CUDACHECK(cudaSetDevice(devList[i]));
       ncclAllReduce(sendbuff[i], recvbuff[i], count, (ncclDataType_t)type, (ncclRedOp_t)op, comms[i], streams[i]);
     }
   }
-  for (int i=0; i<nDev; ++i) {
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
     CUDACHECK(cudaStreamSynchronize(streams[i]));
     double delta = CheckTypeDelta(type, recvbuff[i], reference, count);
-    if (delta > typesDeltas[type]*nDev) {
+    if (delta > typesDeltas[type]*nranks) {
       errors++;
       CUDACHECK(cudaMemcpy(results, recvbuff[i], nbytes, cudaMemcpyDeviceToHost));
-      printf("Allreduce size %d, type %d, op %d : delta %g, new %g\n", count, type, op, delta);
+      printf("Allreduce size %d, type %d, op %d : delta %g\n", count, type, op, delta);
 #ifdef DEBUG_DETAILS
       for (int c=1; c<count; c++) {
 	if (type == ncclFloat) {
           float res = *((float*)results+c), ref = *((float*)reference+c);
-          if (fabs(res-ref) > typesDeltas[type]*nDev) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
+          if (fabs(res-ref) > typesDeltas[type]*nranks) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
         } else if (type == ncclDouble) {
           double res = *((double*)results+c), ref = *((double*)reference+c);
-          if (fabs(ref-res) > typesDeltas[type]*nDev) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
+          if (fabs(ref-res) > typesDeltas[type]*nranks) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
         } else if (c*8 < count*typesSizes[type]) {
           uint64_t res = *((uint64_t*)results+c), ref = *((uint64_t*)reference+c);
           if (res != ref) printf("[%d/%3d] %16lX != %16lX\n", i, c, res, ref);
@@ -213,6 +224,48 @@ int testAllReduce(int count, int type, int op, int root) {
 #endif
     }
   }
+#endif
+  return errors;
+}
+
+int testReduce(int count, int type, int op, int root, int nranks, ncclComm_t *comms) {
+  int errors = 0;
+  int nbytes = count*typesSizes[type];
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
+    CUDACHECK(cudaSetDevice(devList[i]));
+    RandomizeType(type, sendbuff[i], count, i);
+    if(i == 0) {
+      CUDACHECK(cudaMemcpy(reference, sendbuff[i], nbytes, cudaMemcpyDeviceToHost));
+    } else {
+      AccumulateType(type, reference, sendbuff[i], count, (ncclRedOp_t)op);
+    }
+    if (i == root) {
+      CUDACHECK(cudaMemset(recvbuff[i], 0, nbytes));
+    }
+  }
+#endif
+
+  for (int rep=0; rep<NREPS; ++rep) {
+    for (int i=0; i<nranks; ++i) {
+      CUDACHECK(cudaSetDevice(devList[i]));
+      ncclReduce(sendbuff[i], recvbuff[i], count, (ncclDataType_t)type, (ncclRedOp_t)op, root, comms[i], streams[i]);
+    }
+  }
+#ifdef CHECK
+  for (int i=0; i<nranks; i++) {
+    CUDACHECK(cudaSetDevice(devList[i]));
+    CUDACHECK(cudaStreamSynchronize(streams[i]));
+    if (i == root) {
+      double delta = CheckTypeDelta(type, recvbuff[i], reference, count);
+      if (delta > typesDeltas[type]*nranks) {
+        errors++;
+        CUDACHECK(cudaMemcpy(results, recvbuff[i], nbytes, cudaMemcpyDeviceToHost));
+        printf("Reduce size %d, type %d, op %d, root %d : delta %g\n", count, type, op, root, delta);
+      }
+    }
+  }
+#endif
   return errors;
 }
 
@@ -220,13 +273,13 @@ int testAllReduce(int count, int type, int op, int root) {
 
 test_func_t ncclPrims[NCCL_PRIMS] = {
   testBcast,
-  NULL,//testReduce,
+  testReduce,
   testAllReduce,
   testAllGather,
   NULL,//testReduceScatter
 };
 
-int ncclTest() {
+int ncclTest(ncclComm_t ** comms) {
   int errors = 0;
   int nccl_prim = rand() % NCCL_PRIMS;
   // Use MAX_POW2-3 because datatypes are up to 8-bytes wide
@@ -234,13 +287,15 @@ int ncclTest() {
   int size = (1<<size_pow2) + rand() % (1<<size_pow2);
   int type = rand() % nccl_NUM_TYPES;
   int op = rand() % nccl_NUM_OPS;
-  int root = rand() % nDev;
+  int commidx = rand() % nDev;
+  int nranks = commidx + 1;
+  int root = rand() % nranks;
 #ifndef CUDA_HAS_HALF
   if (type == 2) return 0; // ncclHalf not supported
 #endif
   if (ncclPrims[nccl_prim]) {
-    printf("Prim %d size %d type %d op %d root %d\n", nccl_prim, size, type, op, root);
-    errors += ncclPrims[nccl_prim](size, type, op, root);
+    printf("Prim %d size %d type %d op %d nranks %d root %d\n", nccl_prim, size, type, op, commidx+1, root);
+    errors += ncclPrims[nccl_prim](size, type, op, root, nranks, comms[commidx]);
   }
   return errors;
 }
@@ -310,8 +365,11 @@ int main(int argc, char* argv[]) {
   typesDeltas[ncclHalf] = 2e-3;
 #endif
 
-  comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nDev);
-  NCCLCHECK(ncclCommInitAll(comms, nDev, devList));
+  ncclComm_t** comms = (ncclComm_t**)malloc(sizeof(ncclComm_t*)*nDev);
+  for (int i=0; i<nDev; i++) {
+    comms[i] = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nDev);
+    NCCLCHECK(ncclCommInitAll(comms[i], i+1, devList));
+  }
 
   streams = (cudaStream_t*)malloc(sizeof(cudaStream_t)*nDev);
   sendbuff = (char**)malloc(sizeof(char*)*nDev);
@@ -336,17 +394,28 @@ int main(int argc, char* argv[]) {
 
   printf("==== Test starting ====\n");
   while (sec_now <= sec_start + T) {
-    errors += ncclTest();
+    errors += ncclTest(comms);
     gettimeofday(&tv, NULL);
     sec_now = tv.tv_sec;
     testcount++;
   }
 
+#ifndef CHECK
+  for(int i=0; i<nDev; ++i) {
+    CUDACHECK(cudaSetDevice(devList[i]));
+    CUDACHECK(cudaStreamSynchronize(streams[i]));
+  }
+#endif
+
   printf("==== Test done ====\n");
   printf("%d tests done\n", testcount);
   printf("%d errors\n", errors);
-  for(int i=0; i<nDev; ++i)
-    ncclCommDestroy(comms[i]);
+  for (int i=0; i<nDev; i++) {
+    for(int j=0; j<i; j++) {
+      ncclCommDestroy(comms[i][j]);
+    }
+    free(comms[i]);
+  }
   free(comms);
 
   exit(errors == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
