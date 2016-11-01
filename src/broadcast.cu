@@ -139,8 +139,10 @@ ncclResult_t RingBroadcast(void* buff, const int count, const int root,
     ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
-  if (root < 0 || root >= comm->nRanks)
+  if (root < 0 || root >= comm->nRanks) {
+    WARN("Broadcast : cannot have root = %d in a communicator with %d ranks\n", root, comm->nRanks);
     return ncclInvalidArgument;
+  }
 
   if (comm->nRanks != 1) {
     KernelArgs<T> args;
