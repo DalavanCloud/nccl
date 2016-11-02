@@ -13,7 +13,7 @@
 #include "test_utilities.h"
 
 #define MAXSIZE (1<<25)
-#define NITERS 50
+#define NITERS 200
 
 int main(int argc, char *argv[]) {
   int failed = 0;

@@ -1,6 +1,7 @@
 #include "core.h"
 #include "utils.h"
 #include "transport.h"
+#include "shm.h"
 #include <unistd.h>
 #include <cuda_runtime.h>
 
@@ -20,28 +21,43 @@ struct shmConnectSendInfo {
 };
 
 struct shmConnectRecvInfo {
+#ifdef SHM_PROXY
   int direct;
   union {
     struct ncclSendRecvMem* directPtr;
     cudaIpcMemHandle_t devIpc;
   };
+#else
+  int pid;
+  int id;
+  int rank;
+  int shmsize;
+#endif
 };
 
 struct shmResourcesSend {
-  int fd;
   struct ncclSendRecvMem* remHostMem;
+  struct ncclSendRecvMem* devRemHostMem;
+  int* hostMem;
+  int* devHostMem;
 };
 
+#define MAXSTEPS 8
+
 struct shmResourcesRecv {
-  int fd;
+#ifdef SHM_PROXY
   int prevCudaDev;
   int localCudaDev;
   cudaStream_t prevStream;
   cudaStream_t localStream;
-  cudaEvent_t syncEvent;
+  cudaEvent_t syncEvent[MAXSTEPS];
+  struct ncclSendRecvMem* remDevMem;
+#else
+  struct ncclSendRecvMem* remHostMem;
+  struct ncclSendRecvMem* devRemHostMem;
+#endif
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
-  struct ncclSendRecvMem* remDevMem;
 };
 
 /* Fill infomation necessary to exchange between ranks to choose whether or not
@@ -59,11 +75,6 @@ ncclResult_t shmFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   return ncclSuccess;
 }
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-
 /* Determine if we will use this transport for this peer and return connect
  * information for this peer */
 ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
@@ -74,8 +85,11 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
     return ncclSuccess;
   }
 
-  struct shmConnectRecvInfo info;
+  struct shmResourcesSend* resources = (struct shmResourcesSend*)malloc(sizeof(struct shmResourcesSend));
+  ring->send.transportResources = resources;
 
+  struct shmConnectRecvInfo info;
+#ifdef SHM_PROXY
   // Send devMem ptr to receiver so that proxy thread can update my head ptr
   if (myInfo->pid == peerInfo->pid) {
     info.direct = 1;
@@ -92,7 +106,15 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
       return ncclSuccess;
     }
   }
-  INFO("%d [%d] -> %d [%d] via shared memory", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+  INFO("%d [%d] -> %d [%d] via proxy shared memory", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+#else
+  char shmname[1024];
+  sprintf(shmname, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
+  NCCLCHECK(shmOpen(shmname, sizeof(int), (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
+  
+  INFO("%d [%d] -> %d [%d] via direct shared memory", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+  info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid; info.shmsize = sizeof(int);
+#endif
   static_assert(sizeof(struct shmConnectRecvInfo) <= sizeof(struct ncclConnect), "shm Connect Recv Info is too big");
   memcpy(connectInfo, &info, sizeof(struct shmConnectRecvInfo));
   *select = 1;
@@ -111,59 +133,21 @@ ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   ring->recv.transportResources = resources;
 
   // Create streams for proxy
+#ifdef SHM_PROXY
   resources->prevCudaDev = peerInfo->cudaDev;
   CUDACHECK(cudaSetDevice(peerInfo->cudaDev));
   CUDACHECK(cudaStreamCreateWithFlags(&resources->prevStream, cudaStreamNonBlocking));
   resources->localCudaDev = myInfo->cudaDev;
   CUDACHECK(cudaSetDevice(myInfo->cudaDev));
   CUDACHECK(cudaStreamCreateWithFlags(&resources->localStream, cudaStreamNonBlocking));
-  CUDACHECK(cudaEventCreate(&resources->syncEvent));
+  for (int i=0; i<MAXSTEPS; i++)
+    CUDACHECK(cudaEventCreate(resources->syncEvent+i));
+#endif
 
   char shmname[1024];
-  sprintf(shmname, "nccl-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
+  sprintf(shmname, "nccl-shm-recv-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
   int shmsize = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
-
-  int fd = shm_open(shmname, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-  if (fd == -1) {
-    WARN("shm_open failed to open %s", shmname);
-    *select = 0;
-    return ncclSuccess;
-  }
-
-  if (ftruncate(fd, shmsize) == -1) {
-    WARN("ftruncate failed to allocate %ld bytes", shmsize);
-    shm_unlink(shmname);
-    close(fd);
-    *select = 0;
-    return ncclSuccess;
-  }
-
-  void *ptr = (struct ncclSendRecvMem*)mmap(NULL, shmsize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if (ptr == MAP_FAILED) {
-    WARN("failure in mmap");
-    shm_unlink(shmname);
-    close(fd);
-    *select = 0;
-    return ncclSuccess;
-  }
-  close(fd);
-
-  if (cudaHostRegister(ptr, shmsize, cudaHostRegisterMapped) != cudaSuccess) {
-    WARN("failed to register host buffer");
-    shm_unlink(shmname);
-    munmap(ptr, shmsize);
-    *select = 0;
-    return ncclSuccess;
-  }   
-
-  if (cudaHostGetDevicePointer(&resources->devHostMem, ptr, 0) != cudaSuccess) {
-    WARN("failed to get device pointer for local shmem");
-    shm_unlink(shmname);
-    munmap(resources->hostMem, shmsize);
-    *select = 0;
-    return ncclSuccess;
-  }
-  resources->hostMem = (struct ncclSendRecvMem*)ptr;
+  NCCLCHECK(shmOpen(shmname, shmsize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
   struct shmConnectSendInfo info;
   info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid; info.shmsize = shmsize;
@@ -177,67 +161,50 @@ ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
 ncclResult_t shmConnectRecv(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
   // Setup device pointers
   struct shmResourcesRecv* resources = (struct shmResourcesRecv*)recv->transportResources;
-  recv->conn.head = &resources->devHostMem->head;
-
-  // Setup receive proxy pointers
   struct shmConnectRecvInfo* info = (struct shmConnectRecvInfo*)connectInfo;
+
+#ifdef SHM_PROXY
+  // Setup receive proxy pointers
   if (info->direct) {
     INFO("ConnectRecv : using direct devMem ptr %p", info->directPtr);
     resources->remDevMem = info->directPtr;
   } else {
     CUDACHECK(cudaSetDevice(resources->prevCudaDev));
-    CUDACHECK(cudaIpcOpenMemHandle((void**)resources->remDevMem,
+    CUDACHECK(cudaIpcOpenMemHandle((void**)&resources->remDevMem,
           info->devIpc, cudaIpcMemLazyEnablePeerAccess));
+    CUDACHECK(cudaSetDevice(resources->localCudaDev));
   }
+  recv->conn.head = &resources->devHostMem->head;
+#else
+  char shmname[1024];
+  sprintf(shmname, "nccl-shm-send-%d-%d-%d", info->pid, info->id, info->rank);
+  NCCLCHECK(shmOpen(shmname, info->shmsize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
+  recv->conn.head = &resources->devRemHostMem->head;
+  recv->conn.buff = resources->devHostMem->buff;
+  recv->conn.tail = &resources->devHostMem->tail;
+#endif
   return ncclSuccess;
 }
 
 ncclResult_t shmConnectSend(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   // Setup device pointers
   struct shmConnectSendInfo* info = (struct shmConnectSendInfo*)connectInfo;
-  struct shmResourcesSend* resources = (struct shmResourcesSend*)malloc(sizeof(struct shmResourcesSend));
+  struct shmResourcesSend* resources = (struct shmResourcesSend*)send->transportResources;
 
   char shmname[1024];
-  sprintf(shmname, "nccl-%d-%d-%d", info->pid, info->id, info->rank);
-  int shmsize = info->shmsize;
+  sprintf(shmname, "nccl-shm-recv-%d-%d-%d", info->pid, info->id, info->rank);
+  NCCLCHECK(shmOpen(shmname, info->shmsize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
 
-  int fd = shm_open(shmname, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-  if (fd == -1) {
-    WARN("shm_open failed to open %s", shmname);
-    return ncclInternalError;
-  }
-
-  void *ptr = (struct ncclSendRecvMem*)mmap(NULL, shmsize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if (ptr == MAP_FAILED) {
-    WARN("failure in mmap");
-    shm_unlink(shmname);
-    close(fd);
-    return ncclInternalError;
-  }
-  close(fd);
-
-  if (cudaHostRegister(ptr, shmsize, cudaHostRegisterMapped) != cudaSuccess) {
-    WARN("failed to register host buffer");
-    shm_unlink(shmname);
-    munmap(ptr, shmsize);
-    return ncclInternalError;
-  }   
-
-  struct ncclSendRecvMem* remHostMem;
-  if (cudaHostGetDevicePointer(&remHostMem, ptr, 0) != cudaSuccess) {
-    WARN("failed to get device pointer for local shmem");
-    shm_unlink(shmname);
-    munmap(ptr, shmsize);
-    return ncclInternalError;
-  }
-
-  resources->remHostMem = remHostMem;
   send->transportResources = resources;
-  send->conn.buff = remHostMem->buff;
-  send->conn.tail = &remHostMem->tail;
+  send->conn.buff = resources->devRemHostMem->buff;
+  send->conn.tail = &resources->devRemHostMem->tail;
+#ifndef SHM_PROXY
+  send->conn.head = resources->devHostMem;
+#endif
   return ncclSuccess;
 }
 
+#ifdef SHM_PROXY
 ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
   struct shmResourcesRecv* resources = (struct shmResourcesRecv*) (ring->recv.transportResources);
@@ -267,16 +234,16 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
 
   while (head < args->nsteps) {
     CUDACHECK(cudaSetDevice(resources->localCudaDev));
-    while ((head - *prevTail) == 0);
-    while ((head - *nextHead) >= args->substeps);
+    transportProxyWait([=] { return head != *prevTail; });
+    transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
     head++;
     //printf("Proxy : %d : copying from/to %X\n", head, offset);
     CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, sliceSize, cudaMemcpyHostToDevice, resources->localStream));
+    CUDACHECK(cudaEventRecord(resources->syncEvent[head%args->substeps], resources->localStream));
     CUDACHECK(cudaMemcpyAsync(nextTail, &head, sizeof(int), cudaMemcpyHostToDevice, resources->localStream));
-    CUDACHECK(cudaEventRecord(resources->syncEvent, resources->localStream));
 
-    //CUDACHECK(cudaSetDevice(resources->prevCudaDev));
-    CUDACHECK(cudaStreamWaitEvent(resources->prevStream, resources->syncEvent, 0));
+    CUDACHECK(cudaSetDevice(resources->prevCudaDev));
+    CUDACHECK(cudaStreamWaitEvent(resources->prevStream, resources->syncEvent[head%args->substeps], 0));
     CUDACHECK(cudaMemcpyAsync(prevHead, &head, sizeof(int), cudaMemcpyHostToDevice, resources->prevStream));
 
     offset += sliceSize;
@@ -284,10 +251,10 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
       offset = 0;
   }
   // Ensure all updates are pushed
-  CUDACHECK(cudaSetDevice(resources->localCudaDev));
-  CUDACHECK(cudaStreamSynchronize(resources->localStream));
   CUDACHECK(cudaSetDevice(resources->prevCudaDev));
   CUDACHECK(cudaStreamSynchronize(resources->prevStream));
+  CUDACHECK(cudaSetDevice(resources->localCudaDev));
+  CUDACHECK(cudaStreamSynchronize(resources->localStream));
 
   // Wait for last ack and reset
 //  printf("Flags at end : %d | %d %d\n", head, *nextHead, *prevTail);
@@ -297,9 +264,16 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
 
   return ncclSuccess;
 }
+#endif
 
 struct ncclTransport shmTransport = {
   shmFillInfo,
   { shmSetupSend, shmConnectSend, NULL },
-  { shmSetupRecv, shmConnectRecv, shmRecvProxy }
+  { shmSetupRecv, shmConnectRecv, 
+#ifdef SHM_PROXY
+    shmRecvProxy
+#else
+    NULL
+#endif 
+  }
 };

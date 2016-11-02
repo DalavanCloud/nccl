@@ -8,7 +8,7 @@ extern struct ncclTransport socketTransport;
 
 struct ncclTransport ncclTransports[NTRANSPORTS] = {
   p2pTransport,
-  //shmTransport,
+  shmTransport,
   socketTransport
   // mpiTransport
 };
