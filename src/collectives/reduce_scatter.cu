@@ -110,7 +110,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   }
 
   if (tid == 0) {
-    waitDoneFromNext.wait(step + NUM_BUFCHUNKS);
+    waitDoneFromNext.wait(NUM_SUBSTEPS*(step + NUM_BUFCHUNKS));
     *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
     __threadfence_system();

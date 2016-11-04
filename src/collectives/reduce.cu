@@ -98,7 +98,7 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   if (tid == 0) {
     if (rank != root) { 
       // Wait for next to have consumed data before resetting the flag
-      waitDoneFromNext.wait(step + NUM_BUFCHUNKS-1);
+      waitDoneFromNext.wait(NUM_SUBSTEPS*(step + NUM_BUFCHUNKS - 1));
       *ring->send.conn.head = 0;
     }
     *ring->recv.conn.tail = 0;

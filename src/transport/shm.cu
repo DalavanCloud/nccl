@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <cuda_runtime.h>
 
-#define SHM_PROXY
+//#define SHM_PROXY
 
 struct shmInfo {
   int rank;
@@ -223,7 +223,7 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
   resources->hostMem->opCount = args->opCount;
-  
+
   int val = 0;
   while (val != args->opCount) {
     CUDACHECK(cudaMemcpyAsync(&val, nextOpCount, sizeof(int), cudaMemcpyDeviceToHost, resources->localStream));
