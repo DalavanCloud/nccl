@@ -121,6 +121,9 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   int head = 0;
   int offset = 0;
 
+  // Update in case we skipped some collectives
+  resources->hostMem->opCount = args->opCount;
+
   while (head < args->nsteps) {
     // Receive from GPU
     transportProxyWait([=] { return head != *prevTail; });

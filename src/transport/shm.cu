@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <cuda_runtime.h>
 
-//#define SHM_PROXY
+#define SHM_PROXY
 
 struct shmInfo {
   int rank;
@@ -222,8 +222,9 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
   char* nextBuff = devMem->buff;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
-  resources->hostMem->opCount = args->opCount;
 
+  // Update in case we skipped some collectives
+  resources->hostMem->opCount = args->opCount;
   int val = 0;
   while (val != args->opCount) {
     CUDACHECK(cudaMemcpyAsync(&val, nextOpCount, sizeof(int), cudaMemcpyDeviceToHost, resources->localStream));
@@ -256,7 +257,7 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
   CUDACHECK(cudaStreamSynchronize(resources->localStream));
 
   // Wait for last ack and reset
-  while (*nextHead < head);
+  transportProxyWait([=] { return *nextHead == head; });
   *nextHead = 0;
   *prevTail = 0;
   resources->hostMem->opCount = args->opCount+1;
