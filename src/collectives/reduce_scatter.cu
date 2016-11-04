@@ -73,8 +73,8 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
         nextOutput + noffset,
         sliceSize, maxOffset,
         step,
-        waitDoneFromNext, waitReadyFromPrev,
-        postReadyToNext, postDoneToPrev);
+        waitDoneFromNext, 
+        postReadyToNext);
 
     NEXT_STEP; // Increases step, poffset, noffset
 
@@ -106,17 +106,14 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
         thisOutput + chunkOffset,
         sliceSize, maxOffset,
         step,
-        waitDoneFromNext, waitReadyFromPrev,
-        postReadyToNext, postDoneToPrev);
-
+        waitReadyFromPrev,
+        postDoneToPrev);
+  }
+  // Wait for next to have consumed all data before we reset the flag
+  for (int i=0; i<NUM_BUFCHUNKS; i++) {
+    Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
     NEXT_STEP;
   }
-
-  // Make all counters equal at the end
-  // and wait for the last flags to be acked
-  Prims::Copy(NULL, NULL, 0, 0, step, waitReadyFromPrev, waitDoneFromNext, postDoneToPrev);
-  NEXT_STEP;
-  Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
 
   if (tid == 0) {
     *ring->send.conn.head = 0;
@@ -138,7 +135,7 @@ ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks, comm->nRanks, count*sizeof(T), comm));
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {

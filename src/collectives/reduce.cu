@@ -29,13 +29,10 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   struct ncclRing* ring = comm->rings+bid;
 
   if (tid == 0) {
+    volatile int *flagPrev = ring->recv.conn.head;
+    volatile int *flagNext = ring->send.conn.tail;
     // Wait for prev and next to be ready
-    Wait([=] {
-        return *ring->recv.conn.head == 0;
-    });
-    Wait([=] {
-        return *ring->send.conn.tail == 0;
-    });
+    while (((*flagPrev) | (*flagNext)) != 0);
   }
   __syncthreads();
 
@@ -63,7 +60,10 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
-  for (int offset = bid*sliceSize; offset < size; offset += gridDim.x*sliceSize) {
+  for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
+    int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
+    ALIGN_SIZE(chunkSize, THREADS*UNROLL);
+    int offset = gridOffset + bid*chunkSize;
     int maxOffset = size-offset;
     if (prevRank == root) {
       Prims::Copy(
@@ -96,18 +96,17 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
     NEXT_STEP; // Increases step, boffset
   }
 
-  // wait for the last data to be pushed to us
-  if (tid == 0) {
-    if (rank != root) {
-      // Wait for last update from next then reset the flag
-      waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-      *ring->send.conn.head = 0;
+  // Wait for next to have consumed all data before we reset the flag
+  if (rank != root) { 
+    for (int i=0; i<NUM_BUFCHUNKS-1; i++) {
+      Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
+      NEXT_STEP;
     }
+  }
 
-    if (prevRank != root) {
-      // reset the flag
-      *ring->recv.conn.tail = 0;
-    }
+  if (tid == 0) {
+    *ring->send.conn.head = 0;
+    *ring->recv.conn.tail = 0;
   }
 }
 
@@ -125,6 +124,7 @@ ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const int count, c
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternTo(root), comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, root, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {

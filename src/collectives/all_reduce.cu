@@ -94,8 +94,8 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
         nextOutput + noffset,
         sliceSize, maxOffset,
         step,
-	waitDoneFromNext,
-	postReadyToNext);
+        waitDoneFromNext,
+        postReadyToNext);
 
     NEXT_STEP; // Increases step, poffset, noffset
 
@@ -112,8 +112,8 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
           nextOutput + noffset,
           sliceSize, maxOffset,
           step,
-	  waitDoneFromNext, waitReadyFromPrev,
-	  postReadyToNext, postDoneToPrev);
+          waitDoneFromNext, waitReadyFromPrev,
+          postReadyToNext, postDoneToPrev);
 
       NEXT_STEP;
     }
@@ -209,8 +209,6 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   }
 
   if (tid == 0) {
-    //printf("Size %d, Steps %d, Flags %d %d %d %d\n", size, step, *ring->send.conn.head, *ring->send.conn.tail, *ring->recv.conn.head, *ring->recv.conn.tail);
-    // reset the flags
     *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
   }
@@ -230,7 +228,7 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), comm));
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {

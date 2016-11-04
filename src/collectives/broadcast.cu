@@ -32,23 +32,19 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
   int nextdirect = ring->send.conn.direct;
 
   if (tid == 0) {
+    volatile int *flagPrev = ring->recv.conn.head;
+    volatile int *flagNext = ring->send.conn.tail;
     // Wait for prev and next to be ready
-    Wait([=] {
-        return *ring->recv.conn.head == 0;
-    });
-    Wait([=] {
-        return *ring->send.conn.tail == 0;
-    });
+    while (((*flagPrev) | (*flagNext)) != 0);
     
     if (prevdirect) {
-      *ring->recv.conn.ptrExchange = (T*)args.ThisOutput;
+      *ring->recv.conn.ptrExchange = args.ThisOutput;
     }
     if (nextdirect) {
-      Wait([=] {
-        return *(ring->send.conn.ptrExchange) != nullptr;
-      });
-      sharedNextOutput = (T*)*ring->send.conn.ptrExchange;
-      *ring->send.conn.ptrExchange = nullptr;
+      void* volatile* ptr = &(ring->devMem->ptrExchange);
+      while (*ptr == nullptr);
+      sharedNextOutput = (T*)*ptr;
+      *ptr = nullptr;
     }
   }
   __syncthreads();
@@ -76,16 +72,31 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
-  for (int offset = bid*sliceSize; offset < size; offset += gridDim.x*sliceSize) {
+  for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
+    int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
+    ALIGN_SIZE(chunkSize, THREADS*UNROLL);
+    int offset = gridOffset + bid*chunkSize;
     int maxOffset = size-offset;
+
     if (rank == root) {
-      Prims::Copy(
-          thisInput + offset,
-	  nextdirect ? (sharedNextOutput + offset) : (nextOutput + boffset),
-          sliceSize, maxOffset,
-          step,
-          waitDoneFromNext,
-          postReadyToNext);
+      if (thisInput == thisOutput) {
+        Prims::Copy(
+            thisInput  + offset,
+            nextdirect ? (sharedNextOutput + offset) : (nextOutput + boffset),
+            sliceSize, maxOffset,
+            step,
+            waitDoneFromNext,
+            postReadyToNext);
+      } else {
+        Prims::DoubleCopy(
+            thisInput  + offset,
+            thisOutput + offset,
+            nextdirect ? (sharedNextOutput + offset) : (nextOutput + boffset),
+            sliceSize, maxOffset,
+            step,
+            waitDoneFromNext,
+            postReadyToNext);
+      }
     } else if (nextRank == root) {
       if (prevdirect) maxOffset = 0; // Only wait for signals
       Prims::Copy(
@@ -99,7 +110,7 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
       if (prevdirect) {
         Prims::Copy(
             thisOutput + offset,
-	    nextdirect ? (sharedNextOutput + offset) : (nextOutput + boffset),
+            nextdirect ? (sharedNextOutput + offset) : (nextOutput + boffset),
             sliceSize, maxOffset,
             step,
             waitDoneFromNext, waitReadyFromPrev,
@@ -118,18 +129,17 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
     NEXT_STEP; // Increases step, boffset
   }
 
-  // wait for the last data to be pushed to us
-  if (tid == 0) {
-    if (nextRank != root) {
-      // Wait for last update from next then reset the flag
-      waitDoneFromNext.wait(NUM_SUBSTEPS*(step+NUM_BUFCHUNKS-1));
-      *ring->send.conn.head = 0;
+  // Wait for next to have consumed all data before we reset the flag
+  if (nextRank != root) { 
+    for (int i=0; i<NUM_BUFCHUNKS-1; i++) {
+      Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
+      NEXT_STEP;
     }
+  }
 
-    if (rank != root) {
-      // reset the flag
-      *ring->recv.conn.tail = 0;
-    }
+  if (tid == 0) {
+    *ring->send.conn.head = 0;
+    *ring->recv.conn.tail = 0;
   }
 }
 
@@ -138,14 +148,18 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
 #define UNROLL 8
 
 template<class FUNC, typename T>
-ncclResult_t RingBroadcast(void* buff, const int count, const int root,
+ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const int count, const int root,
     ncclComm* comm, cudaStream_t stream) {
   if (count == 0)
     return ncclSuccess;
 
-  if (comm->nRanks != 1) {
+  if (comm->nRanks == 1) {
+    if (sendbuff != recvbuff)
+      CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
+  } else {
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm));
     KernelArgs<T> args;
-    ArgsSetup(&args, buff, buff, root, count, comm);
+    ArgsSetup(&args, sendbuff, recvbuff, root, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {
       LAUNCH_KERNEL(BroadcastKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
     } else {
@@ -161,7 +175,7 @@ class Broadcast {
   public:
   static ncclResult_t entry(const void* sendbuff, void* recvbuff,
       int count, int root, ncclComm* comm, cudaStream_t stream) {
-    return RingBroadcast<RedOp<T>, T>(recvbuff, count, root, comm, stream);
+    return RingBroadcast<RedOp<T>, T>(sendbuff, recvbuff, count, root, comm, stream);
   }
 };
 
@@ -169,6 +183,6 @@ NCCL_API(ncclResult_t, ncclBcast, void* buff, int count, ncclDataType_t datatype
     ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclBcast(void* buff, int count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream) {
-  return enqueue<Broadcast, FuncNull>(nullptr, buff, count, datatype, root, comm, stream);
+  return enqueue<Broadcast, FuncNull>(buff, buff, count, datatype, root, comm, stream);
 }
 

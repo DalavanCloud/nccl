@@ -47,11 +47,29 @@ static void SetProxyReady(struct transportProxyInfo* info) {
   pthread_mutex_unlock(&info->mutex);
 }
 
-template <int type>
-static void StartProxy(int substeps, int nsteps, struct ncclRing* ring) {
+#define RECV 0
+#define SEND 1
+
+static bool NeedProxy(int type, int pattern, struct ncclRing* ring, int nranks) {
+  enum proxyMode mode = proxyPatternMode(pattern);
+  if (mode == proxyRing) return true;
+
+  /* In chains, one rank does not need a proxy. Let's figure out which one it is */
+  int root = proxyPatternRoot(pattern);
+  // Which index in the reorganized rings should we compare root against */
+  const int myrank = 0, nextrank = 1, prevrank = nranks-1;
+  int index = mode == proxyFrom ? 
+    /*                            no recv /  no send    if root = */
+    /* bcast  */ (type == RECV ?   myrank : nextrank ):
+    /* reduce */ (type == RECV ? prevrank :   myrank );
+  int rank = ring->userRanks[index];
+  return (root != rank);
+}
+
+static void StartProxy(int type, int substeps, int nsteps, struct ncclRing* ring, int pattern, int nranks) {
   struct ncclConnector* connector = (type == 0) ? &ring->recv : &ring->send;
   struct transportProxyInfo* info = connector->proxyInfo;
-  if (info) {
+  if (info && NeedProxy(type, pattern, ring, nranks)) {
     struct ncclProxyArgs args;
     args.ring = ring;
     args.substeps = substeps;
@@ -61,12 +79,12 @@ static void StartProxy(int substeps, int nsteps, struct ncclRing* ring) {
   }
 }
 
-ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, struct ncclComm* comm) {
+ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, int pattern, struct ncclComm* comm) {
   for (int r=0; r<comm->nRings; r++) {
     int nrounds = DIVUP(size, comm->nRings * nblocks_per_round * (comm->rings[r].buffSize/subchunks));
     int nsteps = nsteps_per_round * nrounds * substeps;
-    StartProxy<0>(substeps*subchunks, nsteps, comm->rings+r);
-    StartProxy<1>(substeps*subchunks, nsteps, comm->rings+r);
+    StartProxy(0, substeps*subchunks, nsteps, comm->rings+r, pattern, comm->nRanks);
+    StartProxy(1, substeps*subchunks, nsteps, comm->rings+r, pattern, comm->nRanks);
   }
   return ncclSuccess;
 }

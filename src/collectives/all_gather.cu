@@ -87,8 +87,8 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
 	  nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
           sliceSize, maxOffset,
           step,
-          waitDoneFromNext, waitReadyFromPrev,
-          postReadyToNext, postDoneToPrev);
+          waitDoneFromNext,
+          postReadyToNext);
     } else {
       Prims::DoubleCopy(
           thisInput  + chunkOffset,
@@ -96,8 +96,8 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
 	  nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
           sliceSize, maxOffset,
           step,
-          waitDoneFromNext, waitReadyFromPrev,
-          postReadyToNext, postDoneToPrev);
+          waitDoneFromNext,
+          postReadyToNext);
     }
 
     NEXT_STEP; // Increases step, poffset, noffset
@@ -123,10 +123,8 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
           NULL,
           0, 0,
           step,
-          waitDoneFromNext, waitReadyFromPrev,
-          postReadyToNext, postDoneToPrev);
-
-      NEXT_STEP;
+          waitReadyFromPrev,
+          postDoneToPrev);
     } else {
       for (int j=1; j<nranks-1; ++j) {
         rankDest = ring->userRanks[nranks-j];
@@ -154,21 +152,17 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
           thisOutput + offset,
           sliceSize, maxOffset,
           step,
-          waitDoneFromNext, waitReadyFromPrev,
-          postReadyToNext, postDoneToPrev);
-
-      NEXT_STEP;
+          waitReadyFromPrev,
+          postDoneToPrev);
     }
   }
-
-  // Make all counters equal at the end
-  // and wait for the last flags to be acked
-  Prims::Copy(NULL, NULL, 0, 0, step, waitReadyFromPrev, waitDoneFromNext, postDoneToPrev);
-  NEXT_STEP;
-  Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
+  // Wait for next to have consumed all data before we reset the flag
+  for (int i=0; i<NUM_BUFCHUNKS; i++) {
+    Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
+    NEXT_STEP;
+  }
 
   if (tid == 0) {
-    //printf("Flags at end : %d %d %d %d\n", *ring->send.conn.head, *ring->send.conn.tail, *ring->recv.conn.head, *ring->recv.conn.tail);
     *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
   }
@@ -188,7 +182,7 @@ ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks, comm->nRanks, count*sizeof(T), comm));
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->p2ptype == ncclComm::NVLINK) {
@@ -196,7 +190,6 @@ ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
     } else {
       LAUNCH_KERNEL(AllGatherKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
     }
-    //NCCLCHECK(WaitProxies(comm));
   }
 
   return ncclSuccess;
