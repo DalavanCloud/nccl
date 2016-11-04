@@ -32,24 +32,6 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   int prevdirect = ring->recv.conn.direct;
   int nextdirect = ring->send.conn.direct;
 
-  if (tid == 0) {
-    volatile int *flagPrev = ring->recv.conn.head;
-    volatile int *flagNext = ring->send.conn.tail;
-    // Wait for prev and next to be ready
-    while (((*flagPrev) | (*flagNext)) != 0);
-    
-    if (prevdirect) {
-      *ring->recv.conn.ptrExchange = args.ThisOutput;
-    }
-    if (nextdirect) {
-      void* volatile* ptr = &(ring->devMem->ptrExchange);
-      while (*ptr == nullptr);
-      sharedNextOutput = (T*)*ptr;
-      *ptr = nullptr;
-    }
-  }
-  __syncthreads();
-
   WaitFlag waitDoneFromNext(ring->send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, -1*NUM_SUBSTEPS);
   PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS);
@@ -61,6 +43,22 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   const int nranks = comm->nRanks;
   const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
+
+  if (tid == 0) {
+    // Wait for next to be ready
+    WaitFlag waitOpCountNext(ring->send.conn.opCount, 0);
+    waitOpCountNext.wait(args.opCount);
+    if (prevdirect) {
+      *ring->recv.conn.ptrExchange = args.ThisOutput;
+    }
+    if (nextdirect) {
+      void* volatile* ptr = &(ring->devMem->ptrExchange);
+      while (*ptr == nullptr);
+      sharedNextOutput = (T*)*ptr;
+      *ptr = nullptr;
+    }
+  }
+  __syncthreads();
   
   int step = 0;
   int poffset, noffset = 0;
@@ -156,15 +154,13 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
           postDoneToPrev);
     }
   }
-  // Wait for next to have consumed all data before we reset the flag
-  for (int i=0; i<NUM_BUFCHUNKS; i++) {
-    Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
-    NEXT_STEP;
-  }
 
   if (tid == 0) {
+    waitDoneFromNext.wait(step + NUM_BUFCHUNKS);
     *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
+    __threadfence_system();
+    *ring->recv.conn.opCount = args.opCount+1;
   }
 }
 

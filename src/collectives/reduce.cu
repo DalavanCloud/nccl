@@ -28,14 +28,6 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   struct ncclComm* comm = args.comm;
   struct ncclRing* ring = comm->rings+bid;
 
-  if (tid == 0) {
-    volatile int *flagPrev = ring->recv.conn.head;
-    volatile int *flagNext = ring->send.conn.tail;
-    // Wait for prev and next to be ready
-    while (((*flagPrev) | (*flagNext)) != 0);
-  }
-  __syncthreads();
-
   WaitFlag waitDoneFromNext(ring->send.conn.head, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, 0);
   PostFlag postDoneToPrev(ring->recv.conn.head, 0);
@@ -50,6 +42,13 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   const int rank = ring->userRanks[0];
   const int prevRank = ring->userRanks[nranks-1];
   const int root = args.root;
+
+  if (rank != root && tid == 0) {
+    // Wait for next to be ready
+    WaitFlag waitOpCountNext(ring->send.conn.opCount, 0);
+    waitOpCountNext.wait(args.opCount);
+  }
+  __syncthreads();
   
   int step = 0;
   int boffset = 0;
@@ -96,17 +95,15 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
     NEXT_STEP; // Increases step, boffset
   }
 
-  // Wait for next to have consumed all data before we reset the flag
-  if (rank != root) { 
-    for (int i=0; i<NUM_BUFCHUNKS-1; i++) {
-      Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
-      NEXT_STEP;
-    }
-  }
-
   if (tid == 0) {
-    *ring->send.conn.head = 0;
+    if (rank != root) { 
+      // Wait for next to have consumed data before resetting the flag
+      waitDoneFromNext.wait(step + NUM_BUFCHUNKS-1);
+      *ring->send.conn.head = 0;
+    }
     *ring->recv.conn.tail = 0;
+    __threadfence_system();
+    *ring->recv.conn.opCount = args.opCount+1;
   }
 }
 

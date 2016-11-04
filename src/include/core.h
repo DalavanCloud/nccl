@@ -21,6 +21,7 @@ struct ncclConnInfo {
   char *buff;         // Local for recv, remote for send
   int *tail;          // Local for recv, remote for send
   int *head;          // Local for send, remote for recv
+  int *opCount;       // Local for recv, remote for send
 
   int direct;         // Direct communication
   void **ptrExchange; // Pointer exchange for direct communication
@@ -45,8 +46,10 @@ struct ncclSendRecvMem {
       char pad2[CACHE_LINE_SIZE-sizeof(int)];
       void* ptrExchange;
       char pad3[CACHE_LINE_SIZE-sizeof(int)];
+      int opCount;
+      char pad4[CACHE_LINE_SIZE-sizeof(int)];
     };
-    char pad4[PAGE_SIZE];
+    char pad5[PAGE_SIZE];
   };
   char buff[1]; // Actually larger than that
 };
@@ -76,6 +79,10 @@ struct ncclComm {
 
   cudaStream_t prevStream; // cache last used stream
   cudaEvent_t doneEvent; // orders operations in different streams
+
+  // Counter to make sure collectives match (needed for bcast/reduce
+  // where syncs are not symmetric).
+  int opCount;
 
   // Rings for collectives 
   int nRings;

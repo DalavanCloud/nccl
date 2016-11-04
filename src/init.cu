@@ -167,6 +167,7 @@ static ncclResult_t setupSendRecv(struct ncclRing* ring) {
   ring->devMem = mem;
   ring->recv.conn.buff = (char*)&mem->buff;
   ring->recv.conn.tail = &mem->tail;
+  ring->recv.conn.opCount = &mem->opCount;
   ring->recv.conn.direct = 0;
   ring->send.conn.head = &mem->head;
   ring->send.conn.direct = 0;

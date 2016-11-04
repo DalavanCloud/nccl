@@ -184,6 +184,7 @@ ncclResult_t shmConnectRecv(struct ncclConnect* connectInfo, struct ncclConnecto
   recv->conn.head = &resources->devRemHostMem->head;
   recv->conn.buff = resources->devHostMem->buff;
   recv->conn.tail = &resources->devHostMem->tail;
+  recv->conn.opCount = &resources->devHostMem->opCount;
 #endif
   return ncclSuccess;
 }
@@ -200,6 +201,7 @@ ncclResult_t shmConnectSend(struct ncclConnect* connectInfo, struct ncclConnecto
   send->transportResources = resources;
   send->conn.buff = resources->devRemHostMem->buff;
   send->conn.tail = &resources->devRemHostMem->tail;
+  send->conn.opCount = &resources->devRemHostMem->opCount;
 #ifndef SHM_PROXY
   send->conn.head = resources->devHostMem;
 #endif
@@ -214,21 +216,17 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = &resources->remDevMem->head;
   int* nextTail = &devMem->tail;
+  int* nextOpCount = &devMem->opCount;
   volatile int* nextHead = &resources->hostMem->head;
   char* localBuff = resources->hostMem->buff;
   char* nextBuff = devMem->buff;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
-
-  int val = 1;
-  CUDACHECK(cudaSetDevice(resources->prevCudaDev));
-  while (val != 0) {
-    CUDACHECK(cudaMemcpyAsync(&val, prevHead, sizeof(int), cudaMemcpyDeviceToHost, resources->prevStream));
-    CUDACHECK(cudaStreamSynchronize(resources->prevStream));
-  }
-  CUDACHECK(cudaSetDevice(resources->localCudaDev));
-  while (val != 0) {
-    CUDACHECK(cudaMemcpyAsync(&val, nextTail, sizeof(int), cudaMemcpyDeviceToHost, resources->localStream));
+  resources->hostMem->opCount = args->opCount;
+  
+  int val = 0;
+  while (val != args->opCount) {
+    CUDACHECK(cudaMemcpyAsync(&val, nextOpCount, sizeof(int), cudaMemcpyDeviceToHost, resources->localStream));
     CUDACHECK(cudaStreamSynchronize(resources->localStream));
   }
   int head = 0;
@@ -239,7 +237,6 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
     transportProxyWait([=] { return head != *prevTail; });
     transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
     head++;
-    //printf("Proxy : %d : copying from/to %X\n", head, offset);
     CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, sliceSize, cudaMemcpyHostToDevice, resources->localStream));
     CUDACHECK(cudaEventRecord(resources->syncEvent[head%args->substeps], resources->localStream));
     CUDACHECK(cudaMemcpyAsync(nextTail, &head, sizeof(int), cudaMemcpyHostToDevice, resources->localStream));
@@ -259,10 +256,10 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
   CUDACHECK(cudaStreamSynchronize(resources->localStream));
 
   // Wait for last ack and reset
-//  printf("Flags at end : %d | %d %d\n", head, *nextHead, *prevTail);
-  *prevTail = 0;
   while (*nextHead < head);
   *nextHead = 0;
+  *prevTail = 0;
+  resources->hostMem->opCount = args->opCount+1;
 
   return ncclSuccess;
 }

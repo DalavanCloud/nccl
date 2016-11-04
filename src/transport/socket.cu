@@ -89,6 +89,7 @@ ncclResult_t socketConnectSend(struct ncclConnect* connectInfo, struct ncclConne
   struct socketResourcesSend* resources = (struct socketResourcesSend*)send->transportResources;
   send->conn.buff = resources->devHostMem->buff;
   send->conn.tail = &resources->devHostMem->tail;
+  send->conn.opCount = &resources->devHostMem->opCount;
 
   // Setup receive proxy socket/pointers
   struct socketInfo* info = (struct socketInfo*)connectInfo;
@@ -117,11 +118,6 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
 
-  int val = 1;
-  while (val != 0) {
-    CUDACHECK(cudaMemcpyAsync(&val, prevHead, sizeof(int), cudaMemcpyDeviceToHost, resources->stream));
-    CUDACHECK(cudaStreamSynchronize(resources->stream));
-  }
   int head = 0;
   int offset = 0;
 
@@ -143,6 +139,7 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
 
   // Reset
   *prevTail = 0;
+  resources->hostMem->opCount = args->opCount+1;
   return ncclSuccess;
 }
 
@@ -151,6 +148,7 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
   struct socketResourcesRecv* resources = (struct socketResourcesRecv*) (ring->recv.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
   int* nextTail = &devMem->tail;
+  int* nextOpCount = &devMem->opCount;
   volatile int* nextHead = &resources->hostMem->head;
   char* localBuff = resources->hostMem->buff;
   char* nextBuff = devMem->buff;
@@ -164,9 +162,9 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
     SYSCHECKVAL(accept(resources->listen_fd, (struct sockaddr*)&sockaddr, &socklen), "accept", resources->fd);
   }
 
-  int val = 1;
-  while (val != 0) {
-    CUDACHECK(cudaMemcpyAsync(&val, nextTail, sizeof(int), cudaMemcpyDeviceToHost, resources->stream));
+  int val = 0;
+  while (val != args->opCount) {
+    CUDACHECK(cudaMemcpyAsync(&val, nextOpCount, sizeof(int), cudaMemcpyDeviceToHost, resources->stream));
     CUDACHECK(cudaStreamSynchronize(resources->stream));
   }
   int head = 0;
@@ -192,7 +190,6 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
   CUDACHECK(cudaStreamSynchronize(resources->stream));
 
   // Wait for last ack and reset
-//  printf("Flags at end : %d | %d %d\n", head, *nextHead, *prevTail);
   transportProxyWait([=] { return *nextHead == head; });
   *nextHead = 0;
 

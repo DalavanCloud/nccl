@@ -345,6 +345,7 @@ struct KernelArgs {
 
   struct ncclComm* comm;
   int nRings;
+  int opCount;
 };
 
 template<typename T>
@@ -356,6 +357,8 @@ void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
   args->ThisOutput = (T*)recvbuff;
   args->comm = comm->devComm;
   args->nRings = comm->nRings;
+  args->opCount = comm->opCount;
+  comm->opCount++;
 }
 
 #define LAUNCH_KERNEL(K, THREADS, UNROLL, FUNC, T, \
