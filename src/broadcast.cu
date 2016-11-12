@@ -5,6 +5,7 @@
  ************************************************************************/
 
 #include "core.h"
+#include "common_coll.h"
 #include "enqueue.h"
 #include "primitives.h"
 
@@ -137,13 +138,6 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
 template<class FUNC, typename T>
 ncclResult_t RingBroadcast(void* buff, const int count, const int root,
     ncclComm* comm, cudaStream_t stream) {
-  if (count == 0)
-    return ncclSuccess;
-  if (root < 0 || root >= comm->nRanks) {
-    WARN("Broadcast : cannot have root = %d in a communicator with %d ranks\n", root, comm->nRanks);
-    return ncclInvalidArgument;
-  }
-
   if (comm->nRanks != 1) {
     KernelArgs<T> args;
     ArgsSetup(&args, buff, buff, root, count, comm);
@@ -170,6 +164,7 @@ NCCL_API(ncclResult_t, ncclBcast, void* buff, int count, ncclDataType_t datatype
     ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclBcast(void* buff, int count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream) {
+  NCCLCHECK(ArgsCheck(buff, buff, count, datatype, ncclSum, root, comm, "Bcast"));
   return enqueue<Broadcast, FuncNull>(nullptr, buff, count, datatype, root, comm, stream);
 }
 

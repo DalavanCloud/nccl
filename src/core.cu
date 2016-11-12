@@ -1090,7 +1090,7 @@ void ncclCommDestroy(ncclComm_t comm) {
   int commDevice = comm->cudaDev;
 
   if (savedDevice != commDevice) {
-    CUDACHECK(cudaSetDevice(commDevice));
+    CUDACHECK(cudaSetDevice(commDevice), void());
   }
 
   commFree(comm);

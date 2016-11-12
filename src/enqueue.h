@@ -35,7 +35,7 @@ ncclResult_t enqueue(const void* sendbuff,
 {
   if (stream != comm->prevStream) { // sync required for calls in different streams
     comm->prevStream = stream;
-    CUDACHECK( cudaStreamWaitEvent(stream, comm->doneEvent, 0) );
+    CUDACHECK(cudaStreamWaitEvent(stream, comm->doneEvent, 0), ncclUnhandledCudaError);
   }
 
   // print CRC checksum of input
@@ -53,7 +53,7 @@ ncclResult_t enqueue(const void* sendbuff,
   
   // Always have to record done event because we don't know what stream next
   // collective will be in.
-  CUDACHECK( cudaEventRecord(comm->doneEvent, stream) );
+  CUDACHECK(cudaEventRecord(comm->doneEvent, stream), ncclUnhandledCudaError);
   comm->opSched += 1;
   return ret;
 }
