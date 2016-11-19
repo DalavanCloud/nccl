@@ -24,6 +24,10 @@ int ncclPrintCRCs;
 
 NCCL_API(ncclResult_t, ncclGetUniqueId, ncclUniqueId* out);
 ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
+  if (out == NULL) {
+    WARN("uniqueId pointer is NULL");
+    return ncclInvalidArgument;
+  }
   pid_t pid = getpid();
   static int count = 0;
   int commId = __sync_fetch_and_add(&count, 1);
@@ -872,6 +876,11 @@ NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniq
 ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   if (myrank == 0) showVersion();
 
+  if (newcomm == NULL) {
+    WARN("rank %d newcomm pointer is NULL", myrank);
+    return ncclInvalidArgument;
+  }
+
   if (strlen(commId.internal) < 1 ||
       strlen(commId.internal) >= NCCL_UNIQUE_ID_BYTES) {
     WARN("rank %d invalid commId", myrank);
@@ -959,6 +968,11 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   initDebug();
 
   showVersion();
+
+  if (comms == NULL) {
+    WARN("comms pointer is NULL");
+    return ncclInvalidArgument;
+  }
 
   ncclResult_t res;
   int savedDevice;
