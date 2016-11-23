@@ -717,15 +717,6 @@ static void commFree(ncclComm_t comm) {
 }
 
 static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, const ncclUniqueId* commId, int rank) {
-  if (ndev < 1) {
-    WARN("invalid device count (%d) requested", ndev);
-    return ncclUnsupportedDeviceCount;
-  }
-  if (rank >= ndev || rank < 0) {
-    WARN("rank %d exceeds ndev=%d", rank, ndev);
-    return ncclInvalidRank;
-  }
-
   size_t commBytes = offsetof(ncclComm, ptrs) + ndev*sizeof(NodeRef);
   struct ncclComm* comm = (struct ncclComm*)malloc(commBytes);
   if (comm == NULL) {
@@ -876,6 +867,15 @@ ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId
 
   NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));
 
+  if (ndev < 1) {
+    WARN("Invalid device count requested : %d", ndev);
+    return ncclUnsupportedDeviceCount;
+  }
+  if (myrank >= ndev || myrank < 0) {
+    WARN("Invalid rank %d, should be in the range 0..%d", myrank, ndev-1);
+    return ncclInvalidRank;
+  }
+
   if (strlen(commId.internal) < 1 ||
       strlen(commId.internal) >= NCCL_UNIQUE_ID_BYTES) {
     WARN("rank %d invalid commId", myrank);
@@ -965,6 +965,11 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   showVersion();
 
   NCCLCHECK(PtrCheck(comms, "CommInitRank", "comms"));
+
+  if (ndev < 1) {
+    WARN("Invalid device count requested : %d", ndev);
+    return ncclUnsupportedDeviceCount;
+  }
 
   ncclResult_t res;
   int savedDevice;
