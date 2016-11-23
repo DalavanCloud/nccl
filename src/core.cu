@@ -9,6 +9,7 @@
 #include "core.h"
 #include "libwrap.h"
 #include "topo.h"
+#include "common_coll.h"
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -24,10 +25,7 @@ int ncclPrintCRCs;
 
 NCCL_API(ncclResult_t, ncclGetUniqueId, ncclUniqueId* out);
 ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
-  if (out == NULL) {
-    WARN("uniqueId pointer is NULL");
-    return ncclInvalidArgument;
-  }
+  NCCLCHECK(PtrCheck(out, "GetUniqueId", "out"));
   pid_t pid = getpid();
   static int count = 0;
   int commId = __sync_fetch_and_add(&count, 1);
@@ -876,10 +874,7 @@ NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniq
 ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   if (myrank == 0) showVersion();
 
-  if (newcomm == NULL) {
-    WARN("rank %d newcomm pointer is NULL", myrank);
-    return ncclInvalidArgument;
-  }
+  NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));
 
   if (strlen(commId.internal) < 1 ||
       strlen(commId.internal) >= NCCL_UNIQUE_ID_BYTES) {
@@ -969,10 +964,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
 
   showVersion();
 
-  if (comms == NULL) {
-    WARN("comms pointer is NULL");
-    return ncclInvalidArgument;
-  }
+  NCCLCHECK(PtrCheck(comms, "CommInitRank", "comms"));
 
   ncclResult_t res;
   int savedDevice;
@@ -1137,18 +1129,24 @@ const char* ncclGetErrorString(ncclResult_t code) {
 
 NCCL_API(ncclResult_t, ncclCommCount, const ncclComm_t comm, int* count);
 ncclResult_t ncclCommCount(const ncclComm_t comm, int* count) {
+  NCCLCHECK(PtrCheck(comm, "CommCount", "comm"));
+  NCCLCHECK(PtrCheck(count, "CommCount", "count"));
   *count = comm->nRanks;
   return ncclSuccess;
 }
 
 NCCL_API(ncclResult_t, ncclCommCuDevice, const ncclComm_t comm, int* devid);
 ncclResult_t ncclCommCuDevice(const ncclComm_t comm, int* devid) {
+  NCCLCHECK(PtrCheck(comm, "CommCuDevice", "comm"));
+  NCCLCHECK(PtrCheck(devid, "CommCuDevice", "devid"));
   *devid = comm->cudaDev;
   return ncclSuccess;
 }
 
 NCCL_API(ncclResult_t, ncclCommUserRank, const ncclComm_t comm, int* rank);
 ncclResult_t ncclCommUserRank(const ncclComm_t comm, int* rank) {
+  NCCLCHECK(PtrCheck(comm, "CommUserRank", "comm"));
+  NCCLCHECK(PtrCheck(rank, "CommUserRank", "rank"));
   *rank = comm->rank;
   return ncclSuccess;
 }

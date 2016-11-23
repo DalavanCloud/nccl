@@ -23,7 +23,16 @@ static ncclResult_t PointerCheck(const void* pointer, struct ncclComm* comm, con
   return ncclSuccess;
 }
 
-static ncclResult_t ArgsCheck(const void* sendbuff, void* recvbuff, int count, ncclDataType_t type, ncclRedOp_t op, int root, struct ncclComm* comm, const char* opname) {
+static ncclResult_t PtrCheck(void* ptr, const char* opname, const char* ptrname) {
+  if (ptr == NULL) {
+    WARN("%s : %s argument is NULL", opname, ptrname);
+    return ncclInvalidArgument;
+  }
+  return ncclSuccess;
+}
+
+static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, int count, ncclDataType_t type, ncclRedOp_t op, int root, struct ncclComm* comm, const char* opname) {
+  NCCLCHECK(PtrCheck(comm, opname, "comm"));
   // First, the easy ones
   if (root < 0 || root >= comm->nRanks) {
     WARN("%s : invalid root %d (root should be in the 0..%d range)\n", opname, root, comm->nRanks);

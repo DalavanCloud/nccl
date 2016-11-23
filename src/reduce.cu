@@ -149,7 +149,9 @@ NCCL_API(ncclResult_t, ncclReduce, const void* sendbuff, void* recvbuff, int cou
     ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclReduce(const void* sendbuff, void* recvbuff, int count,
     ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
-  NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, datatype, op, root, comm, "Reduce"));
+  NCCLCHECK(ArgsCheck(sendbuff,
+        comm->rank == root ? recvbuff : sendbuff, // Non-root ranks do not need a valid recvbuff
+        count, datatype, op, root, comm, "Reduce"));
   return enqueue<ReduceFunctor>(sendbuff, recvbuff, count, datatype, op, root, comm, stream);
 }
 
