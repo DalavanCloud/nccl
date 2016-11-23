@@ -53,6 +53,10 @@ static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, int co
 
   // Check pointers
   NCCLCHECK(PointerCheck(sendbuff, comm, "sendbuff", opname))
+  if (strcmp(opname, "Reduce") == 0 && comm->rank != root) {
+    // No need to check recvbuff pointer for non-root reduce
+    return ncclSuccess;
+  }
   NCCLCHECK(PointerCheck(recvbuff, comm, "recvbuff", opname))
   return ncclSuccess;
 }
