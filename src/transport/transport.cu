@@ -66,7 +66,7 @@ static bool NeedProxy(int type, int pattern, struct ncclRing* ring, int nranks) 
   return (root != rank);
 }
 
-static void StartProxy(int type, int substeps, int nsteps, int opCount, struct ncclRing* ring, int pattern, int nranks) {
+static void StartProxy(int type, int substeps, int nsteps, int size, int opCount, struct ncclRing* ring, int pattern, int nranks) {
   struct ncclConnector* connector = (type == 0) ? &ring->recv : &ring->send;
   struct transportProxyInfo* info = connector->proxyInfo;
   if (nsteps && info && NeedProxy(type, pattern, ring, nranks)) {
@@ -75,6 +75,7 @@ static void StartProxy(int type, int substeps, int nsteps, int opCount, struct n
     args.substeps = substeps;
     args.nsteps = nsteps;
     args.opCount = opCount;
+    args.size = size;
     //printf("Launching %s proxy, nsteps = %d\n", type == 0 ? "recv" : "send", nsteps);
     FifoPushArgs(info, &args);
   }
@@ -84,8 +85,8 @@ ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_r
   for (int r=0; r<comm->nRings; r++) {
     int nrounds = DIVUP(size, comm->nRings * nblocks_per_round * (comm->rings[r].buffSize/subchunks));
     int nsteps = nsteps_per_round * nrounds * substeps;
-    StartProxy(0, substeps*subchunks, nsteps, comm->opCount, comm->rings+r, pattern, comm->nRanks);
-    StartProxy(1, substeps*subchunks, nsteps, comm->opCount, comm->rings+r, pattern, comm->nRanks);
+    StartProxy(0, substeps*subchunks, nsteps, size, comm->opCount, comm->rings+r, pattern, comm->nRanks);
+    StartProxy(1, substeps*subchunks, nsteps, size, comm->opCount, comm->rings+r, pattern, comm->nRanks);
   }
   return ncclSuccess;
 }

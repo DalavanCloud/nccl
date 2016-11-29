@@ -23,6 +23,7 @@ struct ncclConnect {
 struct ncclProxyArgs {
   struct ncclRing* ring;
   int substeps;
+  int size;
   int nsteps;
   int opCount;
 };

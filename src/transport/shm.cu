@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <cuda_runtime.h>
 
-#define SHM_PROXY
+//#define SHM_PROXY
 
 struct shmInfo {
   int rank;

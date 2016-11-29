@@ -3,19 +3,25 @@
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <ifaddrs.h>
 #include <errno.h>
 
 #define SYSCHECK(call, name) do { \
-  int ret; \
-  SYSCHECKVAL(call, name, ret); \
+  int ret = -1; \
+  while (ret == -1) { \
+    SYSCHECKVAL(call, name, ret); \
+    if (ret == -1) { \
+      INFO("Got retcode %d, retrying", errno); \
+    }\
+  } \
 } while (0);
 
 #define SYSCHECKVAL(call, name, retval) do { \
   retval = call; \
-  if (retval == -1) { \
+  if (retval == -1 && errno != EINTR && errno != EWOULDBLOCK && errno != EAGAIN) { \
     WARN("call to " name " failed with ret %d", errno); \
     perror(name); \
     return ncclSystemError; \
@@ -109,6 +115,11 @@ static ncclResult_t connectAddress(struct socketAddress* address, int* fd) {
     WARN("Socket creation failed");
     return ncclSystemError;
   }
+  const int one = 1;
+  SYSCHECK(setsockopt(*fd, IPPROTO_TCP, TCP_NODELAY, (char*)&one, sizeof(int)), "setsockopt");
+/*  const int bufsize = 128*1024;
+  SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_SNDBUF, (char*)&bufsize, sizeof(int)), "setsockopt");
+  SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_RCVBUF, (char*)&bufsize, sizeof(int)), "setsockopt");*/
   struct sockaddr_in remote;
   remote.sin_family = AF_INET;
   remote.sin_addr = address->ip_addr;
@@ -123,6 +134,14 @@ static ncclResult_t socketReceive(int fd, void* ptr, int size) {
   while (offset < size) {
     int recvsize;
     SYSCHECKVAL(recv(fd, data, size-offset, 0), "recv", recvsize);
+    if (recvsize == 0) {
+      WARN("Connection close by remote peer");
+      return ncclSystemError;
+    }
+    if (recvsize == -1) {
+      INFO("Recv : got retcode %d, retrying", errno);
+      continue;
+    }
     data += recvsize;
     offset += recvsize;
   }
@@ -135,6 +154,10 @@ static ncclResult_t socketSend(int fd, void* ptr, int size) {
   while (offset < size) {
     int sendsize;
     SYSCHECKVAL(write(fd, data, size-offset), "write", sendsize);
+    if (sendsize == -1) {
+      INFO("Send : got retcode %d, retrying", errno);
+      continue;
+    }
     data += sendsize;
     offset += sendsize;
   }

@@ -117,6 +117,7 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   char* localBuff = resources->hostMem->buff;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
+  int maxSize = min(sliceSize, args->size);
 
   int head = 0;
   int offset = 0;
@@ -124,12 +125,13 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   // Update in case we skipped some collectives
   resources->hostMem->opCount = args->opCount;
 
+  //printf("%d steps of %d size\n", args->nsteps, maxSize);
   while (head < args->nsteps) {
     // Receive from GPU
     transportProxyWait([=] { return head != *prevTail; });
 
     // Send to socket
-    NCCLCHECK(socketSend(resources->fd, localBuff+offset, sliceSize));
+    NCCLCHECK(socketSend(resources->fd, localBuff+offset, maxSize));
     head++;
     CUDACHECK(cudaMemcpyAsync(prevHead, &head, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
 
@@ -157,6 +159,7 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
   char* nextBuff = devMem->buff;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
+  int maxSize = min(sliceSize, args->size);
   assert(MAXSTEPS >= args->substeps);
 
   if (resources->fd == 0) {
@@ -176,7 +179,7 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
   while (head < args->nsteps) {
     // Receive from socket
     CUDACHECK(cudaEventSynchronize(resources->syncEvent[head%args->substeps]));
-    NCCLCHECK(socketReceive(resources->fd, localBuff+offset, sliceSize));
+    NCCLCHECK(socketReceive(resources->fd, localBuff+offset, maxSize));
 
     // Send to GPU
     transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
