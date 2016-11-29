@@ -15,12 +15,12 @@
 #define SIZE 128
 #define NITERS 1
 
-int main(int argc, char *argv[]) {
+int main_1(int argc, char* argv[]) {
   ncclUniqueId commId;
   int size, rank;
   ncclResult_t ret;
 
-  MPI_Init(&argc, &argv);
+  MPI_Init(0, NULL); // seg fault, if pass argc & argv.
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
@@ -90,4 +90,10 @@ int main(int argc, char *argv[]) {
   MPI_Finalize();
   ncclCommDestroy(comm);
   return errors ? 1 : 0;
+}
+TEST(testcase, testname) {
+    int argc = 3;
+    char* argv[] = {"./mpi_test", "0", "1"};
+    EXPECT_EQ(0, main_1(argc, argv));
+    EXPECT_EQ(1,0);
 }

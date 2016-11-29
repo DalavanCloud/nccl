@@ -62,7 +62,7 @@ CUDA_MAJOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 1)
 CUDA_MINOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 2)
 CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 
-.PHONY : lib clean test mpitest install deb debian debclean
+.PHONY : lib clean test install deb debian debclean
 .DEFAULT : lib
 
 INCEXPORTS  := nccl.h
@@ -78,7 +78,7 @@ LIBSONAME  := $(patsubst %,%.$(NCCL_MAJOR),$(LIBNAME))
 LIBTARGET  := $(patsubst %,%.$(NCCL_MAJOR).$(NCCL_MINOR).$(NCCL_PATCH),$(LIBNAME))
 LIBLINK    := $(patsubst lib%.so, -l%, $(LIBNAME))
 LIBOBJ     := $(patsubst %.cu, $(OBJDIR)/%.o, $(filter %.cu, $(LIBSRCFILES)))
-DEPFILES   := $(patsubst %.o, %.d, $(LIBOBJ)) $(patsubst %, %.d, $(TESTBINS)) $(patsubst %, %.d, $(MPITESTBINS))
+DEPFILES   := $(patsubst %.o, %.d, $(LIBOBJ)) $(patsubst %, %.d, $(TESTBINS))
 
 lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 
@@ -119,6 +119,8 @@ install : lib
 #### TESTS ####
 
 TEST_ONLY ?= 0
+##### Google Test #####
+include ./test/googletest.mk
 
 # Tests depend on lib, except in TEST_ONLY mode.
 ifeq ($(TEST_ONLY), 0)
@@ -128,24 +130,22 @@ endif
 NCCL_LIB ?= $(LIBDIR)
 NCCL_INC ?= $(INCDIR)
 
-MPI_HOME ?= /usr
-MPI_INC ?= $(MPI_HOME)/include
-MPI_LIB ?= $(MPI_HOME)/lib
-MPIFLAGS   := -I$(MPI_INC) -L$(MPI_LIB) -lmpi
-
 TESTS       := all_gather_test     all_gather_scan \
                all_reduce_test     all_reduce_scan all_reduce_scan_multithreaded \
                broadcast_test      broadcast_scan \
                reduce_test         reduce_scan \
                reduce_scatter_test reduce_scatter_scan
-MPITESTS    := mpi_test
 
 TSTINC     := -I$(NCCL_INC) -Itest/include
 TSTLIB     := -L$(NCCL_LIB) $(LIBLINK) $(LDFLAGS)
 TSTDIR     := $(BUILDDIR)/test/single
-MPITSTDIR  := $(BUILDDIR)/test/mpi
 TESTBINS   := $(patsubst %, $(TSTDIR)/%, $(TESTS))
-MPITESTBINS:= $(patsubst %, $(MPITSTDIR)/%, $(MPITESTS))
+
+##### MPI TEST ##### TSTDEP must be defined before mpi.mk .
+include ./test/mpi/mpi.mk
+
+###### NEGATIVE TEST #####
+include ./test/apitest/apitest.mk
 
 test : $(TESTBINS)
 
@@ -159,17 +159,6 @@ $(TSTDIR)/% : test/single/%.cu test/include/*.h $(TSTDEP)
                 sed -e 's/^ *//' -e 's/$$/:/' >> $(@:%=%.d)
 	@rm -f $(@:%=%.d.tmp)
 
-mpitest : $(MPITESTBINS)
-
-$(MPITSTDIR)/% : test/mpi/%.cu $(TSTDEP)
-	@printf "Building  %-25s > %-24s\n" $< $@
-	mkdir -p $(MPITSTDIR)
-	$(NVCC) $(MPIFLAGS) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcurand
-	@$(NVCC) $(MPIFLAGS) -M $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< $(TSTLIB) -lcurand > $(@:%=%.d.tmp)
-	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%=%.d.tmp) > $(@:%=%.d)
-	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%=%.d.tmp) | fmt -1 | \
-                sed -e 's/^ *//' -e 's/$$/:/' >> $(@:%=%.d)
-	@rm -f $(@:%=%.d.tmp)
 
 #### PACKAGING ####
 
