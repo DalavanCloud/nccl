@@ -1,16 +1,23 @@
 #include "transport.h"
+/*************************************************************************
+ * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
 #include "core.h"
 #include "common_kernel.h"
 
 extern struct ncclTransport p2pTransport;
 extern struct ncclTransport shmTransport;
+extern struct ncclTransport mpiTransport;
 extern struct ncclTransport socketTransport;
 
 struct ncclTransport ncclTransports[NTRANSPORTS] = {
   p2pTransport,
   shmTransport,
+  mpiTransport,
   socketTransport
-  // mpiTransport
 };
 
 static void FifoPullArgs(struct transportProxyInfo* info, struct ncclProxyArgs *args) {

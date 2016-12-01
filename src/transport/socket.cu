@@ -1,3 +1,9 @@
+/*************************************************************************
+ * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
 #include "core.h"
 #include "transport.h"
 #include <cuda_runtime.h>
@@ -183,7 +189,7 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
 
     // Send to GPU
     transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
-    CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, sliceSize, cudaMemcpyHostToDevice, resources->stream));
+    CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, maxSize, cudaMemcpyHostToDevice, resources->stream));
     CUDACHECK(cudaEventRecord(resources->syncEvent[head%args->substeps], resources->stream));
     head++;
     CUDACHECK(cudaMemcpyAsync(nextTail, &head, sizeof(int), cudaMemcpyHostToDevice, resources->stream));

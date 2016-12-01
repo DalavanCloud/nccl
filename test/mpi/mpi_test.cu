@@ -21,7 +21,8 @@ int main(int argc, char *argv[]) {
   int nranks, rank;
   ncclResult_t ret;
 
-  MPI_Init(&argc, &argv);
+  int threadProvided;
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_SERIALIZED, &threadProvided);
   MPI_Comm_size(MPI_COMM_WORLD, &nranks);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 

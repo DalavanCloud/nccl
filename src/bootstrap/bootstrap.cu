@@ -1,11 +1,19 @@
+/*************************************************************************
+ * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
 #include "core.h"
 #include "bootstrap.h"
 
-#define NBOOTSTRAPS 1
+#define NBOOTSTRAPS 2
 
 extern struct ncclBootstrap bootstrapSocket;
+extern struct ncclBootstrap bootstrapMpi;
 
 struct ncclBootstrap bootstraps[NBOOTSTRAPS] = {
+  bootstrapMpi,
   bootstrapSocket
 };
 

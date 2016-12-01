@@ -4,7 +4,7 @@
 #include "nccl.h"
 #include <stdint.h>
 
-#define NTRANSPORTS 3
+#define NTRANSPORTS 4
 
 extern struct ncclTransport ncclTransports[];
 

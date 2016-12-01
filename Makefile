@@ -67,7 +67,7 @@ CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 
 INCEXPORTS  := nccl.h
 LIBSRCFILES := init.cu \
-		misc/nvmlwrap.cu misc/crc32.cu misc/topo.cu misc/utils.cu \
+		misc/nvmlwrap.cu misc/crc32.cu misc/topo.cu misc/utils.cu misc/mpi.cu \
 		bootstrap/bootstrap.cu bootstrap/socket.cu bootstrap/mpi.cu \
 		transport/transport.cu transport/p2p.cu transport/shm.cu transport/socket.cu transport/mpi.cu \
 		collectives/all_gather.cu collectives/all_reduce.cu collectives/broadcast.cu \
@@ -85,7 +85,7 @@ LIBLINK    := $(patsubst lib%.so, -l%, $(LIBNAME))
 LIBOBJ     := $(patsubst %.cu, $(OBJDIR)/%.o, $(filter %.cu, $(LIBSRCFILES)))
 DEPFILES   := $(patsubst %.o, %.d, $(LIBOBJ)) $(patsubst %, %.d, $(TESTBINS)) $(patsubst %, %.d, $(MPITESTBINS))
 
-CXXFLAGS    += -Isrc/include -Isrc/
+LIBINC     := -Isrc/include -Isrc/
 
 lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 
@@ -106,8 +106,8 @@ $(INCDIR)/%.h : src/%.h
 $(OBJDIR)/%.o : src/%.cu
 	@printf "Compiling %-25s > %-25s\n" $< $@
 	mkdir -p `dirname $@`
-	$(NVCC) -c $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -o $@
-	@$(NVCC) -M $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< > $(@:%.o=%.d.tmp)
+	$(NVCC) -c $(NVCUFLAGS) $(LIBINC) --compiler-options "$(CXXFLAGS)" $< -o $@
+	@$(NVCC) -M $(NVCUFLAGS) $(LIBINC) --compiler-options "$(CXXFLAGS)" $< > $(@:%.o=%.d.tmp)
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%.o=%.d.tmp) > $(@:%.o=%.d)
 	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%.o=%.d.tmp) | fmt -1 | \
                 sed -e 's/^ *//' -e 's/$$/:/' >> $(@:%.o=%.d)
