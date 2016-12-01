@@ -16,7 +16,7 @@ static ncclResult_t shmOpen(const char* shmname, const int shmsize, void** shmPt
 
   if (create) {
     if (ftruncate(fd, shmsize) == -1) {
-      WARN("ftruncate failed to allocate %ld bytes", shmsize);
+      WARN("ftruncate failed to allocate %d bytes", shmsize);
       shm_unlink(shmname);
       close(fd);
       return ncclSystemError;
