@@ -342,5 +342,18 @@ __device__ inline void incrementOpCounter(const KernelArgs<T> *args) {
   }
 }
 
+template <int THREADS, typename T> __device__ __forceinline__
+void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
+  enum { NUM_WORDS = sizeof(DevRing<char>) / sizeof(long long) };
+  static_assert(sizeof(DevRing<char>) % sizeof(long long) == 0, "Bad alignment");
+  static_assert(THREADS >= NUM_WORDS, "Not enough threads to load DevRing");
+  static_assert(sizeof(DevRing<char>) == sizeof(DevRing<T>), "DevRing size mismatch");
+  long long* lldst = reinterpret_cast<long long*>(dst);
+  const long long* llsrc = reinterpret_cast<const long long*>(src);
+  if (threadIdx.x < NUM_WORDS) {
+    lldst[threadIdx.x] = llsrc[threadIdx.x];
+  }
+}
+
 
 #endif // COMMON_KERNEL_H_
