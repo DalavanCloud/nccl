@@ -12,18 +12,6 @@
 #include <cstdio>
 #include <cuda_runtime.h>
 
-
-// DIE on error
-#define CUDACHECK(cmd) do {                              \
-    cudaError_t e = cmd;                                 \
-    if( e != cudaSuccess ) {                             \
-        printf("Cuda failure %s:%d '%s'\n",              \
-               __FILE__,__LINE__,cudaGetErrorString(e)); \
-        exit(EXIT_FAILURE);                              \
-    }                                                    \
-} while(false)
-
-
 #define MAXRINGS 12
 #define MAXFLAGS (2*MAXRINGS)
 #define MAXRANKS 32
@@ -146,6 +134,23 @@ extern DebugLevel ncclDebugLevel;
     fflush(stdout);                                              \
   }                                                              \
 } while(0)
+
+// Check CUDA calls
+#define CUDACHECK(cmd, retcode) do {                        \
+    cudaError_t e = cmd;                                    \
+    if( e != cudaSuccess ) {                                \
+        WARN("Cuda failure '%s'\n", cudaGetErrorString(e)); \
+        return retcode;                                     \
+    }                                                       \
+} while(false)
+
+// Propagate errors up
+#define NCCLCHECK(call) do { \
+  ncclResult_t res = call; \
+  if (res != ncclSuccess) { \
+    return res; \
+  } \
+} while (0);
 
 #ifdef PROFAPI
 #define NCCL_API(ret, func, args...)        \

@@ -84,6 +84,6 @@ void printCRCDev(unsigned char* data,
   const dim3 grid(1, 1, 1);
   const dim3 block(256, 1, 1);
   void* argptrs[] = {&data, &bytes, &rank};
-  CUDACHECK(cudaLaunchKernel((void*)CRCKernel, grid, block, argptrs, 0, stream));
+  CUDACHECK(cudaLaunchKernel((void*)CRCKernel, grid, block, argptrs, 0, stream), void());
 }
 
