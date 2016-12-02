@@ -65,7 +65,7 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
     info.direct = 1;
     info.directPtr = ring->devMem;
     if (myInfo->cudaDev == peerInfo->cudaDev) {
-      INFO("%d [%d] -> %d [%d] via P2P/common device", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+      INFO("%d -> %d via P2P/common device", myInfo->rank, peerInfo->rank);
     } else {
       // Enable P2P access
       cudaError_t err = cudaDeviceEnablePeerAccess(peerInfo->cudaDev, 0);
@@ -79,7 +79,7 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
         *select = 0;
         return ncclSuccess;
       }
-      INFO("%d [%d] -> %d [%d] via P2P/direct pointer", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+      INFO("%d -> %d via P2P/direct pointer", myInfo->rank, peerInfo->rank);
     }
   } else {
     info.direct = 0;
@@ -91,7 +91,7 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
       *select = 0;
       return ncclSuccess;
     }
-    INFO("%d [%d] -> %d [%d] via P2P/IPC", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+    INFO("%d -> %d via P2P/IPC", myInfo->rank, peerInfo->rank);
   }
   static_assert(sizeof(struct p2pConnectInfo) <= sizeof(struct ncclConnect), "p2p Connect Info is too big");
   memcpy(connectInfo, &info, sizeof(struct p2pConnectInfo));

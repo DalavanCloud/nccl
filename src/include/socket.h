@@ -57,7 +57,7 @@ static int getIpMode(getIpMode_t mode, struct in_addr* addr) {
     struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
     *addr = sa->sin_addr;
     found = 1;
-    INFO("using interface %s, IP %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
+    //INFO("using interface %s, IP %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
     break;
   }
   freeifaddrs(interfaces);
@@ -95,7 +95,7 @@ static ncclResult_t createListenSocket(int *fd, uint16_t *port) {
   socklen_t size = sizeof(struct sockaddr_in);
   SYSCHECK(getsockname(sockfd, (struct sockaddr*)&sa_in, &size), "getsockname");
   *port = sa_in.sin_port;
-  INFO("Listening on port %d", *port);
+  //INFO("Listening on port %d", *port);
 
   /* Put the socket in listen mode */
   SYSCHECK(listen(sockfd, MAXRANKS), "listen");

@@ -12,7 +12,7 @@
 #include "mpi.h"
 #include "test_utilities.h"
 
-#define MAXSIZE (1<<25)
+#define MAXSIZE (1<<26)
 #define NITERS 100
 
 int main(int argc, char *argv[]) {
@@ -75,7 +75,8 @@ int main(int argc, char *argv[]) {
     int errors = 0;
     MPI_Barrier(MPI_COMM_WORLD);
     double start = MPI_Wtime();
-    for (int i=0; i<NITERS; i++) {
+    int niters = min(NITERS, 1000000000/size);
+    for (int i=0; i<niters; i++) {
       NCCLCHECK(ncclAllReduce((const void*)dptr, (void*)(dptr+MAXSIZE), size, ncclInt, ncclSum, comm, stream));
     }
     CUDACHECK(cudaStreamSynchronize(stream));
@@ -93,9 +94,9 @@ int main(int argc, char *argv[]) {
     MPI_Allreduce(MPI_IN_PLACE, &errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD);
     if (rank == 0) printf(" %15d %15.2f %15.2f %15.2f %15d\n", 
         size*sizeof(int),
-        delta*1e6/NITERS,
-        size*sizeof(int)*NITERS/(delta*1e6),
-        size*sizeof(int)*NITERS/(delta*1e6)*2*(nranks-1)/nranks,
+        delta*1e6/niters,
+        size*sizeof(int)*niters/(delta*1e6),
+        size*sizeof(int)*niters/(delta*1e6)*2*(nranks-1)/nranks,
         errors);
   }
 

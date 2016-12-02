@@ -108,13 +108,13 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
       return ncclSuccess;
     }
   }
-  INFO("%d [%d] -> %d [%d] via proxy shared memory", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+  INFO("%d -> %d via proxy shared memory", myInfo->rank, peerInfo->rank);
 #else
   char shmname[1024];
   sprintf(shmname, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
   NCCLCHECK(shmOpen(shmname, sizeof(int), (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
-  INFO("%d [%d] -> %d [%d] via direct shared memory", myInfo->rank, myInfo->cudaDev, peerInfo->rank, peerInfo->cudaDev);
+  INFO("%d -> %d via direct shared memory", myInfo->rank, peerInfo->rank);
   info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid; info.shmsize = sizeof(int);
 #endif
   static_assert(sizeof(struct shmConnectRecvInfo) <= sizeof(struct ncclConnect), "shm Connect Recv Info is too big");

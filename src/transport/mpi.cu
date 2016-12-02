@@ -38,6 +38,9 @@ struct mpiResourcesRecv {
 /* Fill infomation necessary to exchange between ranks to choose whether or not
  * to use this transport */
 ncclResult_t mpiFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
+  struct mpiInfo* info = (struct mpiInfo*)opaqueInfo;
+  static_assert(sizeof(struct mpiInfo) <= sizeof(ncclTinfo_t), "MPI Info too large");
+  info->rank = rank;
   return ncclSuccess;
 }
 
@@ -47,8 +50,8 @@ ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   struct mpiResourcesSend* resources = (struct mpiResourcesSend*) malloc(sizeof(struct mpiResourcesSend));
   ring->send.transportResources = resources;
 
-  struct mpiInfo info;
-  MPICHECK(ncclMpiCommRank(&info.mpiRank));
+  struct mpiInfo* info = (struct mpiInfo*)myOpaqueInfo;
+  MPICHECK(ncclMpiCommRank(&info->mpiRank));
 
   // Create stream for proxy
   CUDACHECK(cudaStreamCreateWithFlags(&resources->stream, cudaStreamNonBlocking));
@@ -57,7 +60,7 @@ ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   CUDACHECK(cudaHostAlloc(&resources->hostMem, size, cudaHostAllocMapped));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
 
-  memcpy(connectInfo, &info, sizeof(struct mpiInfo));
+  memcpy(connectInfo, info, sizeof(struct mpiInfo));
   *select = 1;
   return ncclSuccess;
 }
@@ -66,11 +69,11 @@ ncclResult_t mpiSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   struct mpiResourcesRecv* resources = (struct mpiResourcesRecv*) malloc(sizeof(struct mpiResourcesRecv));
   ring->recv.transportResources = resources;
 
-  struct mpiInfo info;
-  MPICHECK(ncclMpiCommRank(&info.mpiRank));
+  struct mpiInfo* info = (struct mpiInfo*)myOpaqueInfo;
+  MPICHECK(ncclMpiCommRank(&info->mpiRank));
   // Allocate a tag for this peer
-  MPICHECK(ncclMpiGetTag(&info.mpiTag));
-  resources->mpiTag = info.mpiTag;
+  MPICHECK(ncclMpiGetTag(&info->mpiTag));
+  resources->mpiTag = info->mpiTag;
 
   // Create stream for proxy
   CUDACHECK(cudaStreamCreateWithFlags(&resources->stream, cudaStreamNonBlocking));
@@ -82,7 +85,9 @@ ncclResult_t mpiSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   CUDACHECK(cudaHostAlloc(&resources->hostMem, size, cudaHostAllocMapped));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
   
-  memcpy(connectInfo, &info, sizeof(struct mpiInfo));
+  struct mpiInfo* peerInfo = (struct mpiInfo*)peerOpaqueInfo;
+  INFO("%d -> %d via MPI%s", peerInfo->rank, info->rank, ncclMpiCudaSupport() ? "/GDR" : "");
+  memcpy(connectInfo, info, sizeof(struct mpiInfo));
   *select = 1;
   return ncclSuccess;
 }
@@ -113,6 +118,13 @@ ncclResult_t mpiConnectRecv(struct ncclConnect* connectInfo, struct ncclConnecto
   return ncclSuccess;
 }
 
+//#define SEND_SYNC
+//#define RECV_SYNC
+
+// Don't use the same requests for Send and Recv 
+#define SEND_REQ(slot) (2*slot)
+#define RECV_REQ(slot) (2*slot+1)
+
 ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
   struct mpiResourcesSend* resources = (struct mpiResourcesSend*) (ring->send.transportResources);
@@ -125,25 +137,50 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
   int maxSize = min(sliceSize, args->size);
 
   int head = 0;
-  int offset = 0;
+  int data[args->substeps];
 
   // Update in case we skipped some collectives
   resources->hostMem->opCount = args->opCount;
 
   //printf("%d steps of %d size\n", args->nsteps, maxSize);
+#ifdef SEND_SYNC
+  int offset = 0;
   while (head < args->nsteps) {
+    int slot = head%args->substeps;
     // Receive from GPU
     transportProxyWait([=] { return head != *prevTail; });
 
     // Send to mpi
-    MPICHECK(ncclMpiSend(resources->mpiRank, localBuff+offset, maxSize, resources->mpiTag));
+    MPICHECK(ncclMpiSend(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag));
     head++;
-    CUDACHECK(cudaMemcpyAsync(prevHead, &head, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
-
-    offset += sliceSize;
-    if (offset == buffSize)
-      offset = 0;
+    data[slot] = head;
+    CUDACHECK(cudaMemcpyAsync(prevHead, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
   }
+#else
+  int tail = 0;
+  while (tail < args->nsteps) {
+    int yield = 1;
+    while (head != *prevTail) {
+      // Send through MPI
+      int slot = head%args->substeps;
+      MPICHECK(ncclMpiIsend(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag, SEND_REQ(slot)));
+      head++;
+      yield = 0;
+    }
+    if (tail < head) {
+      int done;
+      int slot = tail%args->substeps;
+      MPICHECK(ncclMpiTest(SEND_REQ(slot), &done));
+      if (done) {
+        tail++;
+        data[slot] = tail;
+	CUDACHECK(cudaMemcpyAsync(prevHead, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
+        yield = 0;
+      }
+      if (yield) sched_yield();
+    }
+  }
+#endif
   // Ensure all updates are pushed
   CUDACHECK(cudaStreamSynchronize(resources->stream));
 
@@ -173,29 +210,82 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
     CUDACHECK(cudaStreamSynchronize(resources->stream));
   }
   int head = 0;
-  int offset = 0;
   int mpiCudaSupport = ncclMpiCudaSupport();
+  int data[args->substeps];
 
+#ifdef RECV_SYNC
   while (head < args->nsteps) {
-    // Receive from mpi
+    int slot = head%args->substeps;
     if (mpiCudaSupport == 1) {
+      // Receive from MPI directly to the GPU
       transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
-      MPICHECK(ncclMpiRecv(resources->mpiRank, nextBuff+offset, maxSize, resources->mpiTag));
+      MPICHECK(ncclMpiRecv(resources->mpiRank, nextBuff+slot*sliceSize, maxSize, resources->mpiTag));
     } else {
-      CUDACHECK(cudaEventSynchronize(resources->syncEvent[head%args->substeps]));
-      MPICHECK(ncclMpiRecv(resources->mpiRank, localBuff+offset, maxSize, resources->mpiTag));
+      // Receive from MPI
+      CUDACHECK(cudaEventSynchronize(resources->syncEvent[slot]));
+      MPICHECK(ncclMpiRecv(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag));
       // Send to GPU
       transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
-      CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, maxSize, cudaMemcpyHostToDevice, resources->stream));
-      CUDACHECK(cudaEventRecord(resources->syncEvent[head%args->substeps], resources->stream));
+      CUDACHECK(cudaMemcpyAsync(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, maxSize, cudaMemcpyHostToDevice, resources->stream));
+      CUDACHECK(cudaEventRecord(resources->syncEvent[slot], resources->stream));
     }
     head++;
-    CUDACHECK(cudaMemcpyAsync(nextTail, &head, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
-
-    offset += sliceSize;
-    if (offset == buffSize)
-      offset = 0;
+    data[slot] = head;
+    CUDACHECK(cudaMemcpyAsync(nextTail, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
   }
+#else
+  int tail = 0;
+  while (tail < args->nsteps) {
+    int yield = 1;
+    if (mpiCudaSupport == 1) {
+      while (((head - *nextHead) < args->substeps) && (head < args->nsteps)) {
+        int slot = head%args->substeps;
+        MPICHECK(ncclMpiIrecv(resources->mpiRank, nextBuff+slot*sliceSize, maxSize, resources->mpiTag, RECV_REQ(slot)));
+        //printf("Posted Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
+        head++;
+        yield = 0;
+      }
+      if (tail < head) {
+        int done;
+        int slot = tail%args->substeps;
+        MPICHECK(ncclMpiTest(RECV_REQ(slot), &done));
+        if (done) {
+          //printf("Done  Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
+          tail++;
+          data[slot] = tail;
+	  CUDACHECK(cudaMemcpyAsync(nextTail, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
+          yield = 0;
+        }
+      }
+    } else {
+      if (((head - tail) < args->substeps) && (head < args->nsteps)) {
+        int slot = head%args->substeps;
+        if (cudaEventQuery(resources->syncEvent[slot]) == cudaSuccess) {
+          MPICHECK(ncclMpiIrecv(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag, RECV_REQ(slot)));
+          //printf("Posted Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
+          head++;
+          yield = 0;
+        }
+      }
+      if (tail < head && ((tail - *nextHead) < args->substeps)) {
+        int done;
+        int slot = tail%args->substeps;
+        MPICHECK(ncclMpiTest(RECV_REQ(slot), &done));
+        if (done) {
+          // Send to GPU
+          //printf("Done  Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
+          CUDACHECK(cudaMemcpyAsync(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, maxSize, cudaMemcpyHostToDevice, resources->stream));
+          CUDACHECK(cudaEventRecord(resources->syncEvent[slot], resources->stream));
+          tail++;
+          data[slot] = tail;
+          CUDACHECK(cudaMemcpyAsync(nextTail, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
+        }
+        yield = 0;
+      }
+    }
+    if (yield) sched_yield();
+  }
+#endif
   // Ensure all updates are pushed
   CUDACHECK(cudaStreamSynchronize(resources->stream));
 
