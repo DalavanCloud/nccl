@@ -4,11 +4,12 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#ifndef CORE_H_
-#define CORE_H_
+#ifndef NCCL_CORE_H_
+#define NCCL_CORE_H_
 
 #include "nccl.h"
 #include "transport.h"
+#include "debug.h"
 #include <cstdio>
 #include <cuda_runtime.h>
 
@@ -92,28 +93,7 @@ struct ncclComm {
   struct ncclComm *devComm;
 };
 
-
 extern int ncclPrintCRCs;
-
-typedef enum {NONE=0, VERSION=1, WARN=2, INFO=3, ABORT=4} DebugLevel;
-extern DebugLevel ncclDebugLevel;
-
-#define WARN(...) do {                                           \
-  if (ncclDebugLevel >= WARN) {                                  \
-    printf("WARN %s:%d ", __FILE__, __LINE__);                   \
-    printf(__VA_ARGS__);                                         \
-    printf("\n");                                                \
-    fflush(stdout);                                              \
-    if (ncclDebugLevel >= ABORT) abort();                        \
-  }                                                              \
-} while(0)
-
-#define INFO(...) do {                                           \
-  if (ncclDebugLevel >= INFO) {                                  \
-    printf("INFO "); printf(__VA_ARGS__); printf("\n");          \
-    fflush(stdout);                                              \
-  }                                                              \
-} while(0)
 
 // Check CUDA calls
 #define CUDACHECK(cmd) do {                                 \
@@ -149,14 +129,6 @@ extern DebugLevel ncclDebugLevel;
     ret func(args)
 #endif // end PROFAPI
 
-static void dump(void* data, int size) {
-  unsigned char* d = (unsigned char*)data;
-  for (int i=0; i<size; i++) {
-    if (i%32 == 0) printf("\n");
-    printf("%02X ", d[i]);
-  }
-  printf("\n");
-}
 
 #endif // end include guard
 

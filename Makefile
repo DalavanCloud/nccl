@@ -67,7 +67,7 @@ CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 
 INCEXPORTS  := nccl.h
 LIBSRCFILES := init.cu \
-		misc/nvmlwrap.cu misc/crc32.cu misc/topo.cu misc/utils.cu misc/mpi.cu \
+		misc/nvmlwrap.cu misc/crc32.cu misc/topo.cu misc/utils.cu misc/mpi.cu misc/gdcopy.cu \
 		bootstrap/bootstrap.cu bootstrap/socket.cu bootstrap/mpi.cu \
 		transport/transport.cu transport/p2p.cu transport/shm.cu transport/socket.cu transport/mpi.cu \
 		collectives/all_gather.cu collectives/all_reduce.cu collectives/broadcast.cu \

@@ -10,16 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static int ncclMpiThreadLevel;
-static pthread_mutex_t ncclMpiGlobalLock = PTHREAD_MUTEX_INITIALIZER;
 // Export this symbol if the application wants to set it to a NCCL-specific communicator
 MPI_Comm ncclMpiComm = MPI_COMM_WORLD;
-
-#define MPI_LOCK \
-  if (ncclMpiThreadLevel < MPI_THREAD_MULTIPLE) pthread_mutex_lock(&ncclMpiGlobalLock);
-
-#define MPI_UNLOCK \
-  if (ncclMpiThreadLevel < MPI_THREAD_MULTIPLE) pthread_mutex_unlock(&ncclMpiGlobalLock);
 
 static int numRequests = 0;
 MPI_Request* ncclMpiRequests = NULL;
@@ -37,9 +29,10 @@ MPI_Request* ncclMpiRequests = NULL;
 } while (0);
 
 int ncclMpiEnabled() {
-  MPI_Query_thread(&ncclMpiThreadLevel);
-  if (ncclMpiThreadLevel < MPI_THREAD_SERIALIZED) {
-    fprintf(stderr, "Warning : NCCL requires at least MPI_THREAD_SERIALIZED, got %d. MPI bindings are disabled.\n", ncclMpiThreadLevel);
+  int threadLevel;
+  MPI_Query_thread(&threadLevel);
+  if (threadLevel < MPI_THREAD_MULTIPLE) {
+    fprintf(stderr, "Warning : NCCL requires at least MPI_THREAD_SERIALIZED, got %d. MPI bindings are disabled.\n", threadLevel);
     return 0;
   }
   // Initialize some requests
@@ -57,10 +50,7 @@ int ncclMpiCudaSupport() {
 }
 
 int ncclMpiCommRank(int *rank) {
-  MPI_LOCK;
-  int err = MPI_Comm_rank(ncclMpiComm, rank);
-  MPI_UNLOCK;
-  return err;
+  return MPI_Comm_rank(ncclMpiComm, rank);
 }
 
 // Generate a "unique" tag
@@ -76,27 +66,15 @@ int ncclMpiGetTag(int *tag) {
 
 int ncclMpiIsend(int rank, void* data, int size, int tag, int request) {
   CHECKREQINDEX(request);
-  MPI_LOCK;
-  int err = MPI_Isend(data, size, MPI_BYTE, rank, tag, ncclMpiComm, ncclMpiRequests+request+1);
-  MPI_UNLOCK;
-  if (err != MPI_SUCCESS) return err;
-  return 0;
+  return MPI_Isend(data, size, MPI_BYTE, rank, tag, ncclMpiComm, ncclMpiRequests+request+1);
 }
 
 int ncclMpiIrecv(int rank, void* data, int size, int tag, int request) {
   CHECKREQINDEX(request);
-  MPI_LOCK;
-  int err = MPI_Irecv(data, size, MPI_BYTE, rank == -1 ? MPI_ANY_SOURCE : rank, tag, MPI_COMM_WORLD, ncclMpiRequests+request+1);
-  MPI_UNLOCK;
-  if (err != MPI_SUCCESS) return err;
-  return 0;
+  return MPI_Irecv(data, size, MPI_BYTE, rank == -1 ? MPI_ANY_SOURCE : rank, tag, MPI_COMM_WORLD, ncclMpiRequests+request+1);
 }
 
 int ncclMpiTest(int request, int* done) {
   CHECKREQINDEX(request);
-  MPI_LOCK;
-  int err = MPI_Test(ncclMpiRequests+request+1, done, MPI_STATUS_IGNORE);
-  MPI_UNLOCK;
-  if (err != MPI_SUCCESS) return err;
-  return 0;
+  return MPI_Test(ncclMpiRequests+request+1, done, MPI_STATUS_IGNORE);
 }

@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
   ncclResult_t ret;
 
   int threadProvided;
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_SERIALIZED, &threadProvided);
+  MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &threadProvided);
   MPI_Comm_size(MPI_COMM_WORLD, &nranks);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
