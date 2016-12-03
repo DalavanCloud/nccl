@@ -34,7 +34,7 @@ typedef enum {
   GETIP_WITH_LO = 3
 }getIpMode_t;
 
-static int getIpMode(getIpMode_t mode, struct in_addr* addr) {
+static int getIpMode(getIpMode_t mode, struct in_addr* addr, char* ifname) {
   /* Get IP address */
   char* if_env_name = NULL;
   if (mode == GETIP_ENV) {
@@ -56,7 +56,9 @@ static int getIpMode(getIpMode_t mode, struct in_addr* addr) {
       continue;
     struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
     *addr = sa->sin_addr;
-    found = 1;
+    found = 1; 
+    if (ifname != NULL)
+      strcpy(ifname, interface->ifa_name);
     //INFO("using interface %s, IP %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
     break;
   }
@@ -72,11 +74,11 @@ static int getIpMode(getIpMode_t mode, struct in_addr* addr) {
   return found;
 }
 
-static ncclResult_t getIpAddr(struct in_addr* addr) {
-  int ret = getIpMode(GETIP_ENV, addr);
+static ncclResult_t getIpAddr(struct in_addr* addr, char* ifname) {
+  int ret = getIpMode(GETIP_ENV, addr, ifname);
   if (ret == 0) { // No env
-    ret = getIpMode(GETIP_NO_LO, addr)
-      || getIpMode(GETIP_WITH_LO, addr);
+    ret = getIpMode(GETIP_NO_LO, addr, ifname)
+      || getIpMode(GETIP_WITH_LO, addr, ifname);
   }
   return (ret == 1) ? ncclSuccess : ncclInternalError;
 }

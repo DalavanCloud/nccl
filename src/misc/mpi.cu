@@ -6,7 +6,7 @@
 
 #include <stdio.h>
 extern "C" {
-int __attribute__((weak)) ncclMpiEnabled() { fprintf(stderr, "No MPI\n"); return 0; }
+int __attribute__((weak)) ncclMpiEnabled() { return 0; }
 int __attribute__((weak)) ncclMpiCudaSupport() { return 0; }
 int __attribute__((weak)) ncclMpiCommRank(int *rank) { return 1; }
 int __attribute__((weak)) ncclMpiGetTag(int *tag) { return 1; }

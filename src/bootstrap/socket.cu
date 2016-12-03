@@ -22,7 +22,7 @@ ncclResult_t bootstrapSocketGetUniqueId(ncclUniqueId* out) {
   static_assert(sizeof(socketId) < sizeof(ncclUniqueId), "SocketId does not fit inside ncclUniqueId");
   socketId* id = (socketId*)out;
   NCCLCHECK(createListenSocket(&id->fd, &id->addr.port));
-  NCCLCHECK(getIpAddr(&(id->addr.ip_addr)));
+  NCCLCHECK(getIpAddr(&(id->addr.ip_addr), NULL));
   char hostname[1024];
   getHostName(hostname, 1024);
   id->hostHash = getHostHash(hostname);

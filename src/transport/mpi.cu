@@ -50,6 +50,10 @@ ncclResult_t mpiFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
 /* Determine if we will use this transport for this peer and return connect
  * information for this peer */
 ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
+  if (ncclMpiEnabled() == 0) {
+    *select = 0;
+    return ncclSuccess;
+  }
   struct mpiResourcesSend* resources = (struct mpiResourcesSend*) malloc(sizeof(struct mpiResourcesSend));
   ring->send.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
@@ -70,6 +74,10 @@ ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
 }
 
 ncclResult_t mpiSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
+  if (ncclMpiEnabled() == 0) {
+    *select = 0;
+    return ncclSuccess;
+  }
   struct mpiResourcesRecv* resources = (struct mpiResourcesRecv*) malloc(sizeof(struct mpiResourcesRecv));
   ring->recv.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);

@@ -40,8 +40,15 @@ ncclResult_t socketFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct socketInfo* info = (struct socketInfo*)opaqueInfo;
   static_assert(sizeof(struct socketInfo) <= sizeof(ncclTinfo_t), "socket Info too large");
   info->rank = rank;
-  NCCLCHECK(createListenSocket(&info->listen_fd, &info->connect_addr.port));
-  NCCLCHECK(getIpAddr(&(info->connect_addr.ip_addr)));
+  info->listen_fd = -1;
+  return ncclSuccess;
+}
+
+ncclResult_t socketCreateListen(struct socketInfo* info, char* ifname) {
+  if (info->listen_fd == -1) {
+    NCCLCHECK(createListenSocket(&info->listen_fd, &info->connect_addr.port));
+    NCCLCHECK(getIpAddr(&(info->connect_addr.ip_addr), ifname));
+  }
   return ncclSuccess;
 }
 
@@ -58,9 +65,6 @@ ncclResult_t socketSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueI
   CUDACHECK(cudaHostAlloc(&resources->hostMem, size, cudaHostAllocMapped));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
 
-  struct socketInfo* myInfo = (struct socketInfo*)myOpaqueInfo;
-  struct socketInfo* peerInfo = (struct socketInfo*)peerOpaqueInfo;
-  INFO("%d -> %d via socket", myInfo->rank, peerInfo->rank);
   // Just pass the socket info through
   static_assert(sizeof(struct socketInfo) <= sizeof(struct ncclConnect), "socket Connect Info is too big");
   memcpy(connectInfo, myOpaqueInfo, sizeof(struct socketInfo));
@@ -71,8 +75,6 @@ ncclResult_t socketSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueI
 ncclResult_t socketSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
   struct socketResourcesRecv* resources = (struct socketResourcesRecv*) malloc(sizeof(struct socketResourcesRecv));
   ring->recv.transportResources = resources;
-  struct socketInfo* myInfo = (struct socketInfo*)myOpaqueInfo;
-  resources->listen_fd = myInfo->listen_fd; 
 
   // Create stream for proxy
   CUDACHECK(cudaStreamCreateWithFlags(&resources->stream, cudaStreamNonBlocking));
@@ -85,6 +87,12 @@ ncclResult_t socketSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueI
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
   
   // Just pass the socket info through
+  struct socketInfo* myInfo = (struct socketInfo*)myOpaqueInfo;
+  char ifname[128];
+  NCCLCHECK(socketCreateListen(myInfo, ifname));
+  resources->listen_fd = myInfo->listen_fd; 
+  struct socketInfo* peerInfo = (struct socketInfo*)peerOpaqueInfo;
+  INFO("%d -> %d via TCP/%s", peerInfo->rank, myInfo->rank, ifname);
   memcpy(connectInfo, myOpaqueInfo, sizeof(struct socketInfo));
   *select = 1;
   return ncclSuccess;
