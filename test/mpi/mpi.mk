@@ -22,7 +22,7 @@ mpitest : ${MPITEST_BIN}
 mpitest.clean:
 	rm -rf ${MPITEST_OBJ_FILES} ${MPITEST_BIN}
 ${MPITEST_BIN}:${GTEST_LIBS} ${MPITEST_OBJ_FILES}
-	${NVCC} -o $@ $(TSTLIB) ${MPI_LDFLAGS} $^
+	${NVCC} -o $@ $(TSTLIB) ${MPI_LDFLAGS} $(if ${DEBUG},-Xcompiler --coverage) $^
 ${MPITEST_OBJ_FILES}:$(TSTDEP)
 ${MPITEST_DST_DIR}/%.o: ${MPITEST_SRC_DIR}/%.cu ${INCTARGETS}
 	$(NVCC) -o $@ --compile $(TSTINC) ${MPI_CPPFLAGS} $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $<

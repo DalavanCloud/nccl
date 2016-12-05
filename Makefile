@@ -34,8 +34,8 @@ ifeq ($(DEBUG), 0)
 NVCUFLAGS += -O3
 CXXFLAGS  += -O3
 else
-NVCUFLAGS += -O0 -G
-CXXFLAGS  += -O0 -g -ggdb3
+NVCUFLAGS += -O0 -G -Xcompiler --coverage
+CXXFLAGS  += -O0 -g -ggdb3 --coverage
 endif
 
 ifneq ($(VERBOSE), 0)

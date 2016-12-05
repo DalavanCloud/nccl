@@ -20,10 +20,10 @@ apitest.clean:
 	rm -rf ${APITEST_DST_DIR}
 
 apitest.run:${APITEST_DST_DIR}/apitest
-	/bin/bash -c "LD_LIBRARY_PATH+=:$(LIBDIR) ./$^"
+	/bin/bash -c "LD_LIBRARY_PATH+=:$(LIBDIR) $^"
 
 ${APITEST_DST_DIR}/apitest:${GTEST_LIBS} ${APITEST_OBJ_FILES} $(LIBDIR)/$(LIBTARGET)
-	${NVCC} -o $@ $(TSTLIB) ${GTEST_LIBS} ${APITEST_OBJ_FILES}
+	${NVCC} -o $@ $(TSTLIB) ${GTEST_LIBS} $(if ${DEBUG},-Xcompiler --coverage) ${APITEST_OBJ_FILES}
 
 ${APITEST_DST_DIR}/%.o: ${APITEST_SRC_DIR}/%.cu ${INCTARGETS}
 	$(NVCC) -o $@ ${APITEST_CPPFLAGS} --compile --compiler-options "$(CXXFLAGS)" $<
