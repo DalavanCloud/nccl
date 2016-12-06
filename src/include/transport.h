@@ -29,13 +29,14 @@ struct ncclProxyArgs {
 };
 
 struct ncclTransportComm {
-  ncclResult_t (*setup)(ncclTinfo_t*, ncclTinfo_t*, struct ncclConnect*, struct ncclRing*, int*);
+  ncclResult_t (*setup)(ncclTinfo_t*, ncclTinfo_t*, struct ncclConnect*, struct ncclRing*);
   ncclResult_t (*connect)(struct ncclConnect*, struct ncclConnector*);
   ncclResult_t (*proxy)(struct ncclProxyArgs*);
 };
 
 struct ncclTransport {
-  ncclResult_t (*fillInfo)(ncclTinfo_t*, int rank);
+  ncclResult_t (*fillInfo)(ncclTinfo_t*, int);
+  ncclResult_t (*canConnect)(int*, ncclTinfo_t*, ncclTinfo_t*);
   struct ncclTransportComm send;
   struct ncclTransportComm recv;
 };

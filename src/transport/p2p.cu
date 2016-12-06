@@ -22,7 +22,7 @@ struct p2pConnectInfo {
 
 #include <sys/types.h>
 
-/* Fill infomation necessary to exchange between ranks to choose whether or not
+/* Fill information necessary to exchange between ranks to choose whether or not
  * to use this transport */
 ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct p2pInfo* info = (struct p2pInfo*)opaqueInfo;
@@ -37,29 +37,29 @@ ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   return ncclSuccess;
 }
 
-/* Determine if we will use this transport for this peer and return connect
- * information for this peer */
-ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
+/* Determine if we can communicate with the peer */
+ncclResult_t p2pCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
   struct p2pInfo* myInfo = (struct p2pInfo*)myOpaqueInfo;
   struct p2pInfo* peerInfo = (struct p2pInfo*)peerOpaqueInfo;
-  if (myInfo->hostHash != peerInfo->hostHash) {
-    *select = 0;
-    return ncclSuccess;
-  }
-
-  int p2p = myInfo->cudaDev == peerInfo->cudaDev ? 1 : 0;
-  if (p2p == 0) {
-    if (cudaDeviceCanAccessPeer(&p2p, myInfo->cudaDev, peerInfo->cudaDev) != cudaSuccess) {
-      INFO("peer query failed between dev %d and dev %d",
-        myInfo->cudaDev, peerInfo->cudaDev);
-      p2p = 0;
+  int p2p = 0;
+  if (myInfo->hostHash == peerInfo->hostHash) {
+    p2p = myInfo->cudaDev == peerInfo->cudaDev ? 1 : 0;
+    if (p2p == 0) {
+      if (cudaDeviceCanAccessPeer(&p2p, myInfo->cudaDev, peerInfo->cudaDev) != cudaSuccess) {
+        INFO("peer query failed between dev %d and dev %d",
+          myInfo->cudaDev, peerInfo->cudaDev);
+        p2p = 0;
+      }
     }
   }
-  if (p2p == 0) {
-    *select = 0;
-    return ncclSuccess;
-  }
+  *ret = p2p;
+  return ncclSuccess;
+}
 
+/* Create and return connect structures for this peer to connect to me */
+ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct p2pInfo* myInfo = (struct p2pInfo*)myOpaqueInfo;
+  struct p2pInfo* peerInfo = (struct p2pInfo*)peerOpaqueInfo;
   struct p2pConnectInfo info;
   if (myInfo->pid == peerInfo->pid) {
     info.direct = 1;
@@ -76,8 +76,7 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
             peerInfo->cudaDev, cudaGetErrorString(err));
         // We could return an error, but maybe it is better to gracefully disable
         // p2p and fall back on something else.
-        *select = 0;
-        return ncclSuccess;
+        return ncclInternalError;
       }
       INFO("%d -> %d via P2P/direct pointer", myInfo->rank, peerInfo->rank);
     }
@@ -86,16 +85,12 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
     // Map IPC and enable P2P access
     if (cudaIpcGetMemHandle(&info.devIpc, (void*)ring->devMem) != cudaSuccess) {
       WARN("rank %d failed to get CUDA IPC handle to device %d", ring->rank, peerInfo->cudaDev);
-      // We could return an error, but maybe it is better to gracefully disable
-      // p2p and fall back on something else.
-      *select = 0;
-      return ncclSuccess;
+      return ncclInternalError;
     }
     INFO("%d -> %d via P2P/IPC", myInfo->rank, peerInfo->rank);
   }
   static_assert(sizeof(struct p2pConnectInfo) <= sizeof(struct ncclConnect), "p2p Connect Info is too big");
   memcpy(connectInfo, &info, sizeof(struct p2pConnectInfo));
-  *select = 1;
   return ncclSuccess;
 }
 
@@ -140,6 +135,7 @@ ncclResult_t p2pConnectRecv(struct ncclConnect* connectInfo, struct ncclConnecto
 
 struct ncclTransport p2pTransport = {
   p2pFillInfo,
+  p2pCanConnect,
   { p2pSetup, p2pConnectSend, NULL },
   { p2pSetup, p2pConnectRecv, NULL }
 };

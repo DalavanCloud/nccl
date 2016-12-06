@@ -131,17 +131,20 @@ static ncclResult_t fillInfo(struct ncclInfo* info, int rank) {
 }
 
 template <int type>
-static ncclResult_t selectTransport(struct ncclInfo* myInfo, struct ncclInfo* peerInfo, struct ncclConnect* connect, struct ncclTransport** transport, struct ncclRing* ring) {
+static ncclResult_t selectTransport(struct ncclInfo* myInfo, struct ncclInfo* peerInfo, struct ncclConnect* connect, struct ncclTransport** transportRet, struct ncclRing* ring) {
   for (int t=0; t<NTRANSPORTS; t++) {
-    struct ncclTransportComm* transportComm = type == 1 ? &ncclTransports[t].send : &ncclTransports[t].recv;
-    int select = 0;
-    NCCLCHECK(transportComm->setup(myInfo->tinfo+t, peerInfo->tinfo+t, connect, ring, &select));
-    if (select == 1) {
-      *transport = ncclTransports+t;
+    struct ncclTransport *transport = ncclTransports+t;
+    struct ncclTransportComm* transportComm = type == 1 ? &transport->send : &transport->recv;
+    int ret = 0;
+    NCCLCHECK(transport->canConnect(&ret, myInfo->tinfo+t, peerInfo->tinfo+t));
+    if (ret == 1) {
+      NCCLCHECK(transportComm->setup(myInfo->tinfo+t, peerInfo->tinfo+t, connect, ring));
+      *transportRet = transport;
       return ncclSuccess;
     }
   }
   WARN("No transport found !");
+  *transportRet = NULL;
   return ncclInternalError;
 }
 

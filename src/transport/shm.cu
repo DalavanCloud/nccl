@@ -62,7 +62,7 @@ struct shmResourcesRecv {
   struct ncclSendRecvMem* devHostMem;
 };
 
-/* Fill infomation necessary to exchange between ranks to choose whether or not
+/* Fill information necessary to exchange between ranks to choose whether or not
  * to use this transport */
 ncclResult_t shmFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct shmInfo* info = (struct shmInfo*)opaqueInfo;
@@ -77,15 +77,18 @@ ncclResult_t shmFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   return ncclSuccess;
 }
 
-/* Determine if we will use this transport for this peer and return connect
- * information for this peer */
-ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
+/* Determine if we can communicate with the peer */
+ncclResult_t shmCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
   struct shmInfo* peerInfo = (struct shmInfo*)peerOpaqueInfo;
-  if (myInfo->hostHash != peerInfo->hostHash) {
-    *select = 0;
-    return ncclSuccess;
-  }
+  *ret = myInfo->hostHash != peerInfo->hostHash ? 0 : 1;
+  return ncclSuccess;
+}
+
+/* Create and return connect structures for this peer to connect to me */
+ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
+  struct shmInfo* peerInfo = (struct shmInfo*)peerOpaqueInfo;
 
   struct shmResourcesSend* resources = (struct shmResourcesSend*)malloc(sizeof(struct shmResourcesSend));
   ring->send.transportResources = resources;
@@ -102,10 +105,7 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
     // Map IPC
     if (cudaIpcGetMemHandle(&info.devIpc, (void*)ring->devMem) != cudaSuccess) {
       WARN("rank %d failed to get CUDA IPC handle to device %d", ring->rank, peerInfo->cudaDev);
-      // We could return an error, but maybe it is better to gracefully disable
-      // p2p and fall back on something else.
-      *select = 0;
-      return ncclSuccess;
+      return ncclInternalError;
     }
   }
   INFO("%d -> %d via proxy shared memory", myInfo->rank, peerInfo->rank);
@@ -119,23 +119,17 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
 #endif
   static_assert(sizeof(struct shmConnectRecvInfo) <= sizeof(struct ncclConnect), "shm Connect Recv Info is too big");
   memcpy(connectInfo, &info, sizeof(struct shmConnectRecvInfo));
-  *select = 1;
   return ncclSuccess;
 }
 
-ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
+ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
-  struct shmInfo* peerInfo = (struct shmInfo*)peerOpaqueInfo;
-  if (myInfo->hostHash != peerInfo->hostHash) {
-    *select = 0;
-    return ncclSuccess;
-  }
-
   struct shmResourcesRecv* resources = (struct shmResourcesRecv*) malloc(sizeof(struct shmResourcesRecv));
   ring->recv.transportResources = resources;
 
   // Create streams for proxy
 #ifdef SHM_PROXY
+  struct shmInfo* peerInfo = (struct shmInfo*)peerOpaqueInfo;
   resources->prevCudaDev = peerInfo->cudaDev;
   CUDACHECK(cudaSetDevice(peerInfo->cudaDev));
   CUDACHECK(cudaStreamCreateWithFlags(&resources->prevStream, cudaStreamNonBlocking));
@@ -155,7 +149,6 @@ ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid; info.shmsize = shmsize;
   static_assert(sizeof(struct shmConnectRecvInfo) <= sizeof(struct ncclConnect), "shm Connect Send Info is too big");
   memcpy(connectInfo, &info, sizeof(struct shmConnectSendInfo));
-  *select = 1;
   return ncclSuccess;
 }
 
@@ -268,6 +261,7 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
 
 struct ncclTransport shmTransport = {
   shmFillInfo,
+  shmCanConnect,
   { shmSetupSend, shmConnectSend, NULL },
   { shmSetupRecv, shmConnectRecv, 
 #ifdef SHM_PROXY

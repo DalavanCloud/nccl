@@ -38,7 +38,7 @@ struct mpiResourcesRecv {
   struct ncclSendRecvMem* hostDevMem;
 };
 
-/* Fill infomation necessary to exchange between ranks to choose whether or not
+/* Fill information necessary to exchange between ranks to choose whether or not
  * to use this transport */
 ncclResult_t mpiFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct mpiInfo* info = (struct mpiInfo*)opaqueInfo;
@@ -47,13 +47,17 @@ ncclResult_t mpiFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   return ncclSuccess;
 }
 
+/* Determine if we can communicate with the peer */
+ncclResult_t mpiCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
+  *ret = ncclMpiEnabled();
+  return ncclSuccess;
+}
+
+/* Create and return connect structures for this peer to connect to me */
+
 /* Determine if we will use this transport for this peer and return connect
  * information for this peer */
-ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
-  if (ncclMpiEnabled() == 0) {
-    *select = 0;
-    return ncclSuccess;
-  }
+ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct mpiResourcesSend* resources = (struct mpiResourcesSend*) malloc(sizeof(struct mpiResourcesSend));
   ring->send.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
@@ -69,15 +73,10 @@ ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
 
   memcpy(connectInfo, info, sizeof(struct mpiInfo));
-  *select = 1;
   return ncclSuccess;
 }
 
-ncclResult_t mpiSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
-  if (ncclMpiEnabled() == 0) {
-    *select = 0;
-    return ncclSuccess;
-  }
+ncclResult_t mpiSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct mpiResourcesRecv* resources = (struct mpiResourcesRecv*) malloc(sizeof(struct mpiResourcesRecv));
   ring->recv.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
@@ -101,7 +100,6 @@ ncclResult_t mpiSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   struct mpiInfo* peerInfo = (struct mpiInfo*)peerOpaqueInfo;
   INFO("%d -> %d via MPI%s%s", peerInfo->rank, info->rank, ncclMpiCudaSupport() ? "/GDRDMA" : "", (resources->hostDevMem != NULL) ? "/GDCopy" : "");
   memcpy(connectInfo, info, sizeof(struct mpiInfo));
-  *select = 1;
   return ncclSuccess;
 }
 
@@ -333,6 +331,7 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
 
 struct ncclTransport mpiTransport = {
   mpiFillInfo,
+  mpiCanConnect,
   { mpiSetupSend, mpiConnectSend, mpiSendProxy },
   { mpiSetupRecv, mpiConnectRecv, mpiRecvProxy }
 };

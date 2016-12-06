@@ -34,7 +34,7 @@ struct socketResourcesRecv {
   struct ncclSendRecvMem* devHostMem;
 };
 
-/* Fill infomation necessary to exchange between ranks to choose whether or not
+/* Fill information necessary to exchange between ranks to choose whether or not
  * to use this transport */
 ncclResult_t socketFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct socketInfo* info = (struct socketInfo*)opaqueInfo;
@@ -52,9 +52,14 @@ ncclResult_t socketCreateListen(struct socketInfo* info, char* ifname) {
   return ncclSuccess;
 }
 
-/* Determine if we will use this transport for this peer and return connect
- * information for this peer */
-ncclResult_t socketSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
+/* Determine if we can communicate with the peer */
+ncclResult_t socketCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
+  *ret = 1;
+  return ncclSuccess;
+}
+
+/* Create and return connect structures for this peer to connect to me */
+ncclResult_t socketSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct socketResourcesSend* resources = (struct socketResourcesSend*) malloc(sizeof(struct socketResourcesSend));
   ring->send.transportResources = resources;
 
@@ -68,11 +73,10 @@ ncclResult_t socketSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueI
   // Just pass the socket info through
   static_assert(sizeof(struct socketInfo) <= sizeof(struct ncclConnect), "socket Connect Info is too big");
   memcpy(connectInfo, myOpaqueInfo, sizeof(struct socketInfo));
-  *select = 1;
   return ncclSuccess;
 }
 
-ncclResult_t socketSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring, int* select) {
+ncclResult_t socketSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct socketResourcesRecv* resources = (struct socketResourcesRecv*) malloc(sizeof(struct socketResourcesRecv));
   ring->recv.transportResources = resources;
 
@@ -94,7 +98,6 @@ ncclResult_t socketSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueI
   struct socketInfo* peerInfo = (struct socketInfo*)peerOpaqueInfo;
   INFO("%d -> %d via TCP/%s", peerInfo->rank, myInfo->rank, ifname);
   memcpy(connectInfo, myOpaqueInfo, sizeof(struct socketInfo));
-  *select = 1;
   return ncclSuccess;
 }
 
@@ -218,6 +221,7 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
 
 struct ncclTransport socketTransport = {
   socketFillInfo,
+  socketCanConnect,
   { socketSetupSend, socketConnectSend, socketSendProxy },
   { socketSetupRecv, socketConnectRecv, socketRecvProxy }
 };
