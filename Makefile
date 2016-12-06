@@ -30,12 +30,20 @@ NVCUFLAGS  := -ccbin $(CXX) $(NVCC_GENCODE) -lineinfo -std=c++11 -maxrregcount 9
 # Use addprefix so that we can specify more than one path
 LDFLAGS    := $(addprefix -L,${CUDA_LIB}) -lcudart -lrt
 
+########## GCOV ##########
+GCOV ?= 1 # enable by default.
+GCOV_FLAGS := $(if $(filter 0,${GCOV} ${DEBUG}),,--coverage) # only gcov=1 and debug =1
+NVCUFLAGS += ${GCOV_FLAGS:%=-Xcompiler %}
+CXXFLAGS  += ${GCOV_FLAGS}
+# $(warning GCOV_FLAGS=${GCOV_FLAGS})
+########## GCOV ##########
+
 ifeq ($(DEBUG), 0)
 NVCUFLAGS += -O3
 CXXFLAGS  += -O3
 else
-NVCUFLAGS += -O0 -G -Xcompiler --coverage
-CXXFLAGS  += -O0 -g -ggdb3 --coverage
+NVCUFLAGS += -O0 -G
+CXXFLAGS  += -O0 -g -ggdb3
 endif
 
 ifneq ($(VERBOSE), 0)

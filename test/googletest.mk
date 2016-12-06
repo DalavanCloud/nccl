@@ -53,11 +53,11 @@ GTEST_SRCS_ := $(GTEST_DIR)/src/*.cc $(GTEST_DIR)/src/*.h $(GTEST_HEADERS)
 # conservative and not optimized.  This is fine as Google Test
 # compiles fast and for ordinary users its source rarely changes.
 $(BUILDDIR)/test/gtest-all.o : $(GTEST_SRCS_)
-	$(CXX) -o $@ $(CPPFLAGS) -I$(GTEST_DIR) $(CXXFLAGS) -c \
+	$(CXX) -o $@ $(CPPFLAGS) -I$(GTEST_DIR) -c \
             $(GTEST_DIR)/src/gtest-all.cc
 
 $(BUILDDIR)/test/gtest_main.o : $(GTEST_SRCS_)
-	$(CXX) -o $@ $(CPPFLAGS) -I$(GTEST_DIR) $(CXXFLAGS) -c \
+	$(CXX) -o $@ $(CPPFLAGS) -I$(GTEST_DIR) -c \
             $(GTEST_DIR)/src/gtest_main.cc
 
 $(BUILDDIR)/test/gtest.a : $(BUILDDIR)/test/gtest-all.o
