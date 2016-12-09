@@ -177,13 +177,114 @@ static ncclResult_t setupSendRecv(struct ncclRing* ring) {
   return ncclSuccess;
 }
 
-static int getRings(int** rings, int nranks) {
-  // TODO : something better !
-  int *ptr = (int*)malloc(sizeof(int)*nranks);
-  for (int i=0; i<nranks; i++)
-    ptr[i] = i;
-  *rings = ptr;
-  return 1;
+static ncclResult_t fillConnect(struct ncclInfo* allInfo, int nranks, int rank, int* connectTransport, int* connectValue) {
+  for (int r=0; r<nranks; r++) {
+    connectTransport[r] = -1;
+    for (int t=0; t<NTRANSPORTS; t++) {
+      NCCLCHECK(ncclTransports[t].canConnect(connectValue+r, allInfo[rank].tinfo+t, allInfo[r].tinfo+t));
+      if (connectValue[r] > 0) {
+        connectTransport[r] = t;
+        break;
+      }
+    }
+  }
+  return ncclSuccess;
+}
+
+static void recFillGroups(int rank, int group, int* groups, int nranks, int* matrix, int transport) {
+  groups[rank] = group;
+  for (int r=0; r<nranks; r++) {
+    if (groups[r] == -1 && matrix[rank*nranks+r] < transport) {
+      recFillGroups(r, group, groups, nranks, matrix, transport);
+    }
+  }
+}
+
+static int fillGroups(int rank, int* groups, int nranks, int* matrix, int transport) {
+  int group = 0;
+  for (int r=0; r<nranks; r++) groups[r] = -1;
+  for (int r=0; r<nranks; r++) {
+    if (groups[r] == -1 && matrix[rank*nranks+r] <= transport) {
+      recFillGroups(r, group, groups, nranks, matrix, transport);
+      group++;
+    }
+  }
+  return group;
+}
+
+static ncclResult_t getRings(int* nrings, int* rings, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
+  for (int i=0; i<nranks*MAXRINGS; i++) prev[i] = next[i] = -1;
+  *nrings = MAXRINGS;
+  
+  for (int t=NTRANSPORTS-1; t>=0; t--) {
+    int groups[nranks];
+    int ngroups = fillGroups(rank, groups, nranks, transports, t);
+    //for (int i=0; i<nranks; i++) printf(" %2d", groups[i]);
+    //printf("\n");
+    if (ngroups > 1) {
+      /* Reduce the scope to the local ranks and sort them by group */
+      int idxToRank[nranks];
+      int rankToIdx[nranks];
+      for (int i=0; i<nranks; i++) idxToRank[i] = rankToIdx[i] = -1;
+      int nidx = 0;
+      for (int g=0; g<ngroups; g++) {
+        for (int r=0; r<nranks; r++) {
+          if (groups[r] == g) {
+            rankToIdx[r] = nidx;
+            idxToRank[nidx] = r;
+            nidx++;
+          }
+        }
+      }
+      /* Extract groups */
+      int subgroups[nidx];
+      for (int i=0; i<nidx; i++) {
+        subgroups[i] = groups[idxToRank[i]];
+      }
+      /* Extract values */
+      int subvalues[nidx*nidx];
+      for (int i=0; i<nidx; i++) {
+        for (int j=0; j<nidx; j++) {
+          subvalues[i*nidx+j] = values[idxToRank[i]*nranks+idxToRank[j]];
+        }
+      }
+      /* Extract prev/next */
+      int subprev[nidx*(*nrings)];
+      int subnext[nidx*(*nrings)];
+      for (int i=0; i<nidx*(*nrings); i++) {
+        subprev[i] = subnext[i] = -1;
+      }
+      for (int r=0; r<(*nrings); r++) {
+        int start = -1, end = -1;
+        for (int i=0; i<nranks; i++) {
+          if (rankToIdx[i] == -1) continue;
+          if (prev[r*nranks+i] != -1) start = i;
+          if (next[r*nranks+i] != -1) end = i;
+        }
+        if (start != -1 && end != -1) {
+          subprev[r*nidx+rankToIdx[start]] = rankToIdx[end];
+          subnext[r*nidx+rankToIdx[end]] = rankToIdx[start];
+        }
+      }
+      /* Get rings */
+      //printf("get rings level %d, nidx %d\n", t, nidx);
+      NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, subgroups, subvalues, nrings, subprev, subnext));
+      /* Merge prev/next */
+      for (int r=0; r<(*nrings); r++) {
+        for (int i=0; i<nidx; i++) {
+          if ((prev[r*nranks+idxToRank[i]] == -1) && (subprev[r*nidx+i] != -1)) prev[r*nranks+idxToRank[i]] = idxToRank[subprev[r*nidx+i]];
+          if ((next[r*nranks+idxToRank[i]] == -1) && (subnext[r*nidx+i] != -1)) next[r*nranks+idxToRank[i]] = idxToRank[subnext[r*nidx+i]];
+        }
+      }
+    }
+  }
+  /*printf("[%d] After get rings :\n", rank);
+  for (int r=0; r<(*nrings); r++) {
+    printf("[%d] Ring %d Prev : ", rank, r); for (int i=0; i<nranks; i++) printf("%d ", prev[r*nranks+i]); printf("\n");
+    printf("[%d] Ring %d Next : ", rank, r); for (int i=0; i<nranks; i++) printf("%d ", next[r*nranks+i]); printf("\n");
+  }*/
+
+  return ncclSuccess;
 }
 
 static ncclResult_t setupRing(struct ncclComm* comm, struct ncclRing* ring, int ringid, int rank, int nranks, int* ringRanks, struct ncclInfo* allInfo, struct ncclConnect* connect) { 
@@ -222,8 +323,9 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
     fillInfo(allInfo+rank, rank);
   }
   
-  int *rings;
-  int nrings = getRings(&rings, nranks);
+  int rings[nranks*MAXRINGS];
+  int nrings;
+//  NCCLCHECK(getRings(&nrings, rings, rank, nranks, NULL, NULL, NULL, NULL));
 
   for (int rank=0; rank<nranks; rank++)
     comms[rank]->nRings = nrings;
@@ -252,8 +354,32 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
       NCCLCHECK(ring->send.transport->send.connect(connect+2*rank+1, &ring->send));
     }
   }
-  free(rings);
   return ncclSuccess;
+}
+
+#define MAXWIDTH 20
+#define STRLENGTH (4+MAXWIDTH*4)
+void dumpMatrix(int* connectMatrix, int nranks) {
+  char line[STRLENGTH+1];
+  line[STRLENGTH] = '\0';
+  memset(line, ' ', STRLENGTH);
+  for (int j=0; j<nranks && j<MAXWIDTH; j++) sprintf(4+line+4*j, " %3d", j);
+  INFO(line);
+  for (int i=0; i<nranks; i++) {
+    memset(line, ' ', STRLENGTH);
+    sprintf(line, "%3d ", i);
+    for (int j=0; j<nranks && j<MAXWIDTH; j++) sprintf(4+line+4*j, " %3d", connectMatrix[i*nranks+j]);
+    INFO(line);
+  }
+}
+void dumpLine(int* values, int nranks, const char* prefix) {
+  int prefixlen = strlen(prefix);
+  char line[STRLENGTH+1];
+  line[STRLENGTH] = '\0';
+  memset(line, ' ', STRLENGTH);
+  memcpy(line, prefix, prefixlen);
+  for (int i=0; i<nranks && i<MAXWIDTH; i++) sprintf(prefixlen+line+4*i, " %3d", values[i]);
+  INFO(line);
 }
 
 static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* commId) {
@@ -266,10 +392,59 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
   fillInfo(allInfo+rank, rank);
   NCCLCHECK(bootstrap->allGather(commState, allInfo, sizeof(struct ncclInfo)));
+  int connectTransport[nranks*nranks];
+  int connectValue[nranks*nranks];
+  NCCLCHECK(fillConnect(allInfo, nranks, rank, connectTransport+nranks*rank, connectValue+nranks*rank));
+  NCCLCHECK(bootstrap->allGather(commState, connectTransport, nranks*(sizeof(int))));
+  NCCLCHECK(bootstrap->allGather(commState, connectValue, nranks*(sizeof(int))));
+  if (rank == 0) dumpMatrix(connectTransport, nranks);
+  if (rank == 0) dumpMatrix(connectValue, nranks);
 
-  int *rings;
-  int nrings = getRings(&rings, nranks);
+  int rings[nranks*MAXRINGS];
+  int nrings;
+  int prev[nranks*MAXRINGS];
+  int next[nranks*MAXRINGS];
+  NCCLCHECK(getRings(&nrings, rings, rank, nranks, connectTransport, connectValue, prev, next));
   comm->nRings = nrings;
+  for (int r=0; r<nrings; r++) {
+    NCCLCHECK(bootstrap->allGather(commState, prev+r*nranks, sizeof(int)));
+    NCCLCHECK(bootstrap->allGather(commState, next+r*nranks, sizeof(int)));
+  }
+  INFO("[%d] After rings allgather :", rank);
+  for (int r=0; r<nrings; r++) {
+    char prefix[30];
+    sprintf(prefix, "[%d] Ring %d Prev : ", rank, r);
+    dumpLine(prev+r*nranks, nranks, prefix);
+    sprintf(prefix, "[%d] Ring %d Next : ", rank, r);
+    dumpLine(next+r*nranks, nranks, prefix);
+
+    int current = rank;
+    for (int i=0; i<nranks; i++) {
+      rings[r*nranks+i] = current;
+      current = next[current];
+    }
+    if (current != rank) {
+      WARN("Error : ring %d do not loop back to start", r);
+      return ncclInternalError;
+    }
+    // Check that all ranks are there
+    for (int i=0; i<nranks; i++) {
+      int found = 0;
+      for (int j=0; j<nranks; j++) {
+        if (rings[r*nranks+j] == i) {
+          found = 1;
+          break;
+        }
+      }
+      if (found == 0) {
+        WARN("Error : ring %d does not contain rank %d\n", r, i);
+        return ncclInternalError;
+      }
+    }
+
+    sprintf(prefix, "[%d] Ring %d      : ", rank, r);
+    dumpLine(rings+r*nranks, nranks, prefix);
+  }
 
   for (int r=0; r<nrings; r++) {
     int* ringRanks = rings+r*nranks;
@@ -280,7 +455,6 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
   }
-  free(rings);
   return ncclSuccess;
 }
 

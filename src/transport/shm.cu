@@ -85,6 +85,42 @@ ncclResult_t shmCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
   return ncclSuccess;
 }
 
+ncclResult_t shmGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next) {
+  for (int ring = 0; ring<*nringsRet; ring++) {
+    for (int group = 0; group<ngroups; group++) {
+      // Check if this group is already connected
+      int skip = 0;
+      for (int rank = 0; rank<nranks; rank++) {
+        if (groups[rank] == group && next[ring*nranks+rank] != -1) skip = 1;
+      }
+      if (skip) continue;
+
+      int nextGroup = (group+1)%ngroups;
+      int source = -1, destination = -1;
+      for (int rank = nranks-1; rank>=0; rank--) {
+        if (groups[rank] == group) {
+          source = rank;
+          break;
+        }
+      } 
+      for (int rank = 0; rank<nranks; rank++) {
+        if (groups[rank] == nextGroup) {
+          destination = rank;
+          break;
+        }
+      }
+      if (source == -1 || destination == -1) {
+        printf("source %d dest %d, stopping\n", source, destination);
+        *nringsRet = ring;
+        return ncclSuccess;
+      }
+      next[ring*nranks+source] = destination;
+      prev[ring*nranks+destination] = source;
+    }
+  }
+  return ncclSuccess;
+}
+
 /* Create and return connect structures for this peer to connect to me */
 ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
@@ -260,8 +296,10 @@ ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
 #endif
 
 struct ncclTransport shmTransport = {
+  "SHM",
   shmFillInfo,
   shmCanConnect,
+  shmGetRings,
   { shmSetupSend, shmConnectSend, NULL },
   { shmSetupRecv, shmConnectRecv, 
 #ifdef SHM_PROXY

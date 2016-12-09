@@ -35,8 +35,10 @@ struct ncclTransportComm {
 };
 
 struct ncclTransport {
+  const char name[4];
   ncclResult_t (*fillInfo)(ncclTinfo_t*, int);
   ncclResult_t (*canConnect)(int*, ncclTinfo_t*, ncclTinfo_t*);
+  ncclResult_t (*getRings)(int, int, int*, int*, int*, int*, int*);
   struct ncclTransportComm send;
   struct ncclTransportComm recv;
 };
