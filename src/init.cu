@@ -191,30 +191,43 @@ static ncclResult_t fillConnect(struct ncclInfo* allInfo, int nranks, int rank, 
   return ncclSuccess;
 }
 
-static int recFillGroups(int rank, int group, int* groups, int nranks, int* matrix, int transport) {
+static void recFillMyGroup(int rank, int* groups, int nranks, int* matrix, int transport) {
+  groups[rank] = -2;
+  for (int r=0; r<nranks; r++) {
+    if (groups[r] == -2) continue;
+    if (matrix[rank*nranks+r] <= transport) recFillMyGroup(r, groups, nranks, matrix, transport);
+  }
+}
+
+static void fillMyGroup(int rank, int* groups, int nranks, int* matrix, int transport) {
+  for (int r=0; r<nranks; r++) groups[r] = -1;
+  recFillMyGroup(rank, groups, nranks, matrix, transport);
+}
+
+static int recNumberMyGroup(int rank, int group, int* groups, int nranks, int* matrix, int transport) {
   int groupmax = group + 1;
   groups[rank] = group;
   for (int r=0; r<nranks; r++) {
-    if (groups[r] == -1 && matrix[rank*nranks+r] <= transport) {
-      if (matrix[rank*nranks+r] == transport) {
-        groupmax = recFillGroups(r, groupmax, groups, nranks, matrix, transport);
-      } else {
-        groupmax = recFillGroups(r, group, groups, nranks, matrix, transport);
-      }
-    }
+    if (groups[r] == -1 || groups[r] >= 0) continue;
+    if (matrix[rank*nranks+r] < transport)
+      groupmax = recNumberMyGroup(r, group, groups, nranks, matrix, transport);
+    else 
+      groupmax = recNumberMyGroup(r, groupmax, groups, nranks, matrix, transport);
   }
   return groupmax;
 }
 
-static int fillGroups(int rank, int* groups, int nranks, int* matrix, int transport) {
-  int groupmax = 0;
-  for (int r=0; r<nranks; r++) groups[r] = -1;
-  for (int r=0; r<nranks; r++) {
-    if (groups[r] == -1 && matrix[rank*nranks+r] <= transport) {
-      groupmax = recFillGroups(r, groupmax, groups, nranks, matrix, transport);
-    }
+static int numberMyGroup(int* groups, int nranks, int* matrix, int transport) {
+  for (int i=0; i<nranks; i++) {
+    if (groups[i] == -2)
+      return recNumberMyGroup(i, 0, groups, nranks, matrix, transport);
   }
-  return groupmax;
+  return 0;
+}
+
+static int fillGroups(int rank, int* groups, int nranks, int* matrix, int transport) {
+  fillMyGroup(rank, groups, nranks, matrix, transport);
+  return numberMyGroup(groups, nranks, matrix, transport);
 }
 
 static ncclResult_t getRings(int* nrings, int* rings, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
@@ -224,6 +237,7 @@ static ncclResult_t getRings(int* nrings, int* rings, int rank, int nranks, int*
   for (int t=NTRANSPORTS-1; t>=0; t--) {
     int groups[nranks];
     int ngroups = fillGroups(rank, groups, nranks, transports, t);
+    //printf("[%d] Transport %d : %d groups\n", rank, t, ngroups);
     //for (int i=0; i<nranks; i++) printf(" %2d", groups[i]);
     //printf("\n");
     if (ngroups > 1) {
