@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <cuda_runtime.h>
 #include "nvmlwrap.h"
+#include <ctype.h>
 
 #define MAXNVLINKS 8
 
@@ -39,6 +40,10 @@ ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   info->hostHash=getHostHash(hostname);
   info->hostNumber=getHostNumber(hostname);
   CUDACHECK(cudaDeviceGetPCIBusId(info->busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE, info->cudaDev));
+  for (int c=0; c<NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE; c++) {
+    if (info->busId[c] == 0) break;
+    info->busId[c] = tolower(info->busId[c]);
+  }
   return ncclSuccess;
 }
 
@@ -72,7 +77,6 @@ static int getNvlinkCount(const char* busId1, const char* busId2) {
     if (wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDev, l, &remoteProc) != ncclSuccess) continue;
 
     if (strncmp(busId2, remoteProc.busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE) == 0) {
-      INFO("Found connection from %s to %s on NVLink #%d", busId1, busId2, l);
       links++;
     }
   }
