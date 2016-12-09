@@ -191,25 +191,30 @@ static ncclResult_t fillConnect(struct ncclInfo* allInfo, int nranks, int rank, 
   return ncclSuccess;
 }
 
-static void recFillGroups(int rank, int group, int* groups, int nranks, int* matrix, int transport) {
+static int recFillGroups(int rank, int group, int* groups, int nranks, int* matrix, int transport) {
+  int groupmax = group + 1;
   groups[rank] = group;
   for (int r=0; r<nranks; r++) {
-    if (groups[r] == -1 && matrix[rank*nranks+r] < transport) {
-      recFillGroups(r, group, groups, nranks, matrix, transport);
+    if (groups[r] == -1 && matrix[rank*nranks+r] <= transport) {
+      if (matrix[rank*nranks+r] == transport) {
+        groupmax = recFillGroups(r, groupmax, groups, nranks, matrix, transport);
+      } else {
+        groupmax = recFillGroups(r, group, groups, nranks, matrix, transport);
+      }
     }
   }
+  return groupmax;
 }
 
 static int fillGroups(int rank, int* groups, int nranks, int* matrix, int transport) {
-  int group = 0;
+  int groupmax = 0;
   for (int r=0; r<nranks; r++) groups[r] = -1;
   for (int r=0; r<nranks; r++) {
     if (groups[r] == -1 && matrix[rank*nranks+r] <= transport) {
-      recFillGroups(r, group, groups, nranks, matrix, transport);
-      group++;
+      groupmax = recFillGroups(r, groupmax, groups, nranks, matrix, transport);
     }
   }
-  return group;
+  return groupmax;
 }
 
 static ncclResult_t getRings(int* nrings, int* rings, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
