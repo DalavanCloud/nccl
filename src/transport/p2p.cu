@@ -179,15 +179,46 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
   
   int rings[nrings*nranks];
 
-  nrings = p2pComputeRings(values, nranks, rings, nrings);
+  if (nrings == 1) {
+    for (int i=0; i<nranks; i++) rings[i] = i;
+  } else {
+    int matrix[nranks*nranks];
+/*    for (int i=0; i<nranks; i++) {
+      printf("%d : ", i);
+      for (int j=0; j<nranks; j++) {
+        printf(" %d", values[i*nranks+j]);
+      }
+      printf("\n");
+    }*/
+    for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++) matrix[i*nranks+j] = values[i*nranks+j]/2;
+/*    for (int i=0; i<nranks; i++) {
+      printf("%d : ", i);
+      for (int j=0; j<nranks; j++) {
+        printf(" %d", matrix[i*nranks+j]);
+      }
+      printf("\n");
+    }*/
+    nrings = p2pComputeRings(matrix, nranks, rings, nrings);
+    /*for (int r=0; r<nrings; r++) {
+      printf("Ring %d ", r);
+      for (int i=0; i<nranks; i++) {
+        printf("%d ", rings[r*nranks+i]);
+      }
+      printf("\n");
+    }*/
+  }
 
   *nringsRet = nrings;
   for (int ring = 0; ring<nrings; ring++) {
-    for (int rank=0; rank<nranks; rank++) {
-      int prevRank = (rank - 1 + nranks) % nranks;
-      int nextRank = (rank + 1) % nranks;
-      if (prev[ring*nranks+rank] == -1) prev[ring*nranks+rank] = rings[ring*nranks+prevRank];
-      if (next[ring*nranks+rank] == -1) next[ring*nranks+rank] = rings[ring*nranks+nextRank];
+    for (int index=0; index<nranks; index++) {
+      int prevIndex = (index - 1 + nranks) % nranks;
+      int nextIndex = (index + 1) % nranks;
+      int curRank = rings[ring*nranks+index];
+      int prevRank = rings[ring*nranks+prevIndex];
+      int nextRank = rings[ring*nranks+nextIndex];
+      if (prev[ring*nranks+curRank] == -1) prev[ring*nranks+curRank] = prevRank;
+      if (next[ring*nranks+curRank] == -1) next[ring*nranks+curRank] = nextRank;
+      printf("%d : prev %d next %d\n", curRank, prevRank, nextRank);
     }
   }
   

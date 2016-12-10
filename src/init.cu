@@ -204,25 +204,22 @@ static void fillMyGroup(int rank, int* groups, int nranks, int* matrix, int tran
   recFillMyGroup(rank, groups, nranks, matrix, transport);
 }
 
-static int recNumberMyGroup(int rank, int group, int* groups, int nranks, int* matrix, int transport) {
-  int groupmax = group + 1;
+static void recNumberMyGroup(int rank, int group, int* groups, int nranks, int* matrix, int transport) {
   groups[rank] = group;
   for (int r=0; r<nranks; r++) {
     if (groups[r] == -1 || groups[r] >= 0) continue;
     if (matrix[rank*nranks+r] < transport)
-      groupmax = recNumberMyGroup(r, group, groups, nranks, matrix, transport);
-    else 
-      groupmax = recNumberMyGroup(r, groupmax, groups, nranks, matrix, transport);
+      recNumberMyGroup(r, group, groups, nranks, matrix, transport);
   }
-  return groupmax;
 }
 
 static int numberMyGroup(int* groups, int nranks, int* matrix, int transport) {
+  int group = 0;
   for (int i=0; i<nranks; i++) {
     if (groups[i] == -2)
-      return recNumberMyGroup(i, 0, groups, nranks, matrix, transport);
+      recNumberMyGroup(i, group++, groups, nranks, matrix, transport);
   }
-  return 0;
+  return group;
 }
 
 static int fillGroups(int rank, int* groups, int nranks, int* matrix, int transport) {
@@ -237,9 +234,9 @@ static ncclResult_t getRings(int* nrings, int* rings, int rank, int nranks, int*
   for (int t=NTRANSPORTS-1; t>=0; t--) {
     int groups[nranks];
     int ngroups = fillGroups(rank, groups, nranks, transports, t);
-    //printf("[%d] Transport %d : %d groups\n", rank, t, ngroups);
-    //for (int i=0; i<nranks; i++) printf(" %2d", groups[i]);
-    //printf("\n");
+    /*printf("[%d] Transport %d : %d groups\n", rank, t, ngroups);
+    for (int i=0; i<nranks; i++) printf(" %2d", groups[i]);
+    printf("\n");*/
     if (ngroups > 1) {
       /* Reduce the scope to the local ranks and sort them by group */
       int idxToRank[nranks];
@@ -264,7 +261,10 @@ static ncclResult_t getRings(int* nrings, int* rings, int rank, int nranks, int*
       int subvalues[nidx*nidx];
       for (int i=0; i<nidx; i++) {
         for (int j=0; j<nidx; j++) {
-          subvalues[i*nidx+j] = values[idxToRank[i]*nranks+idxToRank[j]];
+          if (transports[idxToRank[i]*nranks+idxToRank[j]] == t)
+            subvalues[i*nidx+j] = values[idxToRank[i]*nranks+idxToRank[j]];
+          else
+            subvalues[i*nidx+j] = 0;
         }
       }
       /* Extract prev/next */
@@ -440,7 +440,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     int current = rank;
     for (int i=0; i<nranks; i++) {
       rings[r*nranks+i] = current;
-      current = next[current];
+      current = next[r*nranks+current];
     }
     if (current != rank) {
       WARN("Error : ring %d do not loop back to start", r);
