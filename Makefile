@@ -67,7 +67,7 @@ CXXFLAGS  += -DCUDA_MAJOR=$(CUDA_MAJOR) -DCUDA_MINOR=$(CUDA_MINOR)
 
 INCEXPORTS  := nccl.h
 LIBSRCFILES := init.cu \
-		misc/nvmlwrap.cu misc/crc32.cu misc/topo.cu misc/utils.cu misc/mpi.cu misc/gdcopy.cu \
+		misc/nvmlwrap.cu misc/crc32.cu misc/rings.cu misc/utils.cu misc/mpi.cu misc/gdcopy.cu \
 		bootstrap/bootstrap.cu bootstrap/socket.cu bootstrap/mpi.cu \
 		transport/transport.cu transport/p2p.cu transport/shm.cu transport/socket.cu transport/mpi.cu \
 		collectives/all_gather.cu collectives/all_reduce.cu collectives/broadcast.cu \
@@ -146,13 +146,16 @@ TESTS       := all_gather_test     all_gather_scan \
                reduce_test         reduce_scan \
                reduce_scatter_test reduce_scatter_scan
 MPITESTS    := mpi_test
+UTESTS      := rings_test
 
 TSTINC     := -I$(NCCL_INC) -Itest/include
 TSTLIB     := -L$(NCCL_LIB) $(LIBLINK) $(LDFLAGS)
 TSTDIR     := $(BUILDDIR)/test/single
 MPITSTDIR  := $(BUILDDIR)/test/mpi
+UTSTDIR     := $(BUILDDIR)/test/unit
 TESTBINS   := $(patsubst %, $(TSTDIR)/%, $(TESTS))
 MPITESTBINS:= $(patsubst %, $(MPITSTDIR)/%, $(MPITESTS))
+UTESTBINS  := $(patsubst %, $(UTSTDIR)/%, $(UTESTS))
 
 test : $(TESTBINS)
 
@@ -173,6 +176,18 @@ $(MPITSTDIR)/% : test/mpi/%.cu $(TSTDEP)
 	mkdir -p $(MPITSTDIR)
 	$(NVCC) $(MPIFLAGS) $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(TSTLIB) -lcurand
 	@$(NVCC) $(MPIFLAGS) -M $(TSTINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< $(TSTLIB) -lcurand > $(@:%=%.d.tmp)
+	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%=%.d.tmp) > $(@:%=%.d)
+	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%=%.d.tmp) | fmt -1 | \
+                sed -e 's/^ *//' -e 's/$$/:/' >> $(@:%=%.d)
+	@rm -f $(@:%=%.d.tmp)
+
+unittest : $(UTESTBINS)
+
+$(UTSTDIR)/% : test/unit/%.cu test/include/*.h $(TSTDEP)
+	@printf "Building  %-25s > %-24s\n" $< $@
+	mkdir -p $(UTSTDIR)
+	$(NVCC) $(LIBINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" -o $@ $< $(LIBOBJ) -lcuda -lcurand -lnvToolsExt
+	@$(NVCC) -M $(LIBINC) $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< $(LIBOBJ) -lcuda -lcurand -lnvToolsExt > $(@:%=%.d.tmp)
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%=%.d.tmp) > $(@:%=%.d)
 	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%=%.d.tmp) | fmt -1 | \
                 sed -e 's/^ *//' -e 's/$$/:/' >> $(@:%=%.d)

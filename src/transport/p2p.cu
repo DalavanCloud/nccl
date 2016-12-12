@@ -108,7 +108,7 @@ ncclResult_t p2pCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
   return ncclSuccess;
 }
 
-static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int nRingsMax, int* inTheRing, int current, int remaining) {
+static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int nRingsMax, int* inTheRing, int current, int remaining, int connect) {
   int nrings = 0;
   int* line = matrix+current*n;
   inTheRing[current] = 1;
@@ -120,8 +120,14 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
       } else {
 	line[0]--;
 	for (int i=0; i<n; i++) inTheRing[i] = 0;
-	rings[(currentRing+1)*n] = 0;
-	nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, 0, n-1);
+        if (connect) {
+          // First two slots are already set and we need to respect those constraints
+          inTheRing[rings[(currentRing+1)*n+0]] = 1;
+	  nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, rings[(currentRing+1)*n+1], n-1, connect);
+        } else {
+          rings[(currentRing+1)*n] = 0;
+	  nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, 0, n-1, connect);
+        }
 	line[0]++;
 	for (int i=0; i<n; i++) inTheRing[i] = 1;
       }
@@ -132,7 +138,7 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
     for (int i=1; i<n; i++) {
       if (inTheRing[i] == 0 && line[i] > 0) {
         line[i]--;
-        int nr = computeRingsRec(matrix, n, rings, currentRing, nRingsMax, inTheRing, i, remaining-1);
+        int nr = computeRingsRec(matrix, n, rings, currentRing, nRingsMax, inTheRing, i, remaining-1, connect);
         if (nr > nrings) {
           nrings = nr;
           rings_save[offset] = i;
@@ -156,11 +162,11 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
   return nrings;
 }
 
-int p2pComputeRings(int* matrix, int nranks, int *rings, int nringsMax) {
+int p2pComputeRings(int* matrix, int nranks, int *rings, int nringsMax, int connect) {
   int* inTheRing = (int*)malloc(sizeof(int)*nranks);
   for (int i=0; i<nranks; i++) inTheRing[i] = 0;
   rings[0] = 0;
-  int nrings = computeRingsRec(matrix, nranks, rings, 0, nringsMax, inTheRing, 0, nranks-1);
+  int nrings = computeRingsRec(matrix, nranks, rings, 0, nringsMax, inTheRing, 0, nranks-1, connect);
   free(inTheRing);
   return nrings;
 }
@@ -178,6 +184,29 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
   }
   
   int rings[nrings*nranks];
+  for (int i=0; i<nrings*nrings; i++) rings[i] = -1;
+  int connect = 0;
+
+  for (int r=0; r<nrings; r++) {
+    int start = -1, end = -1;
+    for (int i = 0; i<nranks; i++) {
+      if (prev[r*nranks+i] != -1) {
+        start = i;
+        break;
+      }
+    }
+    for (int i = 0; i<nranks; i++) {
+      if (next[r*nranks+i] != -1) {
+        end = i;
+        break;
+      }
+    }
+    if (start != -1 && end != -1) {
+      rings[r*nranks] = end;
+      rings[r*nranks+1] = start;
+      connect = 1;
+    }
+  }
 
   if (nrings == 1) {
     for (int i=0; i<nranks; i++) rings[i] = i;
@@ -198,7 +227,7 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
       }
       printf("\n");
     }*/
-    nrings = p2pComputeRings(matrix, nranks, rings, nrings);
+    nrings = p2pComputeRings(matrix, nranks, rings, nrings, connect);
     /*for (int r=0; r<nrings; r++) {
       printf("Ring %d ", r);
       for (int i=0; i<nranks; i++) {
@@ -218,7 +247,6 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
       int nextRank = rings[ring*nranks+nextIndex];
       if (prev[ring*nranks+curRank] == -1) prev[ring*nranks+curRank] = prevRank;
       if (next[ring*nranks+curRank] == -1) next[ring*nranks+curRank] = nextRank;
-      printf("%d : prev %d next %d\n", curRank, prevRank, nextRank);
     }
   }
   

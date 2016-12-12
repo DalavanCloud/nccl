@@ -7,6 +7,6 @@
 #ifndef TOPO_H_
 #define TOPO_H_
 
-void ncclTopoGetRings(int* devs, int n, int* nringsPtr, int** ringsPtr);
+ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, int* values, int* prev, int* next);
 
 #endif
