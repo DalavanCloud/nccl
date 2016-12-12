@@ -1,3 +1,9 @@
+include ../makefiles/common.mk
+include ../makefiles/version.mk
+all:test
+CUDA_HOME ?= /usr/local/cuda
+CUDA_LIB = $(CUDA_HOME)/lib64
+
 FC := gfortran
 FCNAME := $(notdir $(FC))
 
@@ -9,8 +15,7 @@ OBJDIR := $(BUILDDIR)/obj
 LIBNAME    := libncclfor.so
 LIBSONAME  := $(patsubst %,%.$(NCCL_MAJOR),$(LIBNAME))
 LIBTARGET  := $(patsubst %,%.$(NCCL_MAJOR).$(NCCL_MINOR).$(NCCL_PATCH),$(LIBNAME))
-LIBLINK    += $(patsubst lib%.so,-l%,$(LIBNAME))
-
+LIBLINK    := $(patsubst lib%.so,-l%,$(LIBNAME) libnccl.so)
 LIBCUDAFOR := libcudafor.so
 
 ifneq ($(filter pgf%, $(FCNAME)), )
