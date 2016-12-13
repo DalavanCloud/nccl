@@ -80,7 +80,7 @@ ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int*
         }
       }
       if (source == -1 || destination == -1) {
-        printf("source %d dest %d, stopping\n", source, destination);
+        //printf("source %d dest %d, stopping\n", source, destination);
         *nringsRet = ring;
         return ncclSuccess;
       }

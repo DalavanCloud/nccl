@@ -114,21 +114,22 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
   inTheRing[current] = 1;
   rings[currentRing*n+n-remaining-1] = current;
   if (remaining == 0) {
-    if (line[0] > 0) {
+    int looprank = rings[currentRing*n];
+    if (line[looprank] > 0) {
       if (currentRing+1 == nRingsMax) {
         nrings = 1;
       } else {
-	line[0]--;
+	line[looprank]--;
 	for (int i=0; i<n; i++) inTheRing[i] = 0;
         if (connect) {
           // First two slots are already set and we need to respect those constraints
           inTheRing[rings[(currentRing+1)*n+0]] = 1;
-	  nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, rings[(currentRing+1)*n+1], n-1, connect);
+	  nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, rings[(currentRing+1)*n+1], n-2, connect);
         } else {
           rings[(currentRing+1)*n] = 0;
 	  nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, 0, n-1, connect);
         }
-	line[0]++;
+	line[looprank]++;
 	for (int i=0; i<n; i++) inTheRing[i] = 1;
       }
     }
@@ -165,8 +166,14 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
 int p2pComputeRings(int* matrix, int nranks, int *rings, int nringsMax, int connect) {
   int* inTheRing = (int*)malloc(sizeof(int)*nranks);
   for (int i=0; i<nranks; i++) inTheRing[i] = 0;
-  rings[0] = 0;
-  int nrings = computeRingsRec(matrix, nranks, rings, 0, nringsMax, inTheRing, 0, nranks-1, connect);
+  int nrings;
+  if (connect) {
+    inTheRing[rings[0]] = 1;
+    nrings = computeRingsRec(matrix, nranks, rings, 0, nringsMax, inTheRing, rings[1], nranks-2, connect);
+  } else {
+    rings[0] = 0;
+    nrings = computeRingsRec(matrix, nranks, rings, 0, nringsMax, inTheRing, 0, nranks-1, connect);
+  }
   free(inTheRing);
   return nrings;
 }
@@ -202,6 +209,7 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
       }
     }
     if (start != -1 && end != -1) {
+      //printf("Loading constraints for ring %d : %d %d\n", r, end, start);
       rings[r*nranks] = end;
       rings[r*nranks+1] = start;
       connect = 1;
