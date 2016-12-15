@@ -178,7 +178,11 @@ int p2pComputeRings(int* matrix, int nranks, int *rings, int nringsMax, int conn
   return nrings;
 }
 
-ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next) {
+ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
+  if (pattern >= 2) {
+    *nringsRet = 0;
+    return ncclSuccess;
+  }
   int nrings = *nringsRet;
   // Get the maximum number of rings given the number of nvlinks
   for (int rank=0; rank<nranks; rank++) {

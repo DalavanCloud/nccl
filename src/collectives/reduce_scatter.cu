@@ -135,7 +135,7 @@ ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
     NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
-    if (comm->p2ptype == ncclComm::NVLINK) {
+    if (comm->nRings > 1) {
       LAUNCH_KERNEL(ReduceScatterKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
     } else {
       LAUNCH_KERNEL(ReduceScatterKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);

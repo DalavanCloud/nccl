@@ -158,7 +158,7 @@ ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const int count
     NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, root, count, comm);
-    if (comm->p2ptype == ncclComm::NVLINK) {
+    if (comm->nRings > 1) {
       LAUNCH_KERNEL(BroadcastKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
     } else {
       LAUNCH_KERNEL(BroadcastKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);

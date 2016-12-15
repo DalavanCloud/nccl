@@ -55,7 +55,43 @@ ncclResult_t mpiCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
 
 /* Create and return connect structures for this peer to connect to me */
 
-ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next) {
+void connectLastFirst(int nranks, int* groups, int group, int nextGroup, int* src, int* dst) {
+  *src = groupLast(nranks, groups, group);
+  *dst = groupFirst(nranks, groups, nextGroup);
+}
+
+void connectScattered(int nranks, int* groups, int group, int nextGroup, int* src, int* dst, int steps) {
+  int skip = steps+1;
+  int rank = 0;
+  while (1) {
+    if (groups[rank] == group) {
+      if (skip == 0) {
+       *src = rank;
+       break;
+      }
+      skip--;
+    }
+    rank = (rank+1)%nranks;
+  }
+  skip = steps;
+  rank = 0;
+  while (1) {
+    if (groups[rank] == nextGroup) {
+      if (skip == 0) {
+       *dst = rank;
+       break;
+      }
+      skip--;
+    }
+    rank = (rank+1)%nranks;
+  } 
+}
+
+ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
+  if (pattern >= 2) {
+    *nringsRet = 0;
+    return ncclSuccess;
+  }
   for (int ring = 0; ring<*nringsRet; ring++) {
     for (int group = 0; group<ngroups; group++) {
       // Check if this group is already connected
@@ -67,17 +103,10 @@ ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int*
 
       int nextGroup = (group+1)%ngroups;
       int source = -1, destination = -1;
-      for (int rank = nranks-1; rank>=0; rank--) {
-        if (groups[rank] == group) {
-          source = rank;
-          break;
-        }
-      } 
-      for (int rank = 0; rank<nranks; rank++) {
-        if (groups[rank] == nextGroup) {
-          destination = rank;
-          break;
-        }
+      if (pattern == 0) {
+        connectLastFirst(nranks, groups, group, nextGroup, &source, &destination);
+      } else if (pattern == 1) {
+        connectScattered(nranks, groups, group, nextGroup, &source, &destination, ring*2);
       }
       if (source == -1 || destination == -1) {
         //printf("source %d dest %d, stopping\n", source, destination);
@@ -86,6 +115,7 @@ ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int*
       }
       next[ring*nranks+source] = destination;
       prev[ring*nranks+destination] = source;
+      //printf("Connecting [%d] %d to [%d] %d\n", group, source, nextGroup, destination);
     }
   }
   return ncclSuccess;

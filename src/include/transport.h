@@ -38,7 +38,7 @@ struct ncclTransport {
   const char name[4];
   ncclResult_t (*fillInfo)(ncclTinfo_t*, int);
   ncclResult_t (*canConnect)(int*, ncclTinfo_t*, ncclTinfo_t*);
-  ncclResult_t (*getRings)(int, int, int*, int*, int*, int*, int*);
+  ncclResult_t (*getRings)(int, int, int*, int*, int*, int*, int*, int);
   struct ncclTransportComm send;
   struct ncclTransportComm recv;
 };
@@ -95,6 +95,20 @@ inline void transportProxyWait(const FUNC& func) {
     count++;
 #endif
   }
+}
+
+static inline int groupFirst(int nranks, int* groups, int group) {
+  for (int rank = 0; rank<nranks; rank++) {
+    if (groups[rank] == group) return rank;
+  }
+  return -1;
+}
+
+static inline int groupLast(int nranks, int* groups, int group) {
+  for (int rank = nranks-1; rank>=0; rank--) {
+    if (groups[rank] == group) return rank;
+  }
+  return -1;
 }
 
 #endif
