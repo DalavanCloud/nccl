@@ -90,6 +90,7 @@ ncclResult_t shmGetRings(int nranks, int ngroups, int* groups, int* values, int*
     *nringsRet = 0;
     return ncclSuccess;
   }
+  *nringsRet = 1;
   for (int ring = 0; ring<*nringsRet; ring++) {
     for (int group = 0; group<ngroups; group++) {
       // Check if this group is already connected

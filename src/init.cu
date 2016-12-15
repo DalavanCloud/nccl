@@ -220,47 +220,6 @@ static void swap(void* mem1, void* mem2, int size) {
   memcpy(tmp, mem1, size); memcpy(mem1, mem2, size); memcpy(mem2, tmp, size);
 }
 
-static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, int nranks) {
-  struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
-  for (int rank=0; rank<nranks; rank++) {
-    cudaSetDevice(devs[rank]);
-    fillInfo(allInfo+rank, rank);
-  }
-  
-  int rings[nranks*MAXRINGS];
-  int nrings;
-//  NCCLCHECK(getRings(&nrings, rings, rank, nranks, NULL, NULL, NULL, NULL));
-
-  for (int rank=0; rank<nranks; rank++)
-    comms[rank]->nRings = nrings;
-
-  for (int r=0; r<nrings; r++) {
-    struct ncclConnect connect[2*nranks];
-    int* ringRanks = rings+r*nranks;
-    for (int rank=0; rank<nranks; rank++) {
-      CUDACHECK(cudaSetDevice(devs[rank]));
-      struct ncclRing *ring = comms[rank]->rings+r;
-      NCCLCHECK(setupRing(comms[rank], ring, r, rank, nranks, ringRanks, allInfo, connect+2*rank));
-    }
-    // RingExchange connect information
-    for (int rank=0; rank<nranks; rank++) {
-      // Swap rank->prev and prevRank->next
-      struct ncclRing *ring = comms[rank]->rings+r;
-      int prevRank = ring->userRanks[nranks-1];
-      struct ncclConnect* prevRankNextConnect = connect+2*prevRank+1;
-      struct ncclConnect* rankPrevConnect = connect+2*rank;
-      swap(prevRankNextConnect, rankPrevConnect, sizeof(struct ncclConnect));
-    }
-    for (int rank=0; rank<nranks; rank++) {
-      CUDACHECK(cudaSetDevice(devs[rank]));
-      struct ncclRing *ring = comms[rank]->rings+r;
-      NCCLCHECK(ring->recv.transport->recv.connect(connect+2*rank+0, &ring->recv));
-      NCCLCHECK(ring->send.transport->send.connect(connect+2*rank+1, &ring->send));
-    }
-  }
-  return ncclSuccess;
-}
-
 #define MAXWIDTH 20
 #define STRLENGTH (4+MAXWIDTH*4)
 void dumpMatrix(int* connectMatrix, int nranks) {
@@ -276,6 +235,7 @@ void dumpMatrix(int* connectMatrix, int nranks) {
     INFO(line);
   }
 }
+
 void dumpLine(int* values, int nranks, const char* prefix) {
   int prefixlen = strlen(prefix);
   char line[STRLENGTH+1];
@@ -284,6 +244,43 @@ void dumpLine(int* values, int nranks, const char* prefix) {
   memcpy(line, prefix, prefixlen);
   for (int i=0; i<nranks && i<MAXWIDTH; i++) sprintf(prefixlen+line+4*i, " %3d", values[i]);
   INFO(line);
+}
+
+static ncclResult_t buildRings(int nrings, int* rings, int rank, int nranks, int* prev, int* next) {
+  for (int r=0; r<nrings; r++) {
+    char prefix[30];
+    /*sprintf(prefix, "[%d] Ring %d Prev : ", rank, r);
+    dumpLine(prev+r*nranks, nranks, prefix);
+    sprintf(prefix, "[%d] Ring %d Next : ", rank, r);
+    dumpLine(next+r*nranks, nranks, prefix);*/
+
+    int current = rank;
+    for (int i=0; i<nranks; i++) {
+      rings[r*nranks+i] = current;
+      current = next[r*nranks+current];
+    }
+    sprintf(prefix, "[%d] Ring %d : ", rank, r);
+    dumpLine(rings+r*nranks, nranks, prefix);
+    if (current != rank) {
+      WARN("Error : ring %d do not loop back to start", r);
+      return ncclInternalError;
+    }
+    // Check that all ranks are there
+    for (int i=0; i<nranks; i++) {
+      int found = 0;
+      for (int j=0; j<nranks; j++) {
+        if (rings[r*nranks+j] == i) {
+          found = 1;
+          break;
+        }
+      }
+      if (found == 0) {
+        WARN("Error : ring %d does not contain rank %d", r, i);
+        return ncclInternalError;
+      }
+    }
+  }
+  return ncclSuccess;
 }
 
 static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* commId) {
@@ -301,55 +298,32 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   NCCLCHECK(fillConnect(allInfo, nranks, rank, connectTransport+nranks*rank, connectValue+nranks*rank));
   NCCLCHECK(bootstrap->allGather(commState, connectTransport, nranks*(sizeof(int))));
   NCCLCHECK(bootstrap->allGather(commState, connectValue, nranks*(sizeof(int))));
-  if (rank == 0) dumpMatrix(connectTransport, nranks);
-  if (rank == 0) dumpMatrix(connectValue, nranks);
+  //if (rank == 0) dumpMatrix(connectTransport, nranks);
+  //if (rank == 0) dumpMatrix(connectValue, nranks);
 
-  int rings[nranks*MAXRINGS];
+  // Get my rings
   int nrings;
   int prev[nranks*MAXRINGS];
   int next[nranks*MAXRINGS];
   NCCLCHECK(ncclGetRings(&nrings, rank, nranks, connectTransport, connectValue, prev, next));
+
+  // Find min nrings across ranks
+  int allNrings[nranks];
+  allNrings[rank] = nrings;
+  NCCLCHECK(bootstrap->allGather(commState, allNrings, sizeof(int)));
+  for (int i=0; i<nranks; i++)
+    nrings = min(allNrings[i], nrings);
+
+  // Exchange data with others to build complete rings
   comm->nRings = nrings;
   for (int r=0; r<nrings; r++) {
     NCCLCHECK(bootstrap->allGather(commState, prev+r*nranks, sizeof(int)));
     NCCLCHECK(bootstrap->allGather(commState, next+r*nranks, sizeof(int)));
   }
-  INFO("[%d] After rings allgather :", rank);
-  for (int r=0; r<nrings; r++) {
-    char prefix[30];
-    sprintf(prefix, "[%d] Ring %d Prev : ", rank, r);
-    dumpLine(prev+r*nranks, nranks, prefix);
-    sprintf(prefix, "[%d] Ring %d Next : ", rank, r);
-    dumpLine(next+r*nranks, nranks, prefix);
+  int rings[nranks*MAXRINGS];
+  NCCLCHECK(buildRings(nrings, rings, rank, nranks, prev, next));
 
-    int current = rank;
-    for (int i=0; i<nranks; i++) {
-      rings[r*nranks+i] = current;
-      current = next[r*nranks+current];
-    }
-    if (current != rank) {
-      WARN("Error : ring %d do not loop back to start", r);
-      return ncclInternalError;
-    }
-    // Check that all ranks are there
-    for (int i=0; i<nranks; i++) {
-      int found = 0;
-      for (int j=0; j<nranks; j++) {
-        if (rings[r*nranks+j] == i) {
-          found = 1;
-          break;
-        }
-      }
-      if (found == 0) {
-        WARN("Error : ring %d does not contain rank %d\n", r, i);
-        return ncclInternalError;
-      }
-    }
-
-    sprintf(prefix, "[%d] Ring %d      : ", rank, r);
-    dumpLine(rings+r*nranks, nranks, prefix);
-  }
-
+  // Connect with prev/next for each ring
   for (int r=0; r<nrings; r++) {
     int* ringRanks = rings+r*nranks;
     struct ncclRing *ring = comm->rings+r;
@@ -403,6 +377,69 @@ ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId
     INFO("rank %d did not shutdown nvml properly", myrank);
   return ncclSuccess;
 }
+
+static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, int nranks) {
+  struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
+  for (int rank=0; rank<nranks; rank++) {
+    cudaSetDevice(devs[rank]);
+    fillInfo(allInfo+rank, rank);
+  }
+
+  int connectTransport[nranks*nranks];
+  int connectValue[nranks*nranks];
+  for (int rank=0; rank<nranks; rank++)
+    NCCLCHECK(fillConnect(allInfo, nranks, rank, connectTransport+nranks*rank, connectValue+nranks*rank));
+  
+  int nrings;
+  int nringsFinal = MAXRINGS;
+  int prev[nranks*MAXRINGS];
+  int prevFinal[nranks*MAXRINGS];
+  int next[nranks*MAXRINGS];
+  int nextFinal[nranks*MAXRINGS];
+  for (int rank=0; rank<nranks; rank++) {
+    NCCLCHECK(ncclGetRings(&nrings, rank, nranks, connectTransport, connectValue, prev, next));
+    nringsFinal = min(nrings, nringsFinal);
+    printf("Rank %d rings %d\n", rank, nrings);
+    for (int ring=0; ring<nrings; ring++) {
+      int index = ring*nranks+rank;
+      prevFinal[index] = prev[index];
+      nextFinal[index] = next[index];
+    }
+  }
+  nrings = nringsFinal;
+  int rings[nranks*MAXRINGS];
+  NCCLCHECK(buildRings(nrings, rings, 0, nranks, prevFinal, nextFinal));
+
+  for (int rank=0; rank<nranks; rank++)
+    comms[rank]->nRings = nrings;
+
+  for (int r=0; r<nrings; r++) {
+    struct ncclConnect connect[2*nranks];
+    int* ringRanks = rings+r*nranks;
+    for (int rank=0; rank<nranks; rank++) {
+      CUDACHECK(cudaSetDevice(devs[rank]));
+      struct ncclRing *ring = comms[rank]->rings+r;
+      NCCLCHECK(setupRing(comms[rank], ring, r, rank, nranks, ringRanks, allInfo, connect+2*rank));
+    }
+    // RingExchange connect information
+    for (int rank=0; rank<nranks; rank++) {
+      // Swap rank->prev and prevRank->next
+      struct ncclRing *ring = comms[rank]->rings+r;
+      int prevRank = ring->userRanks[nranks-1];
+      struct ncclConnect* prevRankNextConnect = connect+2*prevRank+1;
+      struct ncclConnect* rankPrevConnect = connect+2*rank;
+      swap(prevRankNextConnect, rankPrevConnect, sizeof(struct ncclConnect));
+    }
+    for (int rank=0; rank<nranks; rank++) {
+      CUDACHECK(cudaSetDevice(devs[rank]));
+      struct ncclRing *ring = comms[rank]->rings+r;
+      NCCLCHECK(ring->recv.transport->recv.connect(connect+2*rank+0, &ring->recv));
+      NCCLCHECK(ring->send.transport->send.connect(connect+2*rank+1, &ring->send));
+    }
+  }
+  return ncclSuccess;
+}
+
 
 NCCL_API(ncclResult_t, ncclCommInitAll, ncclComm_t* comms, int ndev, const int* devlist);
 ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
