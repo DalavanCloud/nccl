@@ -111,4 +111,24 @@ static inline int groupLast(int nranks, int* groups, int group) {
   return -1;
 }
 
+static inline int groupPos(int nranks, int* groups, int group, int pos) {
+  int skip = pos;
+  int rank = 0;
+  while (1) {
+    if (groups[rank] == group) {
+      if (skip == 0) {
+       return rank;
+      }
+      skip--;
+    }
+    rank++;
+    if (rank == nranks) {
+      if (skip == pos) {
+        // There seems to be no rank of this group. Stop.
+        return -1;
+      }
+      rank = 0;
+    }
+  }
+}
 #endif

@@ -55,36 +55,9 @@ ncclResult_t mpiCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
 
 /* Create and return connect structures for this peer to connect to me */
 
-void connectLastFirst(int nranks, int* groups, int group, int nextGroup, int* src, int* dst) {
-  *src = groupLast(nranks, groups, group);
-  *dst = groupFirst(nranks, groups, nextGroup);
-}
-
 void connectScattered(int nranks, int* groups, int group, int nextGroup, int* src, int* dst, int steps) {
-  int skip = steps+1;
-  int rank = 0;
-  while (1) {
-    if (groups[rank] == group) {
-      if (skip == 0) {
-       *src = rank;
-       break;
-      }
-      skip--;
-    }
-    rank = (rank+1)%nranks;
-  }
-  skip = steps;
-  rank = 0;
-  while (1) {
-    if (groups[rank] == nextGroup) {
-      if (skip == 0) {
-       *dst = rank;
-       break;
-      }
-      skip--;
-    }
-    rank = (rank+1)%nranks;
-  } 
+  *src = groupPos(nranks, groups, group, steps+1);
+  *dst = groupPos(nranks, groups, nextGroup, steps);
 }
 
 ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
@@ -104,12 +77,14 @@ ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int*
       int nextGroup = (group+1)%ngroups;
       int source = -1, destination = -1;
       if (pattern == 0) {
-        connectLastFirst(nranks, groups, group, nextGroup, &source, &destination);
+	source = groupLast(nranks, groups, group);
+	destination = groupFirst(nranks, groups, nextGroup);
       } else if (pattern == 1) {
-        connectScattered(nranks, groups, group, nextGroup, &source, &destination, ring*2);
+        source = groupPos(nranks, groups, group, ring*2+1);
+        destination = groupPos(nranks, groups, nextGroup, ring*2);
       }
       if (source == -1 || destination == -1) {
-        //printf("source %d dest %d, stopping\n", source, destination);
+        WARN("source %d dest %d, stopping\n", source, destination);
         *nringsRet = ring;
         return ncclSuccess;
       }

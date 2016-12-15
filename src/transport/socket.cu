@@ -76,7 +76,7 @@ ncclResult_t socketGetRings(int nranks, int ngroups, int* groups, int* values, i
       int source = groupLast(nranks, groups, group);
       int destination = groupFirst(nranks, groups, nextGroup);
       if (source == -1 || destination == -1) {
-        printf("source %d dest %d, stopping\n", source, destination);
+        WARN("source %d dest %d, stopping\n", source, destination);
         *nringsRet = ring;
         return ncclSuccess;
       }
