@@ -77,8 +77,13 @@ ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int*
       int nextGroup = (group+1)%ngroups;
       int source = -1, destination = -1;
       if (pattern == 0) {
-	source = groupLast(nranks, groups, group);
-	destination = groupFirst(nranks, groups, nextGroup);
+        if (ring % 2 == 0) {
+          source = groupLast(nranks, groups, group);
+          destination = groupFirst(nranks, groups, nextGroup);
+        } else {
+          source = groupFirst(nranks, groups, group);
+          destination = groupLast(nranks, groups, nextGroup);
+        }
       } else if (pattern == 1) {
         source = groupPos(nranks, groups, group, ring*2+1);
         destination = groupPos(nranks, groups, nextGroup, ring*2);

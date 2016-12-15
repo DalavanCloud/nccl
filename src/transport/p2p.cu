@@ -112,7 +112,7 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
   int nrings = 0;
   int* line = matrix+current*n;
   inTheRing[current] = 1;
-  rings[currentRing*n+n-remaining-1] = current;
+  rings[(currentRing+1)*n-remaining-1] = current;
   if (remaining == 0) {
     int looprank = rings[currentRing*n];
     if (line[looprank] > 0) {
@@ -136,7 +136,7 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
   } else {
     int rings_save[nRingsMax*n];
     int offset = currentRing*n+n-remaining;
-    for (int i=1; i<n; i++) {
+    for (int i=0; i<n; i++) {
       if (inTheRing[i] == 0 && line[i] > 0) {
         line[i]--;
         int nr = computeRingsRec(matrix, n, rings, currentRing, nRingsMax, inTheRing, i, remaining-1, connect);
@@ -213,7 +213,6 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
       }
     }
     if (start != -1 && end != -1) {
-      //printf("Loading constraints for ring %d : %d %d\n", r, end, start);
       rings[r*nranks] = end;
       rings[r*nranks+1] = start;
       connect = 1;
@@ -224,29 +223,8 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
     for (int i=0; i<nranks; i++) rings[i] = i;
   } else {
     int matrix[nranks*nranks];
-/*    for (int i=0; i<nranks; i++) {
-      printf("%d : ", i);
-      for (int j=0; j<nranks; j++) {
-        printf(" %d", values[i*nranks+j]);
-      }
-      printf("\n");
-    }*/
     for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++) matrix[i*nranks+j] = values[i*nranks+j]/2;
-/*    for (int i=0; i<nranks; i++) {
-      printf("%d : ", i);
-      for (int j=0; j<nranks; j++) {
-        printf(" %d", matrix[i*nranks+j]);
-      }
-      printf("\n");
-    }*/
     nrings = p2pComputeRings(matrix, nranks, rings, nrings, connect);
-    /*for (int r=0; r<nrings; r++) {
-      printf("Ring %d ", r);
-      for (int i=0; i<nranks; i++) {
-        printf("%d ", rings[r*nranks+i]);
-      }
-      printf("\n");
-    }*/
   }
 
   *nringsRet = nrings;
