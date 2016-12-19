@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
       }
     }
     MPI_Allreduce(MPI_IN_PLACE, &errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD);
-    if (rank == 0) printf(" %15d %15.2f %15.2f %15.2f %15d\n", 
+    if (rank == 0) printf(" %15ld %15.2f %15.2f %15.2f %15d\n",
         size*sizeof(int),
         delta*1e6/niters,
         size*sizeof(int)*niters/(delta*1e6),

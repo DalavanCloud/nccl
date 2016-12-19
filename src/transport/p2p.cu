@@ -178,24 +178,7 @@ int p2pComputeRings(int* matrix, int nranks, int *rings, int nringsMax, int conn
   return nrings;
 }
 
-ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
-  if (pattern >= 2) {
-    *nringsRet = 0;
-    return ncclSuccess;
-  }
-  int nrings = *nringsRet;
-  // Get the maximum number of rings given the number of nvlinks
-  for (int rank=0; rank<nranks; rank++) {
-    int nr = 0;
-    for (int i=0; i<nranks; i++) {
-      nr+= values[rank*nranks+i]/2;
-    }
-    if (nr == 0) nr = 1;
-    nrings = min(nrings, nr);
-  }
-  
-  int rings[nrings*nranks];
-  for (int i=0; i<nrings*nrings; i++) rings[i] = -1;
+int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int oversubscribe) {
   int connect = 0;
 
   for (int r=0; r<nrings; r++) {
@@ -219,22 +202,69 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
     }
   }
 
-  if (nrings == 1) {
+  int matrix[nranks*nranks];
+  for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++) matrix[i*nranks+j] = oversubscribe ? values[i*nranks+j] : values[i*nranks+j]/2;
+  return p2pComputeRings(matrix, nranks, rings, nrings, connect);
+}
+
+ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
+  if (pattern >= 2) {
+    *nringsRet = 0;
+    return ncclSuccess;
+  }
+
+  int rings[MAXRINGS*nranks];
+  for (int i=0; i<MAXRINGS*nranks; i++) rings[i] = -1;
+
+  // NVLinks rings go by pair
+  int nrings = *nringsRet / 2;
+
+  // Get the maximum number of rings given the number of nvlinks
+  for (int rank=0; rank<nranks; rank++) {
+    int nr = 0;
+    for (int i=0; i<nranks; i++) {
+      nr+= values[rank*nranks+i]/2;
+    }
+    nrings = min(nrings, nr);
+  }
+
+  if (nrings) {
+    int comp_nrings = p2pComputeRingsFromPrevNext(values, nranks, rings, nrings, prev, next, 0);
+    if (comp_nrings && comp_nrings < nrings && nranks <= 4) {
+      // Try to oversubscribe to get a better result
+      int rings2[MAXRINGS*nranks];
+      for (int i=0; i<MAXRINGS*nranks; i++) rings2[i] = -1;
+      int comp2_nrings = p2pComputeRingsFromPrevNext(values, nranks, rings2, nrings*2, prev, next, 1);
+      if (comp2_nrings > comp_nrings*2) {
+        // Oversubscription worked.
+        for (int i=0; i<comp2_nrings*nranks; i++) rings[i] = rings2[i];
+        comp_nrings = comp2_nrings;
+      }
+    }
+    nrings = comp_nrings;
+  }
+
+  int pcie = (nrings == 0) ? 1 : 0;
+  if (pcie) {
+    // PCIe or QPI
     for (int i=0; i<nranks; i++) rings[i] = i;
+    nrings = 1;
   } else {
-    int matrix[nranks*nranks];
-    for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++) matrix[i*nranks+j] = values[i*nranks+j]/2;
-    nrings = p2pComputeRings(matrix, nranks, rings, nrings, connect);
+    // Double the rings for NVLink
+    nrings *= 2;
   }
 
   *nringsRet = nrings;
   for (int ring = 0; ring<nrings; ring++) {
+    // We double the rings for NVLink
+    int input_ring = pcie ? ring : ring % (nrings/2);
+
     for (int index=0; index<nranks; index++) {
       int prevIndex = (index - 1 + nranks) % nranks;
       int nextIndex = (index + 1) % nranks;
-      int curRank = rings[ring*nranks+index];
-      int prevRank = rings[ring*nranks+prevIndex];
-      int nextRank = rings[ring*nranks+nextIndex];
+      int curRank = rings[input_ring*nranks+index];
+      int prevRank = rings[input_ring*nranks+prevIndex];
+      int nextRank = rings[input_ring*nranks+nextIndex];
       if (prev[ring*nranks+curRank] == -1) prev[ring*nranks+curRank] = prevRank;
       if (next[ring*nranks+curRank] == -1) next[ring*nranks+curRank] = nextRank;
     }
