@@ -13,12 +13,14 @@ NVCUFLAGS += -I$(MPI_HOME)/include
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h -I../include ${CPPFLAGS} ${GTEST_CPPFLAGS}
 LIBRARIES += curand nccl
 LIBDIR    := ../../build/lib
-NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) ${GTEST_LIBS}
+NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) $(BUILDDIR)/test/gtest.a
 ### files
-SRC_FILES := $(wildcard *.cu)
+CU_FILES := $(wildcard *.cu)
+# CPP_FILES := $(wildcard *.cpp)
 DST_DIR := $(BUILDDIR)/test/mpi
-OBJ_FILES := ${SRC_FILES:%.cu=${DST_DIR}/%.o}
-DEP_FILES := $(OBJ_FILES:%.o=%.dep)
+CUOBJ_FILES := ${CU_FILES:%.cu=${DST_DIR}/%.o}
+# CPPOBJ_FILES := ${CPP_FILES:%.cu=${DST_DIR}/%.o}
+DEP_FILES := $(CUOBJ_FILES:%.o=%.dep)
 BIN    := ${DST_DIR}/mpi_test
 ###
 ifneq (clean,${MAKECMDGOALS})
@@ -36,9 +38,18 @@ all : ${BIN}
 clean:
 	rm -rf ${DST_DIR}
 #
-${BIN} : ${OBJ_FILES}
+${BIN} : ${CUOBJ_FILES}
 	${NVCC} -o $@ ${NVLDFLAGS} $^
 #
 ${DST_DIR}/%.o: %.cu
 	$(NVCC) -o $@ --compile $(NVCUFLAGS) $<
+#
+NVIDIASMI := $(or \
+	$(realpath /usr/bin/nvidia-smi),\
+	$(realpath /usr/local/nvidia/bin/nvidia-smi))
+GPU_COUNT := $(shell ${NVIDIASMI} -L|wc -l)
+test: ${BIN}
+	cd ${BUILDDIR} && \
+	export LD_LIBRARY_PATH=$$LD_LIBRARY_PATH:./lib NCCL_DEBUG=WARN && \
+	mpiexec -mca btl self,sm -np ${GPU_COUNT} ./test/mpi/mpi_test
 #EOF

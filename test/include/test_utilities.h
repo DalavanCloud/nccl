@@ -53,6 +53,8 @@ template<typename T>
 void GenerateRandom(curandGenerator_t generator, T * const dest,
     const int N);
 
+/// TODO: put specialized template functions into another source file.
+
 template<>
 void GenerateRandom<char>(curandGenerator_t generator, char * const dest,
     const int N) {

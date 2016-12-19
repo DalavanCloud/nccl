@@ -42,7 +42,7 @@ ifeq ($(DEBUG), 0)
 NVCUFLAGS += -O3
 CXXFLAGS  += -O3
 else
-NVCUFLAGS += -O0 -G
+NVCUFLAGS += -O0 -G -g
 CXXFLAGS  += -O0 -g -ggdb3
 endif
 
