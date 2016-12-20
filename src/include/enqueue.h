@@ -4,8 +4,8 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#ifndef enqueue_h_
-#define enqueue_h_
+#ifndef NCCL_ENQUEUE_H_
+#define NCCL_ENQUEUE_H_
 
 #include "core.h"
 #include "reduce_kernel.h"

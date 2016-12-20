@@ -1,5 +1,11 @@
-#ifndef TRANSPORT_H_
-#define TRANSPORT_H_
+/*************************************************************************
+ * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
+#ifndef NCCL_TRANSPORT_H_
+#define NCCL_TRANSPORT_H_
 
 #include "nccl.h"
 #include <stdint.h>

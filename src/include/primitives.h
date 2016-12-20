@@ -4,8 +4,8 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#ifndef PRIMITIVES_H_
-#define PRIMITIVES_H_
+#ifndef NCCL_PRIMITIVES_H_
+#define NCCL_PRIMITIVES_H_
 
 #include <type_traits>
 #include "copy_kernel.h" // for FuncPassA

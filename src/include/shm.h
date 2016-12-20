@@ -1,3 +1,9 @@
+/*************************************************************************
+ * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
 #ifndef NCCL_SHM_H_
 #define NCCL_SHM_H_
 

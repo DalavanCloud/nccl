@@ -4,8 +4,8 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#ifndef TOPO_H_
-#define TOPO_H_
+#ifndef NCCL_RINGS_H_
+#define NCCL_RINGS_H_
 
 ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, int* values, int* prev, int* next);
 

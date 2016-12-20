@@ -4,6 +4,9 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
+#ifndef NCCL_MPI_H_
+#define NCCL_MPI_H_
+
 #define MPICHECK(cmd) do { \
   int err = cmd; \
   if (err != 0) { \
@@ -47,3 +50,4 @@ static int ncclMpiRecv(int rank, void* data, int size, int tag) {
 }
 
 }
+#endif

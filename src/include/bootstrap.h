@@ -4,8 +4,8 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#ifndef BOOTSTRAP_H_
-#define BOOTSTRAP_H_
+#ifndef NCCL_BOOTSTRAP_H_
+#define NCCL_BOOTSTRAP_H_
 
 #include "nccl.h"
 

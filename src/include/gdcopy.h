@@ -4,7 +4,7 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#ifndef __GDCOPY_H__
-#define __GDCOPY_H__
+#ifndef NCCL_GDCOPY_H__
+#define NCCL_GDCOPY_H__
 void* gdptr(void* devptr, int size);
 #endif

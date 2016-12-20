@@ -5,8 +5,8 @@
  ************************************************************************/
 
 
-#ifndef REDUCE_KERNEL_H_
-#define REDUCE_KERNEL_H_
+#ifndef NCCL_REDUCE_KERNEL_H_
+#define NCCL_REDUCE_KERNEL_H_
 
 #include "common_kernel.h"
 #include <limits>

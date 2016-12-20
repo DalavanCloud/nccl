@@ -1,3 +1,9 @@
+/*************************************************************************
+ * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
 #include "core.h"
 #include "utils.h"
 #include "transport.h"

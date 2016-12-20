@@ -4,9 +4,8 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-
-#ifndef COMMON_KERNEL_H_
-#define COMMON_KERNEL_H_
+#ifndef NCCL_COMMON_KERNEL_H_
+#define NCCL_COMMON_KERNEL_H_
 
 #include "core.h"
 #include <cstdio>

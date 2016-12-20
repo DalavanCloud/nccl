@@ -1,5 +1,11 @@
-#ifndef COMMON_SOCKET_H_
-#define COMMON_SOCKET_H_
+/*************************************************************************
+ * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ *
+ * See LICENSE.txt for license information
+ ************************************************************************/
+
+#ifndef NCCL_SOCKET_H_
+#define NCCL_SOCKET_H_
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
