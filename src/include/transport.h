@@ -82,19 +82,13 @@ ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_r
 // Spin wait until func evaluates to true
 template<typename FUNC>
 inline void transportProxyWait(const FUNC& func) {
-#if 0 // This reduces the CPU load but also impacts performance. It needs some tuning.
-  int sleep_time = 2;
-  int count = 0;
-#endif
   while (!func()) {
-#if 0
-    if (count > 10) {
-      if (sleep_time < 10) sleep_time *= 2;
-      usleep(sleep_time);
-    }
-    count++;
-#endif
+    sched_yield();
   }
+}
+
+inline void transportProxyIdle(int idle) {
+  sched_yield();
 }
 
 static inline int groupFirst(int nranks, int* groups, int group) {

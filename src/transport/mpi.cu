@@ -176,9 +176,6 @@ ncclResult_t mpiConnectRecv(struct ncclConnect* connectInfo, struct ncclConnecto
   return ncclSuccess;
 }
 
-//#define SEND_SYNC
-//#define RECV_SYNC
-
 // Don't use the same requests for Send and Recv 
 #define SEND_REQ(slot) (2*slot)
 #define RECV_REQ(slot) (2*slot+1)
@@ -201,29 +198,16 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
   resources->hostMem->opCount = args->opCount;
 
   //printf("%d steps of %d size\n", args->nsteps, maxSize);
-#ifdef SEND_SYNC
-  int offset = 0;
-  while (head < args->nsteps) {
-    int slot = head%args->substeps;
-    // Receive from GPU
-    transportProxyWait([=] { return head != *prevTail; });
-
-    // Send to mpi
-    MPICHECK(ncclMpiSend(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag));
-    head++;
-    data[slot] = head;
-    CUDACHECK(cudaMemcpyAsync(prevHead, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
-  }
-#else
   int tail = 0;
+  int idle = 0;
   while (tail < args->nsteps) {
-    int yield = 1;
+    idle++;
     while (head != *prevTail) {
       // Send through MPI
       int slot = head%args->substeps;
       MPICHECK(ncclMpiIsend(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag, SEND_REQ(slot)));
       head++;
-      yield = 0;
+      idle = 0;
     }
     if (tail < head) {
       int done;
@@ -233,12 +217,11 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
         tail++;
         data[slot] = tail;
 	CUDACHECK(cudaMemcpyAsync(prevHead, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
-        yield = 0;
+        idle = 0;
       }
-      if (yield) sched_yield();
+      if (idle) transportProxyIdle(idle);
     }
   }
-#endif
   // Ensure all updates are pushed
   CUDACHECK(cudaStreamSynchronize(resources->stream));
 
@@ -260,7 +243,7 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
 
   if (directDevMem) {
     int* nextOpCount = &resources->hostDevMem->opCount;
-    while (*nextOpCount != args->opCount) sched_yield();
+    transportProxyWait([=] { return *nextOpCount >= args->opCount; });
   } else {
     int val = 0;
     int* nextOpCount = &devMem->opCount;
@@ -282,44 +265,17 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
   int head = 0;
   int data[args->substeps];
 
-#ifdef RECV_SYNC
-  while (head < args->nsteps) {
-    int slot = head%args->substeps;
-    if (mpiCudaSupport == 1) {
-      // Receive from MPI directly to the GPU
-      transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
-      MPICHECK(ncclMpiRecv(resources->mpiRank, nextBuff+slot*sliceSize, maxSize, resources->mpiTag));
-      head++;
-      if (directDevMem) {
-        *nextTail = head;
-      } else {
-        data[slot] = head;
-        CUDACHECK(cudaMemcpyAsync(nextTail, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
-      }
-    } else {
-      // Receive from MPI
-      CUDACHECK(cudaEventSynchronize(resources->syncEvent[slot]));
-      MPICHECK(ncclMpiRecv(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag));
-      // Send to GPU
-      transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
-      CUDACHECK(cudaMemcpyAsync(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, maxSize, cudaMemcpyHostToDevice, resources->stream));
-      CUDACHECK(cudaEventRecord(resources->syncEvent[slot], resources->stream));
-      head++;
-      data[slot] = head;
-      CUDACHECK(cudaMemcpyAsync(nextTail, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
-    }
-  }
-#else
   int tail = 0;
+  int idle = 0;
   while (tail < args->nsteps) {
-    int yield = 1;
+    idle++;
     if (mpiCudaSupport == 1) {
       while (((head - *nextHead) < args->substeps) && (head < args->nsteps)) {
         int slot = head%args->substeps;
         MPICHECK(ncclMpiIrecv(resources->mpiRank, nextBuff+slot*sliceSize, maxSize, resources->mpiTag, RECV_REQ(slot)));
         //printf("Posted Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
         head++;
-        yield = 0;
+        idle = 0;
       }
       if (tail < head) {
         int done;
@@ -334,7 +290,7 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
             data[slot] = tail;
             CUDACHECK(cudaMemcpyAsync(nextTail, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
           }
-          yield = 0;
+          idle = 0;
         }
       }
     } else {
@@ -344,7 +300,7 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
           MPICHECK(ncclMpiIrecv(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag, RECV_REQ(slot)));
           //printf("Posted Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
           head++;
-          yield = 0;
+          idle = 0;
         }
       }
       if (tail < head && ((tail - *nextHead) < args->substeps)) {
@@ -360,12 +316,11 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
           data[slot] = tail;
           CUDACHECK(cudaMemcpyAsync(nextTail, data+slot, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
         }
-        yield = 0;
+        idle = 0;
       }
     }
-    if (yield) sched_yield();
+    if (idle) transportProxyIdle(idle);
   }
-#endif
   // Ensure all updates are pushed
   CUDACHECK(cudaStreamSynchronize(resources->stream));
 
