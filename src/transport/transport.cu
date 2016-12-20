@@ -83,7 +83,6 @@ static void StartProxy(int type, int substeps, int nsteps, int size, int opCount
     args.nsteps = nsteps;
     args.opCount = opCount;
     args.size = size;
-    //printf("Launching %s proxy, nsteps = %d\n", type == 0 ? "recv" : "send", nsteps);
     FifoPushArgs(info, &args);
   }
 }

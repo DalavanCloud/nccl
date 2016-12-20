@@ -172,7 +172,6 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   // Update in case we skipped some collectives
   resources->hostMem->opCount = args->opCount;
 
-  //printf("%d steps of %d size\n", args->nsteps, maxSize);
   while (head < args->nsteps) {
     // Receive from GPU
     transportProxyWait([=] { return head != *prevTail; });

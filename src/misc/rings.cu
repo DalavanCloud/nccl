@@ -55,9 +55,6 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
     for (int t=NTRANSPORTS-1; t>=0; t--) {
       int groups[nranks];
       int ngroups = fillGroups(rank, groups, nranks, transports, t);
-      /*printf("[%d] Transport %d : %d groups\n", rank, t, ngroups);
-        for (int i=0; i<nranks; i++) printf(" %2d", groups[i]);
-        printf("\n");*/
       if (ngroups > 1) {
         /* Reduce the scope to the local ranks and sort them by group */
         int idxToRank[nranks];
@@ -107,7 +104,6 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
           }
         }
         /* Get rings */
-        //printf("get rings level %d, nidx %d\n", t, nidx);
         NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, subgroups, subvalues, &nringsTmp, subprev, subnext, pattern));
         /* Merge prev/next */
         for (int r=0; r<nringsTmp; r++) {
@@ -117,7 +113,6 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
           }
         }
       }
-      //printf("Pattern %d / Transport %d : got %d rings\n", pattern, t, nringsTmp);
     }
     pattern++;
     if (nringsTmp > *nrings) {
@@ -128,12 +123,6 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
       }
     }
   } while (nringsTmp != 0);
-
-  /*printf("[%d] After get rings :\n", rank);
-  for (int r=0; r<(*nrings); r++) {
-    printf("[%d] Ring %d Prev : ", rank, r); for (int i=0; i<nranks; i++) printf("%d ", prev[r*nranks+i]); printf("\n");
-    printf("[%d] Ring %d Next : ", rank, r); for (int i=0; i<nranks; i++) printf("%d ", next[r*nranks+i]); printf("\n");
-  }*/
 
   return ncclSuccess;
 }

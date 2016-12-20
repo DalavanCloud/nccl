@@ -96,7 +96,6 @@ ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int*
       }
       next[ring*nranks+source] = destination;
       prev[ring*nranks+destination] = source;
-      //printf("Connecting [%d] %d to [%d] %d\n", group, source, nextGroup, destination);
     }
   }
   return ncclSuccess;
@@ -197,7 +196,6 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
   // Update in case we skipped some collectives
   resources->hostMem->opCount = args->opCount;
 
-  //printf("%d steps of %d size\n", args->nsteps, maxSize);
   int tail = 0;
   int idle = 0;
   while (tail < args->nsteps) {
@@ -273,7 +271,6 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
       while (((head - *nextHead) < args->substeps) && (head < args->nsteps)) {
         int slot = head%args->substeps;
         MPICHECK(ncclMpiIrecv(resources->mpiRank, nextBuff+slot*sliceSize, maxSize, resources->mpiTag, RECV_REQ(slot)));
-        //printf("Posted Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
         head++;
         idle = 0;
       }
@@ -282,7 +279,6 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
         int slot = tail%args->substeps;
         MPICHECK(ncclMpiTest(RECV_REQ(slot), &done));
         if (done) {
-          //printf("Done  Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
           tail++;
           if (directDevMem) {
             *nextTail = tail;
@@ -298,7 +294,6 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
         int slot = head%args->substeps;
         if (cudaEventQuery(resources->syncEvent[slot]) == cudaSuccess) {
           MPICHECK(ncclMpiIrecv(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag, RECV_REQ(slot)));
-          //printf("Posted Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
           head++;
           idle = 0;
         }
@@ -309,7 +304,6 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
         MPICHECK(ncclMpiTest(RECV_REQ(slot), &done));
         if (done) {
           // Send to GPU
-          //printf("Done  Irecv slot %d head/tail/nsteps/nextHead %d/%d/%d/%d\n", slot, head, tail, args->nsteps, *nextHead);
           CUDACHECK(cudaMemcpyAsync(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, maxSize, cudaMemcpyHostToDevice, resources->stream));
           CUDACHECK(cudaEventRecord(resources->syncEvent[slot], resources->stream));
           tail++;
