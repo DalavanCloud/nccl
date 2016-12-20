@@ -399,7 +399,6 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   for (int rank=0; rank<nranks; rank++) {
     NCCLCHECK(ncclGetRings(&nrings, rank, nranks, connectTransport, connectValue, prev, next));
     nringsFinal = min(nrings, nringsFinal);
-    printf("Rank %d rings %d\n", rank, nrings);
     for (int ring=0; ring<nrings; ring++) {
       int index = ring*nranks+rank;
       prevFinal[index] = prev[index];

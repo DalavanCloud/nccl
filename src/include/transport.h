@@ -131,4 +131,11 @@ static inline int groupPos(int nranks, int* groups, int group, int pos) {
     }
   }
 }
+
+static inline int findConnect(int nranks, int* ranks) {
+  for (int i = 0; i<nranks; i++) {
+    if (ranks[i] != -1) return i;
+  }
+  return -1;
+}
 #endif

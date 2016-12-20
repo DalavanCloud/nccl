@@ -83,7 +83,6 @@ static int getNvlinkCount(const char* busId1, const char* busId2) {
   return links;
 }
 
-
 /* Determine if we can communicate with the peer */
 ncclResult_t p2pCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
   struct p2pInfo* myInfo = (struct p2pInfo*)myOpaqueInfo;
@@ -112,7 +111,8 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
   int nrings = 0;
   int* line = matrix+current*n;
   inTheRing[current] = 1;
-  rings[(currentRing+1)*n-remaining-1] = current;
+  int currentStep = (currentRing+1)*n-remaining;
+  rings[currentStep-1] = current;
   if (remaining == 0) {
     int looprank = rings[currentRing*n];
     if (line[looprank] > 0) {
@@ -123,8 +123,8 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
 	for (int i=0; i<n; i++) inTheRing[i] = 0;
         if (connect) {
           // First two slots are already set and we need to respect those constraints
-          inTheRing[rings[(currentRing+1)*n+0]] = 1;
-	  nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, rings[(currentRing+1)*n+1], n-2, connect);
+          inTheRing[rings[currentStep]] = 1;
+	  nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, rings[currentStep+1], n-2, connect);
         } else {
           rings[(currentRing+1)*n] = 0;
 	  nrings = 1 + computeRingsRec(matrix, n, rings, currentRing+1, nRingsMax, inTheRing, 0, n-1, connect);
@@ -134,18 +134,19 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
       }
     }
   } else {
-    int rings_save[nRingsMax*n];
-    int offset = currentRing*n+n-remaining;
+    int ringsSave[nRingsMax*n];
+    int maxStep = 0;
     for (int i=0; i<n; i++) {
       if (inTheRing[i] == 0 && line[i] > 0) {
         line[i]--;
         int nr = computeRingsRec(matrix, n, rings, currentRing, nRingsMax, inTheRing, i, remaining-1, connect);
         if (nr > nrings) {
           nrings = nr;
-          rings_save[offset] = i;
+          maxStep = (nr+currentRing)*n;
+          ringsSave[currentStep] = i;
           // Save the rest of the rings
-          for (int r=offset+1; r<(nrings+currentRing)*n; r++) {
-            rings_save[r] = rings[r];
+          for (int r=currentStep+1; r<maxStep; r++) {
+            ringsSave[r] = rings[r];
           }
           if (nrings + currentRing == nRingsMax) {
             // We found an optimal solution. Let's stop there.
@@ -155,8 +156,8 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
         line[i]++;
       }
     }
-    for (int r=offset; r<(nrings+currentRing)*n; r++) {
-      rings[r] = rings_save[r];
+    for (int r=currentStep; r<maxStep; r++) {
+      rings[r] = ringsSave[r];
     }
   }
   inTheRing[current] = 0;
@@ -179,31 +180,21 @@ int p2pComputeRings(int* matrix, int nranks, int *rings, int nringsMax, int conn
 }
 
 int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int oversubscribe) {
+  // Find existing constraints / connections
   int connect = 0;
-
   for (int r=0; r<nrings; r++) {
-    int start = -1, end = -1;
-    for (int i = 0; i<nranks; i++) {
-      if (prev[r*nranks+i] != -1) {
-        start = i;
-        break;
-      }
-    }
-    for (int i = 0; i<nranks; i++) {
-      if (next[r*nranks+i] != -1) {
-        end = i;
-        break;
-      }
-    }
+    int start = findConnect(nranks, prev+r*nranks);
+    int end = findConnect(nranks, next+r*nranks);
     if (start != -1 && end != -1) {
       rings[r*nranks] = end;
       rings[r*nranks+1] = start;
       connect = 1;
     }
   }
-
+  // Compute rings
   int matrix[nranks*nranks];
-  for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++) matrix[i*nranks+j] = oversubscribe ? values[i*nranks+j] : values[i*nranks+j]/2;
+  for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++)
+    matrix[i*nranks+j] = oversubscribe ? values[i*nranks+j] : values[i*nranks+j]/2;
   return p2pComputeRings(matrix, nranks, rings, nrings, connect);
 }
 
@@ -216,7 +207,7 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
   int rings[MAXRINGS*nranks];
   for (int i=0; i<MAXRINGS*nranks; i++) rings[i] = -1;
 
-  // NVLinks rings go by pair
+  // NVLinks rings go by pair and we duplicate them later
   int nrings = *nringsRet / 2;
 
   // Get the maximum number of rings given the number of nvlinks
@@ -256,7 +247,6 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
 
   *nringsRet = nrings;
   for (int ring = 0; ring<nrings; ring++) {
-    // We double the rings for NVLink
     int input_ring = pcie ? ring : ring % (nrings/2);
 
     for (int index=0; index<nranks; index++) {

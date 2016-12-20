@@ -221,6 +221,17 @@ int NVL4_vl[] =
     2, 2, 1, 4,
     2, 2, 4, 1 };
 
+int NVH4_tr[] = 
+  { 0, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0 };
+int NVH4_vl[] =
+  { 1, 2, 2, 2,
+    2, 1, 2, 2,
+    2, 2, 1, 2,
+    2, 2, 2, 1 };
+
 int NVL8_tr[] = 
   { 0, 0, 0, 0, 0, 1, 1, 1,
     0, 0, 0, 0, 1, 0, 1, 1,
@@ -508,6 +519,7 @@ int main() {
   getRings(8, QPU8_tr, QPU8_vl, "QPU  8");
   getRings(16, QPU16_tr, QPU16_vl, "QPU 16");
   getRings(4, NVL4_tr, NVL4_vl, "NVL  4");
+  getRings(4, NVH4_tr, NVH4_vl, "NVH  4");
   getRings(8, NVL8_tr, NVL8_vl, "NVL  8");
   getRings(16, NVL16_tr, NVL16_vl, "NVL 16");
   getRings(32, NVL32_tr, NVL32_vl, "NVL 32");
