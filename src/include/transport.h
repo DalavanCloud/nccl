@@ -37,6 +37,7 @@ struct ncclProxyArgs {
 struct ncclTransportComm {
   ncclResult_t (*setup)(ncclTinfo_t*, ncclTinfo_t*, struct ncclConnect*, struct ncclRing*);
   ncclResult_t (*connect)(struct ncclConnect*, struct ncclConnector*);
+  ncclResult_t (*free)(void*);
   ncclResult_t (*proxy)(struct ncclProxyArgs*);
 };
 

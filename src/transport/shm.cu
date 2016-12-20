@@ -21,14 +21,14 @@ struct shmInfo {
   int hostNumber;
 };
 
-struct shmConnectSendInfo {
+struct shmSendConnectInfo {
   int pid;
   int id;
   int rank;
-  int shmsize;
+  int shmSize;
 };
 
-struct shmConnectRecvInfo {
+struct shmRecvConnectInfo {
 #ifdef SHM_PROXY
   int direct;
   union {
@@ -39,20 +39,23 @@ struct shmConnectRecvInfo {
   int pid;
   int id;
   int rank;
-  int shmsize;
+  int shmSize;
 #endif
 };
 
-struct shmResourcesSend {
+struct shmSendResources {
+  int remShmSize;
   struct ncclSendRecvMem* remHostMem;
   struct ncclSendRecvMem* devRemHostMem;
+  char shmName[1024];
+  int shmSize;
   int* hostMem;
   int* devHostMem;
 };
 
 #define MAXSTEPS 8
 
-struct shmResourcesRecv {
+struct shmRecvResources {
 #ifdef SHM_PROXY
   int prevCudaDev;
   int localCudaDev;
@@ -61,9 +64,12 @@ struct shmResourcesRecv {
   cudaEvent_t syncEvent[MAXSTEPS];
   struct ncclSendRecvMem* remDevMem;
 #else
+  int remShmSize;
   struct ncclSendRecvMem* remHostMem;
   struct ncclSendRecvMem* devRemHostMem;
 #endif
+  char shmName[1024];
+  int shmSize;
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
 };
@@ -126,10 +132,10 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
   struct shmInfo* peerInfo = (struct shmInfo*)peerOpaqueInfo;
 
-  struct shmResourcesSend* resources = (struct shmResourcesSend*)malloc(sizeof(struct shmResourcesSend));
+  struct shmSendResources* resources = (struct shmSendResources*)malloc(sizeof(struct shmSendResources));
   ring->send.transportResources = resources;
 
-  struct shmConnectRecvInfo info;
+  struct shmRecvConnectInfo info;
 #ifdef SHM_PROXY
   // Send devMem ptr to receiver so that proxy thread can update my head ptr
   if (myInfo->pid == peerInfo->pid) {
@@ -146,21 +152,21 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   }
   INFO("%d -> %d via proxy shared memory", myInfo->rank, peerInfo->rank);
 #else
-  char shmname[1024];
-  sprintf(shmname, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
-  NCCLCHECK(shmOpen(shmname, sizeof(int), (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
+  sprintf(resources->shmName, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
+  info.shmSize = resources->shmSize = sizeof(int);
+  NCCLCHECK(shmOpen(resources->shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
   INFO("%d -> %d via direct shared memory", myInfo->rank, peerInfo->rank);
-  info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid; info.shmsize = sizeof(int);
+  info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid;
 #endif
-  static_assert(sizeof(struct shmConnectRecvInfo) <= sizeof(struct ncclConnect), "shm Connect Recv Info is too big");
-  memcpy(connectInfo, &info, sizeof(struct shmConnectRecvInfo));
+  static_assert(sizeof(struct shmRecvConnectInfo) <= sizeof(struct ncclConnect), "shm Connect Recv Info is too big");
+  memcpy(connectInfo, &info, sizeof(struct shmRecvConnectInfo));
   return ncclSuccess;
 }
 
 ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
-  struct shmResourcesRecv* resources = (struct shmResourcesRecv*) malloc(sizeof(struct shmResourcesRecv));
+  struct shmRecvResources* resources = (struct shmRecvResources*) malloc(sizeof(struct shmRecvResources));
   ring->recv.transportResources = resources;
 
   // Create streams for proxy
@@ -176,23 +182,43 @@ ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
     CUDACHECK(cudaEventCreate(resources->syncEvent+i));
 #endif
 
-  char shmname[1024];
-  sprintf(shmname, "nccl-shm-recv-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
-  int shmsize = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
-  NCCLCHECK(shmOpen(shmname, shmsize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
+  struct shmSendConnectInfo info;
+
+  sprintf(resources->shmName, "nccl-shm-recv-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
+  info.shmSize = resources->shmSize = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
+  NCCLCHECK(shmOpen(resources->shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
-  struct shmConnectSendInfo info;
-  info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid; info.shmsize = shmsize;
-  static_assert(sizeof(struct shmConnectRecvInfo) <= sizeof(struct ncclConnect), "shm Connect Send Info is too big");
-  memcpy(connectInfo, &info, sizeof(struct shmConnectSendInfo));
+  info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid;
+  static_assert(sizeof(struct shmRecvConnectInfo) <= sizeof(struct ncclConnect), "shm Connect Send Info is too big");
+  memcpy(connectInfo, &info, sizeof(struct shmSendConnectInfo));
   return ncclSuccess;
 }
 
 /* Connect to this peer */
-ncclResult_t shmConnectRecv(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
+ncclResult_t shmSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   // Setup device pointers
-  struct shmResourcesRecv* resources = (struct shmResourcesRecv*)recv->transportResources;
-  struct shmConnectRecvInfo* info = (struct shmConnectRecvInfo*)connectInfo;
+  struct shmSendConnectInfo* info = (struct shmSendConnectInfo*)connectInfo;
+  struct shmSendResources* resources = (struct shmSendResources*)send->transportResources;
+
+  char shmName[1024];
+  sprintf(shmName, "nccl-shm-recv-%d-%d-%d", info->pid, info->id, info->rank);
+  resources->remShmSize = info->shmSize;
+  NCCLCHECK(shmOpen(shmName, resources->remShmSize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
+
+  send->transportResources = resources;
+  send->conn.buff = resources->devRemHostMem->buff;
+  send->conn.tail = &resources->devRemHostMem->tail;
+  send->conn.opCount = &resources->devRemHostMem->opCount;
+#ifndef SHM_PROXY
+  send->conn.head = resources->devHostMem;
+#endif
+  return ncclSuccess;
+}
+
+ncclResult_t shmRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
+  // Setup device pointers
+  struct shmRecvResources* resources = (struct shmRecvResources*)recv->transportResources;
+  struct shmRecvConnectInfo* info = (struct shmRecvConnectInfo*)connectInfo;
 
 #ifdef SHM_PROXY
   // Setup receive proxy pointers
@@ -207,9 +233,10 @@ ncclResult_t shmConnectRecv(struct ncclConnect* connectInfo, struct ncclConnecto
   }
   recv->conn.head = &resources->devHostMem->head;
 #else
-  char shmname[1024];
-  sprintf(shmname, "nccl-shm-send-%d-%d-%d", info->pid, info->id, info->rank);
-  NCCLCHECK(shmOpen(shmname, info->shmsize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
+  char shmName[1024];
+  sprintf(shmName, "nccl-shm-send-%d-%d-%d", info->pid, info->id, info->rank);
+  resources->remShmSize = info->shmSize;
+  NCCLCHECK(shmOpen(shmName, resources->remShmSize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
   recv->conn.head = &resources->devRemHostMem->head;
   recv->conn.buff = resources->devHostMem->buff;
   recv->conn.tail = &resources->devHostMem->tail;
@@ -218,21 +245,25 @@ ncclResult_t shmConnectRecv(struct ncclConnect* connectInfo, struct ncclConnecto
   return ncclSuccess;
 }
 
-ncclResult_t shmConnectSend(struct ncclConnect* connectInfo, struct ncclConnector* send) {
-  // Setup device pointers
-  struct shmConnectSendInfo* info = (struct shmConnectSendInfo*)connectInfo;
-  struct shmResourcesSend* resources = (struct shmResourcesSend*)send->transportResources;
+ncclResult_t shmSendFree(void* transportResources) {
+  struct shmSendResources* resources = (struct shmSendResources*)transportResources;
+  NCCLCHECK(shmClose(resources->hostMem, resources->devHostMem, resources->shmName, resources->shmSize));
+  NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, NULL, resources->remShmSize));
+  return ncclSuccess;
+}
 
-  char shmname[1024];
-  sprintf(shmname, "nccl-shm-recv-%d-%d-%d", info->pid, info->id, info->rank);
-  NCCLCHECK(shmOpen(shmname, info->shmsize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
-
-  send->transportResources = resources;
-  send->conn.buff = resources->devRemHostMem->buff;
-  send->conn.tail = &resources->devRemHostMem->tail;
-  send->conn.opCount = &resources->devRemHostMem->opCount;
-#ifndef SHM_PROXY
-  send->conn.head = resources->devHostMem;
+ncclResult_t shmRecvFree(void* transportResources) {
+  struct shmRecvResources* resources = (struct shmRecvResources*)transportResources;
+  NCCLCHECK(shmClose(resources->hostMem, resources->devHostMem, resources->shmName, resources->shmSize));
+#ifdef SHM_PROXY
+  CUDACHECK(cudaStreamDestroy(prevStream));
+  CUDACHECK(cudaStreamDestroy(localStream));
+  for (int i=0; i<MAXSTEPS; i++) {
+    CUDACHECK(cudaEvenDestroy(resources->syncEvent[i]));
+  }
+  CUDACHECK(cudaIpcCloseMemHandle(resources->remDevMem));
+#else
+  NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, NULL, resources->remShmSize));
 #endif
   return ncclSuccess;
 }
@@ -240,7 +271,7 @@ ncclResult_t shmConnectSend(struct ncclConnect* connectInfo, struct ncclConnecto
 #ifdef SHM_PROXY
 ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct shmResourcesRecv* resources = (struct shmResourcesRecv*) (ring->recv.transportResources);
+  struct shmRecvResources* resources = (struct shmRecvResources*) (ring->recv.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = &resources->remDevMem->head;
@@ -300,8 +331,8 @@ struct ncclTransport shmTransport = {
   shmFillInfo,
   shmCanConnect,
   shmGetRings,
-  { shmSetupSend, shmConnectSend, NULL },
-  { shmSetupRecv, shmConnectRecv, 
+  { shmSetupSend, shmSendConnect, shmSendFree, NULL },
+  { shmSetupRecv, shmRecvConnect, shmRecvFree,
 #ifdef SHM_PROXY
     shmRecvProxy
 #else

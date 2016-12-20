@@ -16,7 +16,7 @@ struct socketInfo {
   struct socketAddress connect_addr;
 };
 
-struct socketResourcesSend {
+struct socketSendResources {
   int fd;
   cudaStream_t stream;
   struct ncclSendRecvMem* hostMem;
@@ -25,7 +25,7 @@ struct socketResourcesSend {
 
 #define MAXSTEPS 8
 
-struct socketResourcesRecv {
+struct socketRecvResources {
   int listen_fd;
   int fd;
   cudaStream_t stream;
@@ -89,8 +89,8 @@ ncclResult_t socketGetRings(int nranks, int ngroups, int* groups, int* values, i
 }
 
 /* Create and return connect structures for this peer to connect to me */
-ncclResult_t socketSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct socketResourcesSend* resources = (struct socketResourcesSend*) malloc(sizeof(struct socketResourcesSend));
+ncclResult_t socketSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct socketSendResources* resources = (struct socketSendResources*) malloc(sizeof(struct socketSendResources));
   ring->send.transportResources = resources;
 
   // Create stream for proxy
@@ -106,8 +106,8 @@ ncclResult_t socketSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueI
   return ncclSuccess;
 }
 
-ncclResult_t socketSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct socketResourcesRecv* resources = (struct socketResourcesRecv*) malloc(sizeof(struct socketResourcesRecv));
+ncclResult_t socketRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct socketRecvResources* resources = (struct socketRecvResources*) malloc(sizeof(struct socketRecvResources));
   ring->recv.transportResources = resources;
 
   // Create stream for proxy
@@ -131,9 +131,9 @@ ncclResult_t socketSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueI
   return ncclSuccess;
 }
 
-ncclResult_t socketConnectSend(struct ncclConnect* connectInfo, struct ncclConnector* send) {
+ncclResult_t socketSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   // Setup device pointers
-  struct socketResourcesSend* resources = (struct socketResourcesSend*)send->transportResources;
+  struct socketSendResources* resources = (struct socketSendResources*)send->transportResources;
   send->conn.buff = resources->devHostMem->buff;
   send->conn.tail = &resources->devHostMem->tail;
   send->conn.opCount = &resources->devHostMem->opCount;
@@ -145,9 +145,9 @@ ncclResult_t socketConnectSend(struct ncclConnect* connectInfo, struct ncclConne
 }
 
 /* Connect to this peer */
-ncclResult_t socketConnectRecv(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
+ncclResult_t socketRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
   // Setup device pointers
-  struct socketResourcesRecv* resources = (struct socketResourcesRecv*)recv->transportResources;
+  struct socketRecvResources* resources = (struct socketRecvResources*)recv->transportResources;
   recv->conn.head = &resources->devHostMem->head;
 
   // We will finish the socket setup at beginning of Recv proxy
@@ -155,9 +155,31 @@ ncclResult_t socketConnectRecv(struct ncclConnect* connectInfo, struct ncclConne
   return ncclSuccess;
 }
 
+ncclResult_t socketSendFree(void* transportResources) {
+  struct socketSendResources* resources = (struct socketSendResources*)transportResources;
+  SYSCHECK(close(resources->fd), "close");
+  CUDACHECK(cudaStreamDestroy(resources->stream));
+  CUDACHECK(cudaHostUnregister(resources->devHostMem));
+  free(resources->hostMem);
+  return ncclSuccess;
+}
+
+ncclResult_t socketRecvFree(void* transportResources) {
+  struct socketRecvResources* resources = (struct socketRecvResources*)transportResources;
+  SYSCHECK(close(resources->listen_fd), "close");
+  SYSCHECK(close(resources->fd), "close");
+  CUDACHECK(cudaStreamDestroy(resources->stream));
+  for (int i=0; i<MAXSTEPS; i++) {
+    CUDACHECK(cudaEventDestroy(resources->syncEvent[i]));
+  }
+  CUDACHECK(cudaHostUnregister(resources->devHostMem));
+  free(resources->hostMem);
+  return ncclSuccess;
+}
+
 ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct socketResourcesSend* resources = (struct socketResourcesSend*) (ring->send.transportResources);
+  struct socketSendResources* resources = (struct socketSendResources*) (ring->send.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = &devMem->head;
@@ -196,7 +218,7 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
 
 ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct socketResourcesRecv* resources = (struct socketResourcesRecv*) (ring->recv.transportResources);
+  struct socketRecvResources* resources = (struct socketRecvResources*) (ring->recv.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
   int* nextTail = &devMem->tail;
   int* nextOpCount = &devMem->opCount;
@@ -253,6 +275,6 @@ struct ncclTransport socketTransport = {
   socketFillInfo,
   socketCanConnect,
   socketGetRings,
-  { socketSetupSend, socketConnectSend, socketSendProxy },
-  { socketSetupRecv, socketConnectRecv, socketRecvProxy }
+  { socketSendSetup, socketSendConnect, socketSendFree, socketSendProxy },
+  { socketRecvSetup, socketRecvConnect, socketRecvFree, socketRecvProxy }
 };

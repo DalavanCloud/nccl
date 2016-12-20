@@ -39,18 +39,28 @@ static ncclResult_t shmOpen(const char* shmname, const int shmsize, void** shmPt
 
   if (cudaHostRegister(ptr, shmsize, cudaHostRegisterMapped) != cudaSuccess) {
     WARN("failed to register host buffer");
-    shm_unlink(shmname);
+    if (create) shm_unlink(shmname);
     munmap(ptr, shmsize);
     return ncclUnhandledCudaError;
   }   
 
   if (cudaHostGetDevicePointer(devShmPtr, ptr, 0) != cudaSuccess) {
     WARN("failed to get device pointer for local shmem");
-    shm_unlink(shmname);
+    if (create) shm_unlink(shmname);
     munmap(ptr, shmsize);
     return ncclUnhandledCudaError;
   }
   *shmPtr = ptr;
+  return ncclSuccess;
+}
+
+static ncclResult_t shmClose(void* shmPtr, void* devShmPtr, const char* shmname, const int shmsize) {
+  if (shmname != NULL) shm_unlink(shmname);
+  CUDACHECK(cudaHostUnregister(devShmPtr));
+  if (munmap(shmPtr, shmsize) != 0) {
+    WARN("munmap of shared memory failed");
+    return ncclSystemError;
+  }
   return ncclSuccess;
 }
 

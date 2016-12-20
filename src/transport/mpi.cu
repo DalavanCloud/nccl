@@ -17,7 +17,7 @@ struct mpiInfo {
   int mpiTag;
 };
 
-struct mpiResourcesSend {
+struct mpiSendResources {
   int mpiRank;
   int mpiTag;
   cudaStream_t stream;
@@ -28,7 +28,7 @@ struct mpiResourcesSend {
 
 #define MAXSTEPS 8
 
-struct mpiResourcesRecv {
+struct mpiRecvResources {
   int mpiRank;
   int mpiTag;
   cudaStream_t stream;
@@ -103,8 +103,8 @@ ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int*
 
 /* Determine if we will use this transport for this peer and return connect
  * information for this peer */
-ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct mpiResourcesSend* resources = (struct mpiResourcesSend*) malloc(sizeof(struct mpiResourcesSend));
+ncclResult_t mpiSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct mpiSendResources* resources = (struct mpiSendResources*) malloc(sizeof(struct mpiSendResources));
   ring->send.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
@@ -122,8 +122,8 @@ ncclResult_t mpiSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   return ncclSuccess;
 }
 
-ncclResult_t mpiSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct mpiResourcesRecv* resources = (struct mpiResourcesRecv*) malloc(sizeof(struct mpiResourcesRecv));
+ncclResult_t mpiRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct mpiRecvResources* resources = (struct mpiRecvResources*) malloc(sizeof(struct mpiRecvResources));
   ring->recv.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
@@ -149,9 +149,9 @@ ncclResult_t mpiSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   return ncclSuccess;
 }
 
-ncclResult_t mpiConnectSend(struct ncclConnect* connectInfo, struct ncclConnector* send) {
+ncclResult_t mpiSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   // Setup device pointers
-  struct mpiResourcesSend* resources = (struct mpiResourcesSend*)send->transportResources;
+  struct mpiSendResources* resources = (struct mpiSendResources*)send->transportResources;
   send->conn.buff = resources->devHostMem->buff;
   send->conn.tail = &resources->devHostMem->tail;
   send->conn.opCount = &resources->devHostMem->opCount;
@@ -164,14 +164,35 @@ ncclResult_t mpiConnectSend(struct ncclConnect* connectInfo, struct ncclConnecto
 }
 
 /* Connect to this peer */
-ncclResult_t mpiConnectRecv(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
+ncclResult_t mpiRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
   // Setup device pointers
-  struct mpiResourcesRecv* resources = (struct mpiResourcesRecv*)recv->transportResources;
+  struct mpiRecvResources* resources = (struct mpiRecvResources*)recv->transportResources;
   recv->conn.head = &resources->devHostMem->head;
 
   // Setup remote MPI rank / tag
   struct mpiInfo* info = (struct mpiInfo*)connectInfo;
   resources->mpiRank = info->mpiRank;
+  return ncclSuccess;
+}
+
+ncclResult_t mpiSendFree(void* transportResources) {
+  struct mpiSendResources* resources = (struct mpiSendResources*)transportResources;
+  CUDACHECK(cudaStreamDestroy(resources->stream));
+  CUDACHECK(cudaHostUnregister(resources->devHostMem));
+  free(resources->hostMem);
+  // TODO : unmap hostDevMem
+  return ncclSuccess;
+}
+
+ncclResult_t mpiRecvFree(void* transportResources) {
+  struct mpiRecvResources* resources = (struct mpiRecvResources*)transportResources;
+  CUDACHECK(cudaStreamDestroy(resources->stream));
+  for (int i=0; i<MAXSTEPS; i++) {
+    CUDACHECK(cudaEventDestroy(resources->syncEvent[i]));
+  }
+  CUDACHECK(cudaHostUnregister(resources->devHostMem));
+  free(resources->hostMem);
+  // TODO : unmap hostDevMem
   return ncclSuccess;
 }
 
@@ -181,7 +202,7 @@ ncclResult_t mpiConnectRecv(struct ncclConnect* connectInfo, struct ncclConnecto
 
 ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct mpiResourcesSend* resources = (struct mpiResourcesSend*) (ring->send.transportResources);
+  struct mpiSendResources* resources = (struct mpiSendResources*) (ring->send.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = &devMem->head;
@@ -231,7 +252,7 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
 
 ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct mpiResourcesRecv* resources = (struct mpiResourcesRecv*) (ring->recv.transportResources);
+  struct mpiRecvResources* resources = (struct mpiRecvResources*) (ring->recv.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
 
   int mpiCudaSupport = ncclMpiCudaSupport();
@@ -330,6 +351,6 @@ struct ncclTransport mpiTransport = {
   mpiFillInfo,
   mpiCanConnect,
   mpiGetRings,
-  { mpiSetupSend, mpiConnectSend, mpiSendProxy },
-  { mpiSetupRecv, mpiConnectRecv, mpiRecvProxy }
+  { mpiSendSetup, mpiSendConnect, mpiSendFree, mpiSendProxy },
+  { mpiRecvSetup, mpiRecvConnect, mpiRecvFree, mpiRecvProxy }
 };

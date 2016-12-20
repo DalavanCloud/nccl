@@ -324,7 +324,7 @@ static ncclResult_t p2pConnect(struct ncclConnect* connectInfo, struct ncclConne
 }
 
 /* Connect to this peer */
-ncclResult_t p2pConnectSend(struct ncclConnect* connectInfo, struct ncclConnector* send) {
+ncclResult_t p2pSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   struct ncclSendRecvMem* remDevMem;
   NCCLCHECK(p2pConnect(connectInfo, send, &remDevMem));
   send->conn.buff = remDevMem->buff;
@@ -334,7 +334,7 @@ ncclResult_t p2pConnectSend(struct ncclConnect* connectInfo, struct ncclConnecto
   return ncclSuccess;
 }
 
-ncclResult_t p2pConnectRecv(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
+ncclResult_t p2pRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
   struct ncclSendRecvMem* remDevMem;
   NCCLCHECK(p2pConnect(connectInfo, recv, &remDevMem));
   // recv->conn->buff should have been set to devMem already
@@ -344,13 +344,17 @@ ncclResult_t p2pConnectRecv(struct ncclConnect* connectInfo, struct ncclConnecto
   return ncclSuccess;
 }
 
+ncclResult_t p2pFree(void* resources) {
+  return ncclSuccess;
+}
+
 struct ncclTransport p2pTransport = {
   "P2P",
   p2pFillInfo,
   p2pCanConnect,
   p2pGetRings,
-  { p2pSetup, p2pConnectSend, NULL },
-  { p2pSetup, p2pConnectRecv, NULL }
+  { p2pSetup, p2pSendConnect, p2pFree, NULL },
+  { p2pSetup, p2pRecvConnect, p2pFree, NULL }
 };
 
 
