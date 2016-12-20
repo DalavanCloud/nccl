@@ -71,7 +71,7 @@ int ncclMpiIsend(int rank, void* data, int size, int tag, int request) {
 
 int ncclMpiIrecv(int rank, void* data, int size, int tag, int request) {
   CHECKREQINDEX(request);
-  return MPI_Irecv(data, size, MPI_BYTE, rank == -1 ? MPI_ANY_SOURCE : rank, tag, MPI_COMM_WORLD, ncclMpiRequests+request+1);
+  return MPI_Irecv(data, size, MPI_BYTE, rank == -1 ? MPI_ANY_SOURCE : rank, tag, ncclMpiComm, ncclMpiRequests+request+1);
 }
 
 int ncclMpiTest(int request, int* done) {
