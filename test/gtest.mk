@@ -12,6 +12,7 @@ gtest.clean :
 	rm -f $(addprefix $(BUILDDIR)/test/,gtest.a gtest_main.a gtest-all.o gtest_main.o)
 
 $(BUILDDIR)/test/gtest%.o : $(GTEST_SRCS_)
+	@mkdir -p $(BUILDDIR)/test
 	$(CXX) -o $@ $(CPPFLAGS) -I$(GTEST_DIR) -c $(GTEST_DIR)/src/gtest$*.cc
 
 $(BUILDDIR)/test/gtest_main.a : $(BUILDDIR)/test/gtest-all.o $(BUILDDIR)/test/gtest_main.o
