@@ -161,6 +161,7 @@ ncclResult_t socketSendFree(void* transportResources) {
   CUDACHECK(cudaStreamDestroy(resources->stream));
   CUDACHECK(cudaHostUnregister(resources->devHostMem));
   free(resources->hostMem);
+  free(resources);
   return ncclSuccess;
 }
 
@@ -174,6 +175,7 @@ ncclResult_t socketRecvFree(void* transportResources) {
   }
   CUDACHECK(cudaHostUnregister(resources->devHostMem));
   free(resources->hostMem);
+  free(resources);
   return ncclSuccess;
 }
 

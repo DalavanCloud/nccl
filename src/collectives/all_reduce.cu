@@ -78,7 +78,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     int maxOffset;
     int slice;
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,nranks*gridDim.x));
-    ALIGN_SIZE(chunkSize, THREADS*UNROLL);
+    //if (tid == 0 && chunkSize != sliceSize) printf("Size=%d, Offset=%d, Chunksize = %d\n", size, gridOffset, chunkSize);
     int chunkOffset = gridOffset + bid*nranks*chunkSize;
 
     // step 0: push data to next GPU
@@ -230,7 +230,8 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm));
+    int maxSize = DIVUP(count, comm->nRanks*comm->nRings);
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), maxSize*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->nRings > 1) {

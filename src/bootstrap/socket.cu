@@ -68,6 +68,7 @@ ncclResult_t bootstrapSocketInit(ncclUniqueId* commId, int rank, int nranks, voi
       fds[rank] = sockfd;
     }
     close(id->fd);
+    free(id->lock);
   } else {
     /* Connect to the root */
     NCCLCHECK(connectAddress(&id->addr, &fds[0]));

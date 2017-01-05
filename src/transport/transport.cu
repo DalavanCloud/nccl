@@ -34,7 +34,8 @@ static void FifoPushArgs(struct transportProxyInfo* info, struct ncclProxyArgs *
   pthread_mutex_lock(&info->mutex);
   while (info->argsFifoTail == info->argsFifoHead + TRANSPORT_PROXY_FIFO_SIZE)
     pthread_cond_wait(&info->cond, &info->mutex);
-  memcpy(info->argsFifo + (info->argsFifoTail % TRANSPORT_PROXY_FIFO_SIZE), args, sizeof(struct ncclProxyArgs));
+  // args may be null in the case of termination
+  if (args) memcpy(info->argsFifo + (info->argsFifoTail % TRANSPORT_PROXY_FIFO_SIZE), args, sizeof(struct ncclProxyArgs));
   info->argsFifoTail++;
   pthread_cond_signal(&info->cond);
   pthread_mutex_unlock(&info->mutex);
@@ -50,6 +51,15 @@ static void WaitProxyReady(struct transportProxyInfo* info) {
 static void SetProxyReady(struct transportProxyInfo* info) {
   pthread_mutex_lock(&info->mutex);
   info->proxyReady = 1;
+  pthread_cond_signal(&info->cond);
+  pthread_mutex_unlock(&info->mutex);
+}
+
+static void StopProxy(struct transportProxyInfo* info) {
+  pthread_mutex_lock(&info->mutex); 
+  info->proxyReady = -1;
+  // Unblock thread
+  FifoPushArgs(info, NULL);
   pthread_cond_signal(&info->cond);
   pthread_mutex_unlock(&info->mutex);
 }
@@ -87,12 +97,12 @@ static void StartProxy(int type, int substeps, int nsteps, int size, int opCount
   }
 }
 
-ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, int pattern, struct ncclComm* comm) {
+ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, int maxSize, int pattern, struct ncclComm* comm) {
   for (int r=0; r<comm->nRings; r++) {
     int nrounds = DIVUP(size, comm->nRings * nblocks_per_round * (comm->rings[r].buffSize/subchunks));
     int nsteps = nsteps_per_round * nrounds * substeps;
-    StartProxy(0, substeps*subchunks, nsteps, size, comm->opCount, comm->rings+r, pattern, comm->nRanks);
-    StartProxy(1, substeps*subchunks, nsteps, size, comm->opCount, comm->rings+r, pattern, comm->nRanks);
+    StartProxy(0, substeps*subchunks, nsteps, maxSize, comm->opCount, comm->rings+r, pattern, comm->nRanks);
+    StartProxy(1, substeps*subchunks, nsteps, maxSize, comm->opCount, comm->rings+r, pattern, comm->nRanks);
   }
   return ncclSuccess;
 }
@@ -108,6 +118,10 @@ void* persistentThread(void *opaqueInfo) {
   while (1) {
     struct ncclProxyArgs args;
     FifoPullArgs(info, &args);
+    if (info->proxyReady == -1) {
+      // Main thread asked to stop
+      return NULL;
+    }
     ncclResult_t res = info->func(&args);
     if (res != ncclSuccess) {
       WARN("Persistent proxy : proxy function returned with code %d\n", res);
@@ -133,3 +147,11 @@ ncclResult_t transportCreateProxy(int type, struct ncclRing* ring, struct ncclCo
   return ncclSuccess;
 }
 
+ncclResult_t transportDestroyProxy(struct ncclConnector* connector) {
+  if (connector->proxyInfo) {
+    StopProxy(connector->proxyInfo);
+    pthread_join(connector->proxyInfo->thread, NULL);
+    free(connector->proxyInfo);
+  }
+  return ncclSuccess;
+}

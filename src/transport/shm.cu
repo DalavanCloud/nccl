@@ -249,6 +249,7 @@ ncclResult_t shmSendFree(void* transportResources) {
   struct shmSendResources* resources = (struct shmSendResources*)transportResources;
   NCCLCHECK(shmClose(resources->hostMem, resources->devHostMem, resources->shmName, resources->shmSize));
   NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, NULL, resources->remShmSize));
+  free(resources);
   return ncclSuccess;
 }
 
@@ -265,6 +266,7 @@ ncclResult_t shmRecvFree(void* transportResources) {
 #else
   NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, NULL, resources->remShmSize));
 #endif
+  free(resources);
   return ncclSuccess;
 }
 

@@ -181,6 +181,7 @@ ncclResult_t mpiSendFree(void* transportResources) {
   CUDACHECK(cudaHostUnregister(resources->devHostMem));
   free(resources->hostMem);
   // TODO : unmap hostDevMem
+  free(resources);
   return ncclSuccess;
 }
 
@@ -193,6 +194,7 @@ ncclResult_t mpiRecvFree(void* transportResources) {
   CUDACHECK(cudaHostUnregister(resources->devHostMem));
   free(resources->hostMem);
   // TODO : unmap hostDevMem
+  free(resources);
   return ncclSuccess;
 }
 

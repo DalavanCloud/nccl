@@ -69,6 +69,7 @@ struct transportProxyInfo {
 };
 
 ncclResult_t transportCreateProxy(int type, struct ncclRing* ring, struct ncclComm* comm);
+ncclResult_t transportDestroyProxy(struct ncclConnector* connector);
 
 enum proxyMode {
   proxyRing = 0,
@@ -82,7 +83,7 @@ static int proxyPatternTo(int root) { return -1-root; }
 static enum proxyMode proxyPatternMode(int pattern) { return (pattern == 0) ? proxyRing : ((pattern > 0) ? proxyFrom : proxyTo); }
 static int proxyPatternRoot(int pattern) { return (pattern > 0) ? pattern-1 : -pattern-1; }
 
-ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, int pattern, struct ncclComm* comm);
+ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, int size, int maxSize, int pattern, struct ncclComm* comm);
 
 #include <unistd.h>
 

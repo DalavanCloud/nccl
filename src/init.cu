@@ -64,7 +64,9 @@ static ncclResult_t commFree(ncclComm_t comm) {
 
   for (int ring=0; ring<comm->nRings; ring++) {
     NCCLCHECK(comm->rings[ring].send.transport->send.free(comm->rings[ring].send.transportResources));
+    NCCLCHECK(transportDestroyProxy(&comm->rings[ring].send));
     NCCLCHECK(comm->rings[ring].recv.transport->recv.free(comm->rings[ring].recv.transportResources));
+    NCCLCHECK(transportDestroyProxy(&comm->rings[ring].recv));
   }
 
   if (comm->doneEvent != NULL)
@@ -338,6 +340,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
   }
+  free(allInfo);
   return ncclSuccess;
 }
 
@@ -441,6 +444,7 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
       NCCLCHECK(ring->send.transport->send.connect(connect+2*rank+1, &ring->send));
     }
   }
+  free(allInfo);
   return ncclSuccess;
 }
 
@@ -458,6 +462,10 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   char busId[13];
   nvmlDevice_t nvmlHandle;
   int affinity_set = 0;
+  int ncclDevList[ndev];
+  for (int i=0; i<ndev; i++) {
+    ncclDevList[i] = devlist ? devlist[i] : i;
+  }
 
   res = wrapNvmlSymbols();
   if (res != ncclSuccess) {
@@ -477,7 +485,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
     comms[rank] = NULL;
 
   for (rank=0; rank<ndev; ++rank) {
-    cudaDev = (devlist == NULL) ? rank : devlist[rank];
+    cudaDev = ncclDevList[rank];
     if (cudaSetDevice(cudaDev) != cudaSuccess) {
       WARN("rank %d failed to set cuda device %d", rank, cudaDev);
       res = ncclInvalidDeviceIndex;
@@ -513,14 +521,14 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
     }
   }
 
-  res = initTransportsAll(comms, devlist, ndev);
+  res = initTransportsAll(comms, ncclDevList, ndev);
   if (res != ncclSuccess) {
     WARN("failed to init transports");
     return res;
   }
 
   for(rank=0; rank<ndev; ++rank) {
-    cudaDev = (devlist == NULL) ? rank : devlist[rank];
+    cudaDev = ncclDevList[rank];
     if (cudaSetDevice(cudaDev) != cudaSuccess) {
       WARN("rank %d failed to set cuda device %d", rank, cudaDev);
       res = ncclInvalidDeviceIndex;

@@ -88,6 +88,7 @@ ncclResult_t bootstrapMpiInit(ncclUniqueId* commId, int rank, int nranks, void**
       // Just for sync
       ncclMpiSend(rankInfo[r].mpiRank, &rank, sizeof(int), rankInfo[r].mpiTag);
     }
+    free(id->lock);
   } else {
     rankInfo = (struct mpiInfo*)malloc(sizeof(struct mpiInfo));
     rankInfo->mpiRank = id->mpiRank;
@@ -160,7 +161,6 @@ ncclResult_t bootstrapMpiRingExchange(void* commState, void* prevNextData, int p
 	ncclMpiSend(state->rankInfo[r].mpiRank, data+offset, size, state->rankInfo[r].mpiTag);
       }
     }
-
     free(data);
   } else {
     // Send data to root
