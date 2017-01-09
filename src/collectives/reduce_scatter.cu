@@ -31,8 +31,8 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
   WaitFlag waitDoneFromNext(ring->send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, -1*NUM_SUBSTEPS);
-  PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS);
-  PostFlag postReadyToNext(ring->send.conn.tail, 0);
+  PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS, NULL, 0);
+  PostFlag postReadyToNext(ring->send.conn.tail, 0, NULL, 0);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 

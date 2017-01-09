@@ -33,8 +33,8 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
 
   WaitFlag waitDoneFromNext(ring->send.conn.head, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, 0);
-  PostFlag postDoneToPrev(ring->recv.conn.head, 0);
-  PostFlag postReadyToNext(ring->send.conn.tail, 0);
+  PostFlag postDoneToPrev(ring->recv.conn.head, 0, NULL, 0);
+  PostFlag postReadyToNext(ring->send.conn.tail, 0, NULL, 0);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T> Prims;
 

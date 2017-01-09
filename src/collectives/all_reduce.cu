@@ -36,8 +36,8 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
   WaitFlag waitDoneFromNext(ring->send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, -1*NUM_SUBSTEPS);
-  PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS);
-  PostFlag postReadyToNext(ring->send.conn.tail, 0);
+  PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS, NULL, 0);
+  PostFlag postReadyToNext(ring->send.conn.tail, 0, ring->send.conn.fifo, NUM_BUFCHUNKS*NUM_SUBSTEPS);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
@@ -78,6 +78,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     int maxOffset;
     int slice;
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,nranks*gridDim.x));
+    //ALIGN_SIZE(chunkSize, THREADS*UNROLL);
     //if (tid == 0 && chunkSize != sliceSize) printf("Size=%d, Offset=%d, Chunksize = %d\n", size, gridOffset, chunkSize);
     int chunkOffset = gridOffset + bid*nranks*chunkSize;
 
@@ -259,4 +260,3 @@ ncclResult_t ncclAllReduce(const void* sendbuff, void* recvbuff, int count,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream) {
   return enqueue<AllReduce>(sendbuff, recvbuff, count, datatype, op, 0, comm, stream);
 }
-

@@ -26,6 +26,8 @@ struct ncclConnInfo {
 
   int direct;         // Direct communication
   void **ptrExchange; // Pointer exchange for direct communication
+
+  int *fifo;          // Size fifo for proxy
 };
 
 struct ncclConnector {
@@ -49,6 +51,7 @@ struct ncclSendRecvMem {
       char pad3[CACHE_LINE_SIZE-sizeof(int)];
       int opCount;
       char pad4[CACHE_LINE_SIZE-sizeof(int)];
+      int sizesFifo[TRANSPORT_PROXY_FIFO_SIZE];
     };
     char pad5[PAGE_SIZE];
   };

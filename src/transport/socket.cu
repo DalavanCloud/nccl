@@ -137,6 +137,7 @@ ncclResult_t socketSendConnect(struct ncclConnect* connectInfo, struct ncclConne
   send->conn.buff = resources->devHostMem->buff;
   send->conn.tail = &resources->devHostMem->tail;
   send->conn.opCount = &resources->devHostMem->opCount;
+  send->conn.fifo = resources->devHostMem->sizesFifo;
 
   // Setup receive proxy socket/pointers
   struct socketInfo* info = (struct socketInfo*)connectInfo;
@@ -186,6 +187,7 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = &devMem->head;
   char* localBuff = resources->hostMem->buff;
+  int* sizesFifo = resources->hostMem->sizesFifo;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
   int maxSize = min(sliceSize, args->size);
@@ -201,7 +203,10 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
     transportProxyWait([=] { return head != *prevTail; });
 
     // Send to socket
-    NCCLCHECK(socketSend(resources->fd, localBuff+offset, maxSize));
+    //printf("Sending %d bytes through sockets, fifo_size says %d\n", maxSize, sizesFifo[size_tail]);
+    int size = sizesFifo[head%args->substeps];//maxSize;
+    NCCLCHECK(socketSend(resources->fd, &size, sizeof(size)));
+    NCCLCHECK(socketSend(resources->fd, localBuff+offset, size));
     head++;
     CUDACHECK(cudaMemcpyAsync(prevHead, &head, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
 
@@ -249,11 +254,13 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
   while (head < args->nsteps) {
     // Receive from socket
     CUDACHECK(cudaEventSynchronize(resources->syncEvent[head%args->substeps]));
-    NCCLCHECK(socketReceive(resources->fd, localBuff+offset, maxSize));
+    int size;
+    NCCLCHECK(socketReceive(resources->fd, &size, sizeof(size)));
+    NCCLCHECK(socketReceive(resources->fd, localBuff+offset, size));
 
     // Send to GPU
     transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
-    CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, maxSize, cudaMemcpyHostToDevice, resources->stream));
+    CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, size, cudaMemcpyHostToDevice, resources->stream));
     CUDACHECK(cudaEventRecord(resources->syncEvent[head%args->substeps], resources->stream));
     head++;
     CUDACHECK(cudaMemcpyAsync(nextTail, &head, sizeof(int), cudaMemcpyHostToDevice, resources->stream));
