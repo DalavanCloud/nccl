@@ -178,8 +178,7 @@ ncclResult_t mpiRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
 ncclResult_t mpiSendFree(void* transportResources) {
   struct mpiSendResources* resources = (struct mpiSendResources*)transportResources;
   CUDACHECK(cudaStreamDestroy(resources->stream));
-  CUDACHECK(cudaHostUnregister(resources->devHostMem));
-  free(resources->hostMem);
+  CUDACHECK(cudaFreeHost(resources->hostMem));
   // TODO : unmap hostDevMem
   free(resources);
   return ncclSuccess;
@@ -191,8 +190,7 @@ ncclResult_t mpiRecvFree(void* transportResources) {
   for (int i=0; i<MAXSTEPS; i++) {
     CUDACHECK(cudaEventDestroy(resources->syncEvent[i]));
   }
-  CUDACHECK(cudaHostUnregister(resources->devHostMem));
-  free(resources->hostMem);
+  CUDACHECK(cudaFreeHost(resources->hostMem));
   // TODO : unmap hostDevMem
   free(resources);
   return ncclSuccess;

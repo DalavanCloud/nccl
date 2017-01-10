@@ -160,8 +160,7 @@ ncclResult_t socketSendFree(void* transportResources) {
   struct socketSendResources* resources = (struct socketSendResources*)transportResources;
   SYSCHECK(close(resources->fd), "close");
   CUDACHECK(cudaStreamDestroy(resources->stream));
-  CUDACHECK(cudaHostUnregister(resources->devHostMem));
-  free(resources->hostMem);
+  CUDACHECK(cudaFreeHost(resources->hostMem));
   free(resources);
   return ncclSuccess;
 }
@@ -174,8 +173,7 @@ ncclResult_t socketRecvFree(void* transportResources) {
   for (int i=0; i<MAXSTEPS; i++) {
     CUDACHECK(cudaEventDestroy(resources->syncEvent[i]));
   }
-  CUDACHECK(cudaHostUnregister(resources->devHostMem));
-  free(resources->hostMem);
+  CUDACHECK(cudaFreeHost(resources->hostMem));
   free(resources);
   return ncclSuccess;
 }

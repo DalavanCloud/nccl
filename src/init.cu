@@ -81,6 +81,10 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
     WARN("invalid device count (%d) requested", ndev);
     return ncclUnsupportedDeviceCount;
   }
+  if (ndev > MAXRANKS) {
+    WARN("Device count too large : %d > %d\n", ndev, MAXRANKS);
+    return ncclUnsupportedDeviceCount;
+  }
   if (rank >= ndev || rank < 0) {
     WARN("rank %d exceeds ndev=%d", rank, ndev);
     return ncclInvalidRank;

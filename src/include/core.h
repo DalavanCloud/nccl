@@ -14,8 +14,7 @@
 #include <cuda_runtime.h>
 
 #define MAXRINGS 12
-#define MAXFLAGS (2*MAXRINGS)
-#define MAXRANKS 32
+#define MAXRANKS 128
 #define DEFAULT_BUFFER_SIZE_BYTES (1UL << 22)
 
 struct ncclConnInfo {
