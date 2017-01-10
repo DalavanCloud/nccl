@@ -58,4 +58,9 @@ test: ${BIN}
 	cd ${BUILDDIR} && \
 	export LD_LIBRARY_PATH=$$LD_LIBRARY_PATH:./lib NCCL_DEBUG=WARN && \
 	mpiexec -mca btl self,sm -np ${GPU_COUNT} ./test/mpi/mpi_test
+
+perf: ${BIN}
+	cd ${BUILDDIR} && \
+	export LD_LIBRARY_PATH=$$LD_LIBRARY_PATH:./lib NCCL_DEBUG=WARN && \
+	mpiexec -mca btl self,sm -np ${GPU_COUNT} ./test/mpi/mpi_test -perf
 #EOF
