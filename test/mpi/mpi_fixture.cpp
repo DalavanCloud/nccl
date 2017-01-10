@@ -4,9 +4,9 @@
 #include "TEST_ENV.h"
 #include "mpi_fixture.h"
 template <typename T>
-const int mpi_test<T>::count1 = 32;
+long long int mpi_test<T>::count1 = 0;
 template <typename T>
-int mpi_test<T>::countN = 0;
+long long int mpi_test<T>::countN = 0;
 template <typename T>
 ncclUniqueId mpi_test<T>::commId = {};
 template <typename T>
@@ -33,6 +33,7 @@ const std::map<ncclRedOp_t, MPI_Op> mpi_test<T>::MpiOps = {{ncclSum, MPI_SUM},
                                                            {ncclMin, MPI_MIN}};
 template <typename T>
 void mpi_test<T>::SetUpTestCase() {
+    count1 = isPerf ? 32 * 1024 * 1024 : 32;
     countN = count1 * TEST_ENV::mpi_size;
     // create NCCL Communicator
     MNCCL_ASSERT(ncclGetUniqueId(&commId));
@@ -62,31 +63,46 @@ void mpi_test<T>::AllocData() {
     // stream
     MCUDA_ASSERT(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
     // device memory
-    MCUDA_ASSERT(cudaMalloc(&buf_send_d, count1 * sizeof(T)));
+    MCUDA_ASSERT(cudaMalloc(&buf_send_d, countN * sizeof(T)));
     MCUDA_ASSERT(cudaMalloc(&buf_recv_d, countN * sizeof(T)));
     // host memory
-    buf_send_h.resize(count1);
+    buf_send_h.resize(countN);
     buf_recv_h.resize(countN);
     buf_recv_mpi.resize(countN);
 }
 template <typename T>
 void mpi_test<T>::SetUp() {
-    this->InitInput();
+    this->loop_count = isPerf ? 5 : 1;
+    if (!isPerf) {
+        this->InitInput();
+    }
+    this->t_start = std::chrono::high_resolution_clock::now();
+    this->t_end = this->t_start;
 }
 template <typename T>
 void mpi_test<T>::TearDown() {
-    this->buf_send_h.assign(this->buf_send_h.size(), 0);
-    this->buf_recv_h.assign(this->buf_recv_h.size(), 0);
-    this->buf_recv_mpi.assign(this->buf_recv_mpi.size(), 0);
+    if (!isPerf) {
+        this->buf_send_h.assign(this->buf_send_h.size(), 0);
+        this->buf_recv_h.assign(this->buf_recv_h.size(), 0);
+        this->buf_recv_mpi.assign(this->buf_recv_mpi.size(), 0);
+    }
+    RecordProperty("duration", this->t_duration);
+    if (isPerf && TEST_ENV::mpi_root == TEST_ENV::mpi_rank) {
+        // std::cout << "duration: " << t_duration << std::endl;
+        double bandwidth = sizeof(T) * this->count1 * (TEST_ENV::mpi_size - 1) *
+                           1.0e-6 / this->t_duration;
+        std::cout << "bw: " << bandwidth << " MB/MS." << std::endl;
+    }
 }
 template <typename T>
 void mpi_test<T>::InitInput() {
     // Initialize input values  // rank * count + i
-    for (int i = 0; i < this->count1; i++) {
+    for (unsigned int i = 0; i < this->buf_send_h.size(); ++i) {
         this->buf_send_h[i] = TEST_ENV::mpi_rank * this->count1 + i;
     }
     MCUDA_ASSERT(cudaMemcpy(this->buf_send_d, this->buf_send_h.data(),
-                            this->count1 * sizeof(T), cudaMemcpyHostToDevice));
+                            this->buf_send_h.size() * sizeof(T),
+                            cudaMemcpyHostToDevice));
     MPI_Barrier(MPI_COMM_WORLD);
 }
 template <typename T>
