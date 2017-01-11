@@ -44,6 +44,7 @@ static int fillGroups(int rank, int* groups, int nranks, int* matrix, int transp
 
 ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
   *nrings = 0;
+  if (nranks == 1) return ncclSuccess;
 
   int pattern = 0;
   int nringsTmp;
