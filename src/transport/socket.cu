@@ -188,7 +188,6 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
   int* sizesFifo = resources->hostMem->sizesFifo;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
-  int maxSize = min(sliceSize, args->size);
 
   int head = 0;
   int offset = 0;
@@ -201,8 +200,7 @@ ncclResult_t socketSendProxy(struct ncclProxyArgs* args) {
     transportProxyWait([=] { return head != *prevTail; });
 
     // Send to socket
-    //printf("Sending %d bytes through sockets, fifo_size says %d\n", maxSize, sizesFifo[size_tail]);
-    int size = sizesFifo[head%args->substeps];//maxSize;
+    int size = sizesFifo[head%args->substeps];
     NCCLCHECK(socketSend(resources->fd, &size, sizeof(size)));
     NCCLCHECK(socketSend(resources->fd, localBuff+offset, size));
     head++;
@@ -232,7 +230,6 @@ ncclResult_t socketRecvProxy(struct ncclProxyArgs* args) {
   char* nextBuff = devMem->buff;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
-  int maxSize = min(sliceSize, args->size);
   assert(MAXSTEPS >= args->substeps);
 
   if (resources->fd == 0) {

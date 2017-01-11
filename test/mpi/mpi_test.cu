@@ -15,8 +15,132 @@
 #define MAXSIZE (1<<26)
 #define NITERS 100
 
-int main(int argc, char *argv[]) {
+ncclResult_t ncclOp(int collective, int rank, int nranks, int *buff, int size, ncclComm_t comm, cudaStream_t stream) {
+  switch (collective) {
+    case 0 : // Broadcast
+      return ncclBcast(rank == 0 ? (void*)buff : (void*)(buff+MAXSIZE), size, ncclInt, 0, comm, stream);
+    case 1 : // Reduce
+      return ncclReduce((const void*)buff, (void*)(buff+MAXSIZE), size, ncclInt, ncclSum, 0, comm, stream);
+    case 2 : // Allreduce
+      return ncclAllReduce((const void*)buff, (void*)(buff+MAXSIZE), size, ncclInt, ncclSum, comm, stream);
+    case 3 : // Allgather
+      return ncclAllGather((const void*)buff, size/nranks, ncclInt, (void*)(buff+MAXSIZE), comm, stream);
+    case 4 : // ReduceScatter
+      return ncclReduceScatter((const void*)buff, (void*)(buff+MAXSIZE), size/nranks, ncclInt, ncclSum, comm, stream);
+  }
+  return ncclSuccess;
+}
+
+int checkOp(int collective, int rank, int nranks, int* ptr, int size) {
+  int errors = 0;
+  int sum = nranks*(nranks+1)/2;
+  switch (collective) {
+    case 0 : // Broadcast
+      if (rank == 0) return 0;
+      for (int v=0; v<size; v++) if (ptr[v] != 1) errors++;
+      break;
+    case 1 : // Reduce
+      if (rank != 0) return 0;
+    case 2 : // Allreduce
+      for (int v=0; v<size; v++) if (ptr[v] != sum) errors++;
+      break;
+    case 3 : // Allgather
+      for (int r = 0; r < nranks; r++) {
+        for (int v=0; v<size/nranks; v++) if (ptr[r*(size/nranks)+v] != r+1) errors++;
+      }
+      break;
+    case 4 : // ReduceScatter
+      for (int v=0; v<size/nranks; v++) if (ptr[v] != sum) errors++; 
+      break;
+  }
+  return errors;
+}
+
+float perfFactorOp(int collective, int nranks) {
+  switch (collective) {
+    case 2 : // Allreduce
+      return 2*(nranks-1.0)/nranks;
+    case 3 : // Allgather
+      return (nranks-1.0)/nranks;
+    case 4 : // ReduceScatter
+      return (nranks-1.0)/nranks;
+  }
+  return 1.0;
+}
+void printBanner(int collective) {
+  printf("\n");
+  printf("      **************************************************************************\n");
+  switch (collective) {
+    case 0 : // Broadcast
+      printf("      *                                Broadcast                               *\n");
+      break;
+    case 1 : // Reduce
+      printf("      *                                Reduce                                  *\n");
+      break;
+    case 2 : // Allreduce
+      printf("      *                                Allreduce                               *\n");
+      break;
+    case 3 : // Allgather
+      printf("      *                                Allgather                               *\n");
+      break;
+    case 4 : // ReduceScatter
+      printf("      *                                ReduceScatter                           *\n");
+      break;
+  }
+  printf("      **************************************************************************\n");
+}
+
+int benchCollective(int collective, int rank, int nranks, int* ddata, int* hdata, ncclComm_t comm, cudaStream_t stream) {
+  // Initialize input values
+  for (int v=0; v<MAXSIZE; v++) hdata[v] = rank + 1;
+  CUDACHECK(cudaMemcpy(ddata, hdata, MAXSIZE*sizeof(int), cudaMemcpyHostToDevice));
+  // Initialize output values
+  for (int v=0; v<MAXSIZE; v++) hdata[v] = -1;
+  CUDACHECK(cudaMemcpy(ddata+MAXSIZE, hdata, MAXSIZE*sizeof(int), cudaMemcpyHostToDevice));
+
+  // Warm-up
+  NCCLCHECK(ncclOp(collective, rank, nranks, ddata, MAXSIZE, comm, stream));
+  CUDACHECK(cudaStreamSynchronize(stream));
+
   int failed = 0;
+  if (rank == 0) {
+    printBanner(collective);
+    printf("        Size (B)       Time (us)   Alg BW (MB/s)   Bus BW (MB/s)          Errors\n");
+  }
+  for (int size = 1; size <= MAXSIZE; size<<=1) {
+    int realSize = size;
+    if (collective > 2) realSize = (size / nranks) * nranks;
+    if (realSize == 0) continue;
+    int nbytes = realSize*sizeof(int);
+    int errors = 0;
+    MPI_Barrier(MPI_COMM_WORLD);
+    double start = MPI_Wtime();
+    int niters = min(NITERS, 1000000000/realSize);
+    for (int i=0; i<niters; i++) {
+      NCCLCHECK(ncclOp(collective, rank, nranks, ddata, realSize, comm, stream));
+    }
+    CUDACHECK(cudaStreamSynchronize(stream));
+    double delta = MPI_Wtime() - start;
+    delta = delta*1e6/niters;
+
+    // Check results
+    CUDACHECK(cudaMemcpy(hdata, (ddata+MAXSIZE), nbytes, cudaMemcpyDeviceToHost));
+    errors = checkOp(collective, rank, nranks, hdata, realSize);
+    MPI_Allreduce(MPI_IN_PLACE, &errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD);
+    if (rank == 0) {
+      printf(" %15ld %15.2f %15.2f %15.2f %15d\n",
+        nbytes,
+        delta,
+        nbytes/delta,
+        nbytes/delta*perfFactorOp(collective, nranks),
+        errors);
+    }
+  }
+  if (rank == 0) printf("\n");
+  return failed;
+}
+
+int main(int argc, char *argv[]) {
   ncclUniqueId commId;
   int nranks, rank;
   ncclResult_t ret;
@@ -52,57 +176,21 @@ int main(int argc, char *argv[]) {
   cudaStream_t stream;
   CUDACHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
 
-  // Initialize input values
-  int *dptr;
-  CUDACHECK(cudaMalloc(&dptr, MAXSIZE*2*sizeof(int)));
-  int *val = (int*) malloc(MAXSIZE*sizeof(int));
-  for (int v=0; v<MAXSIZE; v++) {
-    val[v] = rank + 1;
-  }
-  CUDACHECK(cudaMemcpy(dptr, val, MAXSIZE*sizeof(int), cudaMemcpyHostToDevice));
+  int *ddata;
+  CUDACHECK(cudaMalloc(&ddata, MAXSIZE*2*sizeof(int)));
+  int *hdata = (int*) malloc(MAXSIZE*sizeof(int));
 
-  // Compute final value
-  int ref = nranks*(nranks+1)/2;
+  int failed;
+  failed = benchCollective(0, rank, nranks, ddata, hdata, comm, stream);
+  failed = benchCollective(1, rank, nranks, ddata, hdata, comm, stream);
+  failed = benchCollective(2, rank, nranks, ddata, hdata, comm, stream);
+  failed = benchCollective(3, rank, nranks, ddata, hdata, comm, stream);
+  failed = benchCollective(4, rank, nranks, ddata, hdata, comm, stream);
 
-
-  // Warm-up
-  NCCLCHECK(ncclAllReduce((const void*)dptr, (void*)(dptr+MAXSIZE), MAXSIZE, ncclInt, ncclSum, comm, stream));
-  CUDACHECK(cudaStreamSynchronize(stream));
-
-  // Run allreduce benchmark
-  if (rank == 0) printf("\n        Size (B)       Time (us)   Alg BW (MB/s)   Bus BW (MB/s)          Errors\n");
-  for (int size = 1; size <= MAXSIZE; size<<=1) {
-    int errors = 0;
-    MPI_Barrier(MPI_COMM_WORLD);
-    double start = MPI_Wtime();
-    int niters = min(NITERS, 1000000000/size);
-    for (int i=0; i<niters; i++) {
-      NCCLCHECK(ncclAllReduce((const void*)dptr, (void*)(dptr+MAXSIZE), size, ncclInt, ncclSum, comm, stream));
-    }
-    CUDACHECK(cudaStreamSynchronize(stream));
-    double delta = MPI_Wtime() - start;
-
-    // Check results
-    CUDACHECK(cudaMemcpy(val, (dptr+MAXSIZE), size*sizeof(int), cudaMemcpyDeviceToHost));
-    for (int v=0; v<size; v++) {
-      if (val[v] != ref) {
-        errors++;
-        failed = 1;
-        //printf("[%d] Error at %d : got %d instead of %d\n", rank, v, val[v], ref);
-      }
-    }
-    MPI_Allreduce(MPI_IN_PLACE, &errors, 1, MPI_INTEGER, MPI_SUM, MPI_COMM_WORLD);
-    if (rank == 0) printf(" %15ld %15.2f %15.2f %15.2f %15d\n",
-        size*sizeof(int),
-        delta*1e6/niters,
-        size*sizeof(int)*niters/(delta*1e6),
-        size*sizeof(int)*niters/(delta*1e6)*2*(nranks-1)/nranks,
-        errors);
-  }
-
-  CUDACHECK(cudaFree(dptr));
+  CUDACHECK(cudaFree(ddata));
+  free(hdata);
 
   MPI_Finalize();
-  //ncclCommDestroy(comm);
+  ncclCommDestroy(comm);
   return failed;
 }
