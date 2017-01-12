@@ -106,7 +106,7 @@ static ncclResult_t createListenSocket(int *fd, uint16_t *port) {
   //INFO("Listening on port %d", *port);
 
   /* Put the socket in listen mode */
-  SYSCHECK(listen(sockfd, MAXRANKS), "listen");
+  SYSCHECK(listen(sockfd, 128), "listen");
   *fd = sockfd;
   return ncclSuccess;
 }

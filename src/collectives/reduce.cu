@@ -39,8 +39,8 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   const int nranks = comm->nRanks;
   const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
-  const int rank = ring->userRanks[0];
-  const int prevRank = ring->userRanks[nranks-1];
+  const int rank = ring->devUserRanks[0];
+  const int prevRank = ring->devUserRanks[nranks-1];
   const int root = args.root;
 
   if (rank != root && tid == 0) {

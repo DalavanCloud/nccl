@@ -41,8 +41,8 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
   const int size = args.N;
   const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
-  const int rank = ring->userRanks[0];
-  const int nextRank = ring->userRanks[1];
+  const int rank = ring->devUserRanks[0];
+  const int nextRank = ring->devUserRanks[1];
   const int root = args.root;
 
   if (tid == 0) {

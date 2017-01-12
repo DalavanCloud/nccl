@@ -64,7 +64,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
     int rankDest;
 
     // step 0: push data to next GPU
-    rankDest = ring->userRanks[nranks-1];
+    rankDest = ring->devUserRanks[nranks-1];
     offset = chunkOffset + rankDest * size;
 
     Prims::Copy(
@@ -79,7 +79,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
     // k-2 steps: reduce and copy to next GPU
     for (int j=2; j<nranks; ++j) {
-      rankDest = ring->userRanks[nranks-j];
+      rankDest = ring->devUserRanks[nranks-j];
       offset = chunkOffset + rankDest * size;
 
       Prims::Reduce(
@@ -96,7 +96,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
     // step k-1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
-    rankDest = ring->userRanks[0];
+    rankDest = ring->devUserRanks[0];
     offset = chunkOffset + rankDest * size;
 
     Prims::Reduce(

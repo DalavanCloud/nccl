@@ -76,7 +76,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
     int rankDest;
 
     // step 0: push data to next GPU
-    rankDest = ring->userRanks[0];
+    rankDest = ring->devUserRanks[0];
     offset = chunkOffset + rankDest * size;
 
     if (thisInput == thisOutput) {
@@ -103,7 +103,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
     // k-2 steps: copy to next GPU
     if (prevdirect) {
       for (int j=1; j<nranks-1; ++j) {
-        rankDest = ring->userRanks[nranks-j];
+        rankDest = ring->devUserRanks[nranks-j];
         offset = chunkOffset + rankDest * size;
 
         Prims::Copy(
@@ -125,7 +125,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
           postDoneToPrev);
     } else {
       for (int j=1; j<nranks-1; ++j) {
-        rankDest = ring->userRanks[nranks-j];
+        rankDest = ring->devUserRanks[nranks-j];
         offset = chunkOffset + rankDest * size;
 
         Prims::DoubleCopy(
@@ -141,7 +141,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
       }
 
       // Make final copy from buffer to dest.
-      rankDest = ring->userRanks[1];
+      rankDest = ring->devUserRanks[1];
       offset = chunkOffset + rankDest * size;
 
       // Here we need to copy from buffer to this output.
