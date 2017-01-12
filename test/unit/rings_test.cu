@@ -156,6 +156,21 @@ int QPU4_vl[] =
     1, 1, 1, 1,
     1, 1, 1, 1 };
 
+int QPU6_tr[] = 
+  { 0, 1, 0, 0, 2, 2,
+    1, 0, 1, 1, 2, 2,
+    0, 1, 0, 0, 2, 2, 
+    0, 1, 0, 0, 2, 2,
+    2, 2, 2, 2, 0, 0,
+    2, 2, 2, 2, 0, 0 };
+int QPU6_vl[] =
+  { 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1 };
+
 int QPU8_tr[] = 
   { 0, 1, 1, 0, 1, 0, 0, 1,
     1, 0, 0, 1, 0, 1, 1, 0,
@@ -441,24 +456,32 @@ static void writeHeader() {
   printf("|  Topo   | NRings | Rings%s|\n", spaces);
 }
 
-static void writeFooter() {
+static void writeFooter(int errors) {
+  printf("|---------+--------+%s|\n", dashes);
+  const char* result = errors ? "FAILED" : "OK";
+  printf("| Errors  |  %3d   | %s", errors, result);
+  for (int i=strlen(result)+1; i<3*TESTMAXRANKS; i++) printf(" ");
+  printf("|\n");
   printf("'---------'--------'%s'\n", dashes);
 }
 
-static void dumpRings(int nrings, int *rings, int nranks, const char* toponame) {
+static void dumpRings(int nrings, int *rings, int nranks, const char* toponame, const char* errormsg) {
   printf("|---------+--------+%s|\n", dashes);
   printf("|  %s |  %3d   |", toponame, nrings);
-  if (nrings == 0) {
-    printf("  No ring ! ");
-    for (int i=4; i<TESTMAXRANKS; i++) printf("   ");
-    printf("|\n");
-  }
-  for (int ring=0; ring<nrings; ring++) {
+  if (nrings == 0 && errormsg == NULL) errormsg = "No ring !";
+  int ring = 0;
+  for (; ring<nrings; ring++) {
     if (ring) printf("|         |        |");
     for (int index = 0; index<nranks; index++) {
       printf(" %2d", rings[ring*nranks+index]);
     }
     for (int i=nranks; i<TESTMAXRANKS; i++) printf("   ");
+    printf("|\n");
+  }
+  if (errormsg) {
+    if (ring) printf("|         |        |");
+    printf(" %s ", errormsg);
+    for (int i=strlen(errormsg)+2; i<3*TESTMAXRANKS; i++) printf(" ");
     printf("|\n");
   }
 }
@@ -470,11 +493,17 @@ static ncclResult_t getRings(int nranks, int* transports, int* values, const cha
   int prev[MAXRINGS*nranks];
   int next[MAXRINGS*nranks];
   int next_final[MAXRINGS*nranks];
+  char* errormsg = NULL;
+  char errortext[120];
+
+  int rings[MAXRINGS*nranks];
+
   for (int rank=0; rank<nranks; rank++) {
     ncclResult_t ret = ncclGetRings(&nrings, rank, nranks, transports, values, prev, next);
     if (ret != ncclSuccess) {
-      printf("getRings returned %s\n", ncclGetErrorString(ret));
-      return ret;
+      sprintf(errortext, "Error : getRings returned %s", ncclGetErrorString(ret));
+      errormsg = errortext;
+      goto end;
     }
     /*for (int ring=0; ring<nrings; ring++) {
       printf("[%d] Prev :", ring);
@@ -486,46 +515,67 @@ static ncclResult_t getRings(int nranks, int* transports, int* values, const cha
     }*/
     if (nrings_final == -1) nrings_final = nrings;
     if (nrings_final != nrings) { 
-      printf("Error : got %d rings for rank %d instead of %d for the previous ones\n", nrings, rank, nrings_final);
-      return ncclInternalError;
+      sprintf(errortext, "Error : got %d rings for rank %d instead of %d", nrings, rank, nrings_final);
+      errormsg = errortext;
+      goto end;
     }
     for (int ring=0; ring<nrings; ring++) {
       next_final[ring*nranks+rank] = next[ring*nranks+rank];
     }
   }
-  int rings[MAXRINGS*nranks];
-  for (int ring=0; ring<nrings; ring++) {
-    int currank = 0;
-    for (int index=0; index<nranks; index++) {
-      rings[ring*nranks+index] = currank;
-      currank = next_final[ring*nranks+currank];
+  {
+    int in_ring[nranks];
+    for (int rank = 0; rank < nranks; rank++) in_ring[rank] = 0;
+    for (int ring=0; ring<nrings; ring++) {
+      int currank = 0;
+      for (int index=0; index<nranks; index++) {
+        in_ring[currank] = 1;
+        rings[ring*nranks+index] = currank;
+        currank = next_final[ring*nranks+currank];
+      }
+      if (currank != 0) {
+        sprintf(errortext, "Error : ring does not loop back to start");
+        errormsg = errortext;
+        goto end;
+      }
+      for (int rank = 0; rank < nranks; rank++) {
+        if (in_ring[rank] == 0) {
+          sprintf(errortext, "Error : ring does not contain rank %d", rank);
+          errormsg = errortext;
+          return ncclInternalError;
+        }
+      }
     }
   }
-  dumpRings(nrings, rings, nranks, toponame);
-  return ncclSuccess;
+end:
+  dumpRings(nrings, rings, nranks, toponame, errormsg);
+  return errormsg ? ncclInternalError : ncclSuccess;
 }
+
+#define CHECK(a) if ((a) != ncclSuccess) { err++; }
 
 int main() {
   int err = 0;
   writeHeader();
-  getRings(2, PCI2_tr, PCI2_vl, "PCI  2");
-  getRings(4, PCI4_tr, PCI4_vl, "PCI  4");
-  getRings(8, PCI8_tr, PCI8_vl, "PCI  8");
-  getRings(16, PCI16_tr, PCI16_vl, "PCI 16");
-  getRings(4, QPI4_tr, QPI4_vl, "QPI  4");
-  getRings(8, QPI8_tr, QPI8_vl, "QPI  8");
-  getRings(16, QPI16_tr, QPI16_vl, "QPI 16");
-  getRings(4, QPU4_tr, QPU4_vl, "QPU  4");
-  getRings(8, QPU8_tr, QPU8_vl, "QPU  8");
-  getRings(16, QPU16_tr, QPU16_vl, "QPU 16");
-  getRings(4, NVL4_tr, NVL4_vl, "NVL  4");
-  getRings(4, NVH4_tr, NVH4_vl, "NVH  4");
-  getRings(8, NVL8_tr, NVL8_vl, "NVL  8");
-  getRings(16, NVL16_tr, NVL16_vl, "NVL 16");
-  getRings(32, NVL32_tr, NVL32_vl, "NVL 32");
-  getRings(8, NVG8_tr, NVG8_vl, "NVG  8");
-  getRings(16, NVG16_tr, NVG16_vl, "NVG 16");
-  getRings(8, NVV8_tr, NVV8_vl, "NVV  8");
-  writeFooter();
+  CHECK(getRings(2, PCI2_tr, PCI2_vl, "PCI  2"));
+  CHECK(getRings(4, PCI4_tr, PCI4_vl, "PCI  4"));
+  CHECK(getRings(8, PCI8_tr, PCI8_vl, "PCI  8"));
+  CHECK(getRings(16, PCI16_tr, PCI16_vl, "PCI 16"));
+  CHECK(getRings(4, QPI4_tr, QPI4_vl, "QPI  4"));
+  CHECK(getRings(8, QPI8_tr, QPI8_vl, "QPI  8"));
+  CHECK(getRings(16, QPI16_tr, QPI16_vl, "QPI 16"));
+  CHECK(getRings(4, QPU4_tr, QPU4_vl, "QPU  4"));
+  CHECK(getRings(6, QPU6_tr, QPU6_vl, "QPU  6"));
+  CHECK(getRings(8, QPU8_tr, QPU8_vl, "QPU  8"));
+  CHECK(getRings(16, QPU16_tr, QPU16_vl, "QPU 16"));
+  CHECK(getRings(4, NVL4_tr, NVL4_vl, "NVL  4"));
+  CHECK(getRings(4, NVH4_tr, NVH4_vl, "NVH  4"));
+  CHECK(getRings(8, NVL8_tr, NVL8_vl, "NVL  8"));
+  CHECK(getRings(16, NVL16_tr, NVL16_vl, "NVL 16"));
+  CHECK(getRings(32, NVL32_tr, NVL32_vl, "NVL 32"));
+  CHECK(getRings(8, NVG8_tr, NVG8_vl, "NVG  8"));
+  CHECK(getRings(16, NVG16_tr, NVG16_vl, "NVG 16"));
+  CHECK(getRings(8, NVV8_tr, NVV8_vl, "NVV  8"));
+  writeFooter(err);
   return err;
 }
