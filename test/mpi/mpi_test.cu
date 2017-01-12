@@ -109,8 +109,10 @@ int benchCollective(int collective, int rank, int nranks, int* ddata, int* hdata
   }
   for (int size = 1; size <= MAXSIZE; size<<=1) {
     int realSize = size;
-    if (collective > 2) realSize = (size / nranks) * nranks;
-    if (realSize == 0) continue;
+    if (collective > 2) {
+      if (size > (MAXSIZE/nranks)) continue;
+      realSize = size * nranks;
+    }
     int nbytes = realSize*sizeof(int);
     int errors = 0;
     MPI_Barrier(MPI_COMM_WORLD);

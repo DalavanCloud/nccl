@@ -232,7 +232,8 @@ static void swap(void* mem1, void* mem2, int size) {
 }
 
 #define MAXWIDTH 20
-#define STRLENGTH (4+MAXWIDTH*4)
+#define PREFIXLEN 15
+#define STRLENGTH (PREFIXLEN+4*MAXWIDTH)
 void dumpMatrix(int* connectMatrix, int nranks) {
   char line[STRLENGTH+1];
   line[STRLENGTH] = '\0';
@@ -252,8 +253,8 @@ void dumpLine(int* values, int nranks, const char* prefix) {
   char line[STRLENGTH+1];
   line[STRLENGTH] = '\0';
   memset(line, ' ', STRLENGTH);
-  memcpy(line, prefix, prefixlen);
-  for (int i=0; i<nranks && i<MAXWIDTH; i++) sprintf(prefixlen+line+4*i, " %3d", values[i]);
+  strncpy(line, prefix, PREFIXLEN);
+  for (int i=0; i<nranks && i<MAXWIDTH; i++) sprintf(line+prefixlen+4*i, " %3d", values[i]);
   INFO(line);
 }
 
