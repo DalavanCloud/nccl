@@ -156,6 +156,21 @@ int QPU4_vl[] =
     1, 1, 1, 1,
     1, 1, 1, 1 };
 
+int QPI6_tr[] = 
+  { 0, 0, 0, 1, 2, 2,
+    0, 0, 0, 1, 2, 2,
+    0, 0, 0, 1, 2, 2, 
+    1, 1, 1, 0, 2, 2,
+    2, 2, 2, 2, 0, 0,
+    2, 2, 2, 2, 0, 0 };
+int QPI6_vl[] =
+  { 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1 };
+
 int QPU6_tr[] = 
   { 0, 1, 0, 0, 2, 2,
     1, 0, 1, 1, 2, 2,
@@ -565,6 +580,7 @@ int main() {
   CHECK(getRings(8, QPI8_tr, QPI8_vl, "QPI  8"));
   CHECK(getRings(16, QPI16_tr, QPI16_vl, "QPI 16"));
   CHECK(getRings(4, QPU4_tr, QPU4_vl, "QPU  4"));
+  CHECK(getRings(6, QPI6_tr, QPI6_vl, "QPI  6"));
   CHECK(getRings(6, QPU6_tr, QPU6_vl, "QPU  6"));
   CHECK(getRings(8, QPU8_tr, QPU8_vl, "QPU  8"));
   CHECK(getRings(16, QPU16_tr, QPU16_vl, "QPU 16"));
