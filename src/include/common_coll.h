@@ -65,44 +65,29 @@ static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, int co
 template<typename T>
 struct KernelArgs {
   // general parameters
-  int nRanks;
   int root;
-  int buffSize;
   int N;
-  int opIndex;
-  volatile int * __restrict__ opCounter;
-  int * __restrict__ doneCount;
-  bool pushrecv;
-
-  // some pre-computed sizes
-  int SliceSize;
-  int SliceOffset;
-  int ChunkSize;
-  int NumChunks;
 
   // local and remote input, output, and buffer
   const T * __restrict__ ThisInput;
   T * __restrict__ ThisOutput;
 
-  DevRing<char>* ring;
+  struct ncclComm* comm;
   int nRings;
+  int opCount;
 };
 
 template<typename T>
 void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
 		const int root, const int count, ncclComm *comm) {
-  args->nRanks = comm->nRanks;
   args->root = root;
-  args->buffSize = comm->buffSizePerRing;
   args->N = count;
-  args->opIndex = comm->opSched;
-  args->opCounter = comm->opCounter;
-  args->doneCount = &comm->devMem->doneCount;
   args->ThisInput = (const T*)sendbuff;
   args->ThisOutput = (T*)recvbuff;
-  args->ring = comm->devRing;
-  args->pushrecv = comm->globalMemSpace;
+  args->comm = comm->devComm;
   args->nRings = comm->nRings;
+  args->opCount = comm->opCount;
+  comm->opCount++;
 }
 
 #define LAUNCH_KERNEL(K, THREADS, UNROLL, FUNC, T, \
@@ -112,7 +97,7 @@ void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
   void* argptrs[] = {&args}; \
   CUDACHECK(cudaLaunchKernel( \
             (void*)K<THREADS, UNROLL, FUNC, T>, \
-            grid, block, argptrs, 0, stream), ncclUnhandledCudaError); \
+            grid, block, argptrs, 0, stream)); \
 } while (0)
 
 #endif

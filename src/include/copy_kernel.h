@@ -1,12 +1,12 @@
 /*************************************************************************
- * Copyright (c) 2015, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2015-2016, NVIDIA CORPORATION. All rights reserved.
  *
  * See LICENSE.txt for license information
  ************************************************************************/
 
 
-#ifndef COPY_KERNEL_H_
-#define COPY_KERNEL_H_
+#ifndef NCCL_COPY_KERNEL_H_
+#define NCCL_COPY_KERNEL_H_
 
 #include "common_kernel.h"
 

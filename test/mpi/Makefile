@@ -7,7 +7,7 @@ include ../gtest.mk
 MPI_HOME ?= $(realpath $(dir $(or \
 	$(realpath /usr/include/mpi.h),\
 	$(realpath /usr/lib/openmpi/include/mpi.h)))..)
-NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi -lmpi_cxx
+NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi #-lmpi_cxx
 NVCUFLAGS += -I$(MPI_HOME)/include
 ### flags
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h -I../include ${CPPFLAGS} ${GTEST_CPPFLAGS}
@@ -15,7 +15,7 @@ LIBRARIES += curand nccl
 LIBDIR    := ../../build/lib
 NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) $(BUILDDIR)/test/gtest.a
 ### files
-SRC_FILES := $(wildcard *.cpp) $(wildcard *.cu)
+SRC_FILES := $(wildcard *.cpp) #$(wildcard *.cu)
 DST_DIR := $(BUILDDIR)/test/mpi
 OBJ_FILES := ${SRC_FILES:%.cpp=${DST_DIR}/%.o}
 OBJ_FILES := ${OBJ_FILES:%.cu=${DST_DIR}/%.o}

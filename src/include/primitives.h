@@ -4,8 +4,8 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#ifndef PRIMITIVES_H_
-#define PRIMITIVES_H_
+#ifndef NCCL_PRIMITIVES_H_
+#define NCCL_PRIMITIVES_H_
 
 #include <type_traits>
 #include "copy_kernel.h" // for FuncPassA
@@ -42,11 +42,15 @@ class WaitFlag {
 class PostFlag {
   volatile int * const flag;
   const int shift;
+  volatile int * const fifo;
+  const int fifo_size;
   public:
   __device__ __forceinline__
-  PostFlag(volatile int* const flag, const int shift) : flag(flag), shift(shift) { }
+  PostFlag(volatile int* const flag, const int shift, volatile int* const fifo, const int fifo_size) : flag(flag), shift(shift), fifo(fifo), fifo_size(fifo_size) { }
   __device__ __forceinline__
   void post(int val) { *flag = (val + shift); }
+  __device__ __forceinline__
+  void postSize(int step, int size) { if (fifo != NULL) fifo[step%fifo_size] = size; };
 };
 
 
@@ -78,7 +82,7 @@ void WaitOnFlags(int val, PostFlag, TAIL_Ts... tail) {
 }
 
 
-// Post all PostFlags, ingnore WaitFlags
+// Post all PostFlags, ignore WaitFlags
 __device__ __forceinline__
 void PostToFlags(int val) { }
 
@@ -91,6 +95,22 @@ template <typename... TAIL_Ts> __device__ __forceinline__
 void PostToFlags(int val, PostFlag flag, TAIL_Ts... tail) {
   flag.post(val);
   PostToFlags(val, tail...);
+}
+
+
+// Post sizes for PostFlags, ignore WaitFlags
+__device__ __forceinline__
+void PostSizeToFlags(int step, int size) { }
+
+template <typename... TAIL_Ts> __device__ __forceinline__
+void PostSizeToFlags(int step, int size, WaitFlag flag, TAIL_Ts... tail) {
+  PostSizeToFlags(step, size, tail...);
+}
+
+template <typename... TAIL_Ts> __device__ __forceinline__
+void PostSizeToFlags(int step, int size, PostFlag flag, TAIL_Ts... tail) {
+  flag.postSize(step, size);
+  PostSizeToFlags(step, size, tail...);
 }
 
 
@@ -129,11 +149,13 @@ class Primitives {
 
     using OpType = typename std::conditional<noSrc2, FuncPassA<T>, REDOP>::type;
 
-    if (threadIdx.x < THREADS) {
-      int sliceSize = len / SUBSTEPS;
-      int sliceOffset = 0;
-      #pragma unroll 1
-      for (int sub=0; sub<SUBSTEPS; ++sub) {
+    int sliceSize = len / SUBSTEPS;
+    int sliceOffset = 0;
+    int realSize = max(0, min(sliceSize, maxoffset-sliceOffset));
+
+    #pragma unroll 1
+    for (int sub=0; sub<SUBSTEPS; ++sub) {
+      if (threadIdx.x < THREADS) {
         if (AnyAre<WaitFlag>(flags...)) {
           if (threadIdx.x == 0) {
             WaitOnFlags(SUBSTEPS*step + sub + 1, flags...);
@@ -155,16 +177,15 @@ class Primitives {
              ptradd(dst2, sliceOffset),
              ptradd(src1, sliceOffset),
              ptradd(src2, sliceOffset),
-             min(sliceSize, maxoffset-sliceOffset)
+             realSize
             );
         if (AnyAre<PostFlag>(flags...)) {
           __syncthreads();
         }
         sliceOffset += sliceSize;
-      }
-    } else {
-      for(int sub=0; sub<SUBSTEPS; ++sub) {
+      } else {
         if (AnyAre<PostFlag>(flags...)) {
+          PostSizeToFlags(SUBSTEPS*step+sub, realSize*sizeof(T), flags...);
           __syncthreads();
           __threadfence_system();
           PostToFlags(SUBSTEPS*step + sub + 1, flags...);

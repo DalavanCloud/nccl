@@ -69,8 +69,8 @@ ncclResult_t  ncclCommInitAll(ncclComm_t* comm, int ndev, const int* devlist);
 ncclResult_t pncclCommInitAll(ncclComm_t* comm, int ndev, const int* devlist);
 
 /* Frees resources associated with communicator object. */
-void  ncclCommDestroy(ncclComm_t comm);
-void pncclCommDestroy(ncclComm_t comm);
+ncclResult_t  ncclCommDestroy(ncclComm_t comm);
+ncclResult_t pncclCommDestroy(ncclComm_t comm);
 
 /* Returns nice error message. */
 const char*  ncclGetErrorString(ncclResult_t result);

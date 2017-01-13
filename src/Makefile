@@ -4,7 +4,12 @@ include ../makefiles/version.mk
 CXXFLAGS  += -DNCCL_MAJOR=$(NCCL_MAJOR) -DNCCL_MINOR=$(NCCL_MINOR) -DNCCL_PATCH=$(NCCL_PATCH)
 ##### src files
 INCEXPORTS  := nccl.h
-LIBSRCFILES := $(wildcard *.cu)
+LIBSRCFILES := init.cu \
+		misc/nvmlwrap.cu misc/crc32.cu misc/rings.cu misc/utils.cu misc/mpi.cu misc/gdcopy.cu \
+		bootstrap/bootstrap.cu bootstrap/socket.cu bootstrap/mpi.cu \
+		transport/transport.cu transport/p2p.cu transport/shm.cu transport/socket.cu transport/mpi.cu \
+		collectives/all_gather.cu collectives/all_reduce.cu collectives/broadcast.cu \
+		collectives/reduce.cu collectives/reduce_scatter.cu
 ##### lib files
 LIBNAME     := libnccl.so
 STATICLIBNAME := libnccl_static.a
@@ -20,6 +25,7 @@ LIBTARGET  := $(LIBNAME:%=%.$(NCCL_MAJOR).$(NCCL_MINOR).$(NCCL_PATCH))
 STATICLIBTARGET := $(STATICLIBNAME)
 LIBOBJ     := $(LIBSRCFILES:%.cu=$(OBJDIR)/%.o)
 DEPFILES   := $(LIBOBJ:%.o=%.d)
+
 ##### rules
 all : lib staticlib
 
@@ -49,9 +55,9 @@ $(INCDIR)/%.h : %.h
 
 $(OBJDIR)/%.o : %.cu
 	@printf "Compiling %-35s > %s\n" $< $@
-	mkdir -p $(OBJDIR)
-	$(NVCC) -c $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -o $@
-	@$(NVCC) -M $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< > $(@:%.o=%.d.tmp)
+	mkdir -p `dirname $@`
+	$(NVCC) -Iinclude -c $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -o $@
+	@$(NVCC) -Iinclude -M $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< > $(@:%.o=%.d.tmp)
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $(@:%.o=%.d.tmp) > $(@:%.o=%.d)
 	@sed -e 's/.*://' -e 's/\\$$//' < $(@:%.o=%.d.tmp) | fmt -1 | \
                 sed -e 's/^ *//' -e 's/$$/:/' >> $(@:%.o=%.d)

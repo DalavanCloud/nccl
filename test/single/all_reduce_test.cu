@@ -89,7 +89,7 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     double algbw = (double)(n * sizeof(T)) / 1.0E9 / elapsedSec;
     double busbw = algbw * (double)(2 * nDev - 2) / (double)nDev;
 
-    double maxDelta = 0.0;
+    double maxDelta = (double)0.0;
     for (int i = 0; i < nDev; ++i) {
       CUDACHECK(cudaSetDevice(dList[i]));
       double tmpDelta = CheckDelta<T>(recvbuff[i], result, N);

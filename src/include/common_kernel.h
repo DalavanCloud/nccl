@@ -4,10 +4,10 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
+#ifndef NCCL_COMMON_KERNEL_H_
+#define NCCL_COMMON_KERNEL_H_
 
-#ifndef COMMON_KERNEL_H_
-#define COMMON_KERNEL_H_
-
+#include "core.h"
 #include <cstdio>
 #include <cstdint>
 
@@ -330,30 +330,5 @@ __device__ inline void ReduceOrCopy(const int tid,
     }
   } // done fast path
 }
-
-template <typename T>
-__device__ inline void incrementOpCounter(const KernelArgs<T> *args) {
-  // Last CTA increments comm's operation counts
-  if (atomicAdd(args->doneCount, 1) == gridDim.x-1) {
-    *args->doneCount = 0;
-    __threadfence_system(); // Technically need to ensure that cleared flags
-                            // are visible before incrementing op counter.
-    *args->opCounter = args->opIndex+1;
-  }
-}
-
-template <int THREADS, typename T> __device__ __forceinline__
-void LoadRing(const DevRing<char>* src, DevRing<T>* dst) {
-  enum { NUM_WORDS = sizeof(DevRing<char>) / sizeof(long long) };
-  static_assert(sizeof(DevRing<char>) % sizeof(long long) == 0, "Bad alignment");
-  static_assert(THREADS >= NUM_WORDS, "Not enough threads to load DevRing");
-  static_assert(sizeof(DevRing<char>) == sizeof(DevRing<T>), "DevRing size mismatch");
-  long long* lldst = reinterpret_cast<long long*>(dst);
-  const long long* llsrc = reinterpret_cast<const long long*>(src);
-  if (threadIdx.x < NUM_WORDS) {
-    lldst[threadIdx.x] = llsrc[threadIdx.x];
-  }
-}
-
 
 #endif // COMMON_KERNEL_H_

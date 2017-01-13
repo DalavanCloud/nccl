@@ -4,11 +4,10 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
+#ifndef NCCL_NVMLWRAP_H_
+#define NCCL_NVMLWRAP_H_
 
-// Dynamically handle dependencies on external libraries (other than cudart).
-
-#ifndef SRC_LIBWRAP_H_
-#define SRC_LIBWRAP_H_
+// Dynamically handle dependencies on NVML
 
 #include "core.h"
 
@@ -79,7 +78,7 @@ typedef struct nvmlPciInfo_st
 } nvmlPciInfo_t;
 /* End of nvml.h */
 
-ncclResult_t wrapSymbols(void);
+ncclResult_t wrapNvmlSymbols(void);
 
 ncclResult_t wrapNvmlInit(void);
 ncclResult_t wrapNvmlShutdown(void);
