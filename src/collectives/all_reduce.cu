@@ -79,16 +79,14 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     int maxOffset;
     int slice;
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,nranks*gridDim.x));
-    //ALIGN_SIZE(chunkSize, THREADS*UNROLL);
-    //if (tid == 0 && chunkSize != sliceSize) printf("Size=%d, Offset=%d, Chunksize = %d\n", size, gridOffset, chunkSize);
+    ALIGN_SIZE(chunkSize, THREADS);
     int chunkOffset = gridOffset + bid*nranks*chunkSize;
 
     // step 0: push data to next GPU
-    slice = ring->userRanks[nranks-1];
+    slice = ring->devUserRanks[nranks-1];
     offset = chunkOffset + slice * chunkSize;
     maxOffset = min(chunkSize, size-offset);
 
-    //if (tid == 0) printf("[%d/%d] %d : pushing to offset %X\n", rank, bid, step, noffset);
     Prims::Copy(
         thisInput  + offset,
         nextOutput + noffset,
@@ -101,11 +99,10 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
     // k-2 steps: reduce and copy to next GPU
     for (int j=2; j<nranks; ++j) {
-      slice = ring->userRanks[nranks-j];
+      slice = ring->devUserRanks[nranks-j];
       offset = chunkOffset + slice * chunkSize;
       maxOffset = min(chunkSize, size-offset);
 
-      //if (tid == 0) printf("[%d/%d] %d : copying from offset %X to offset %X\n", rank, bid, step, poffset, noffset);
       Prims::Reduce(
           prevInput  + poffset,
           thisInput  + offset,
@@ -120,11 +117,10 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
     // step k-1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
-    slice = ring->userRanks[0];
+    slice = ring->devUserRanks[0];
     offset = chunkOffset + slice * chunkSize;
     maxOffset = min(chunkSize, size-offset);
 
-    //if (tid == 0) printf("[%d/%d] %d : reducing from offset %X to offset %X\n", rank, bid, step, poffset, noffset);
     Prims::ReduceCopy(
         prevInput  + poffset,
         thisInput  + offset,
@@ -140,11 +136,10 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     // k-2 steps: copy to next GPU
     if (prevdirect) {
       for (int j=1; j<nranks-1; ++j) {
-        slice = ring->userRanks[nranks - j];
+        slice = ring->devUserRanks[nranks - j];
         offset = chunkOffset + slice * chunkSize;
         maxOffset = min(chunkSize, size-offset);
 
-        //if (nextdirect == 0 && tid == 0) printf("[%d/%d] %d : reducing to offset %X\n", rank, bid, step, noffset);
         Prims::Copy(
             thisOutput + offset,
 	    nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
@@ -164,16 +159,10 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
           postDoneToPrev);
     } else {
       for (int j=1; j<nranks-1; ++j) {
-        slice = ring->userRanks[nranks - j];
+        slice = ring->devUserRanks[nranks - j];
         offset = chunkOffset + slice * chunkSize;
         maxOffset = min(chunkSize, size-offset);
 
-	/*if (tid == 0) {
-          if (nextdirect == 0) 
-            printf("[%d/%d] %d : copying from offset %X to offset %X\n", rank, bid, step, poffset, noffset); 
-          else
-            printf("[%d/%d] %d : copying from offset %X\n", rank, bid, step, poffset); 
-        }*/
         Prims::DoubleCopy(
             prevInput + poffset,
             thisOutput + offset,
@@ -187,12 +176,11 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
       }
 
       // Make final copy from buffer to dest.
-      slice = ring->userRanks[1];
+      slice = ring->devUserRanks[1];
       offset = chunkOffset + slice * chunkSize;
       maxOffset = min(chunkSize, size-offset);
 
       // Here we need to copy from buffer to this output.
-      //if (tid == 0) printf("[%d/%d] %d : copying from offset %X\n", rank, bid, step, poffset); 
       Prims::Copy(
           prevInput + poffset,
           thisOutput + offset,
@@ -203,13 +191,8 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     }
   }
 
-  // Wait for next to have consumed all data before we reset the flag
-  /*for (int i=0; i<NUM_BUFCHUNKS; i++) {
-    Prims::Copy(NULL, NULL, 0, 0, step, waitDoneFromNext);
-    NEXT_STEP;
-  }*/
-
   if (tid == 0) {
+    // Wait for next to have consumed all data before we reset the flag
     waitDoneFromNext.wait(NUM_SUBSTEPS*(step + NUM_BUFCHUNKS));
     *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
@@ -229,8 +212,7 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    int maxSize = DIVUP(count, comm->nRanks*comm->nRings);
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), maxSize*sizeof(T), proxyPatternRing, comm));
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->nRings > 1) {

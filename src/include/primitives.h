@@ -151,10 +151,10 @@ class Primitives {
 
     int sliceSize = len / SUBSTEPS;
     int sliceOffset = 0;
-    int realSize = max(0, min(sliceSize, maxoffset-sliceOffset));
 
     #pragma unroll 1
     for (int sub=0; sub<SUBSTEPS; ++sub) {
+      int realSize = max(0, min(sliceSize, maxoffset-sliceOffset));
       if (threadIdx.x < THREADS) {
         if (AnyAre<WaitFlag>(flags...)) {
           if (threadIdx.x == 0) {
@@ -182,7 +182,6 @@ class Primitives {
         if (AnyAre<PostFlag>(flags...)) {
           __syncthreads();
         }
-        sliceOffset += sliceSize;
       } else {
         if (AnyAre<PostFlag>(flags...)) {
           PostSizeToFlags(SUBSTEPS*step+sub, realSize*sizeof(T), flags...);
@@ -191,6 +190,7 @@ class Primitives {
           PostToFlags(SUBSTEPS*step + sub + 1, flags...);
         }
       }
+      sliceOffset += sliceSize;
     }
   }
 

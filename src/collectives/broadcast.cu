@@ -35,15 +35,15 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
   WaitFlag waitDoneFromNext(ring->send.conn.head, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, 0);
   PostFlag postDoneToPrev(ring->recv.conn.head, 0, NULL, 0);
-  PostFlag postReadyToNext(ring->send.conn.tail, 0, NULL, 0);
+  PostFlag postReadyToNext(ring->send.conn.tail, 0, ring->send.conn.fifo, NUM_BUFCHUNKS*NUM_SUBSTEPS);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T> Prims;
 
   const int size = args.N;
   const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
-  const int rank = ring->userRanks[0];
-  const int nextRank = ring->userRanks[1];
+  const int rank = ring->devUserRanks[0];
+  const int nextRank = ring->devUserRanks[1];
   const int root = args.root;
 
   if (tid == 0) {
@@ -153,7 +153,7 @@ ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const int count
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), count*sizeof(T), proxyPatternFrom(root), comm));
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, root, count, comm);
     if (comm->nRings > 1) {

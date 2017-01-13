@@ -155,6 +155,7 @@ ncclResult_t mpiSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   send->conn.buff = resources->devHostMem->buff;
   send->conn.tail = &resources->devHostMem->tail;
   send->conn.opCount = &resources->devHostMem->opCount;
+  send->conn.fifo = resources->devHostMem->sizesFifo;
 
   // Setup remote MPI rank / tag
   struct mpiInfo* info = (struct mpiInfo*)connectInfo;
@@ -178,8 +179,7 @@ ncclResult_t mpiRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
 ncclResult_t mpiSendFree(void* transportResources) {
   struct mpiSendResources* resources = (struct mpiSendResources*)transportResources;
   CUDACHECK(cudaStreamDestroy(resources->stream));
-  CUDACHECK(cudaHostUnregister(resources->devHostMem));
-  free(resources->hostMem);
+  CUDACHECK(cudaFreeHost(resources->hostMem));
   // TODO : unmap hostDevMem
   free(resources);
   return ncclSuccess;
@@ -191,8 +191,7 @@ ncclResult_t mpiRecvFree(void* transportResources) {
   for (int i=0; i<MAXSTEPS; i++) {
     CUDACHECK(cudaEventDestroy(resources->syncEvent[i]));
   }
-  CUDACHECK(cudaHostUnregister(resources->devHostMem));
-  free(resources->hostMem);
+  CUDACHECK(cudaFreeHost(resources->hostMem));
   // TODO : unmap hostDevMem
   free(resources);
   return ncclSuccess;
@@ -209,9 +208,9 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = &devMem->head;
   char* localBuff = resources->hostMem->buff;
+  int* sizesFifo = resources->hostMem->sizesFifo;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
-  int maxSize = min(sliceSize, args->size);
 
   int head = 0;
   int data[args->substeps];
@@ -226,14 +225,14 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
     while (head != *prevTail) {
       // Send through MPI
       int slot = head%args->substeps;
-      MPICHECK(ncclMpiIsend(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag, SEND_REQ(slot)));
+      MPICHECK(ncclMpiIsend(resources->mpiRank, localBuff+slot*sliceSize, sizesFifo[slot], resources->mpiTag, SEND_REQ(slot)));
       head++;
       idle = 0;
     }
     if (tail < head) {
       int done;
       int slot = tail%args->substeps;
-      MPICHECK(ncclMpiTest(SEND_REQ(slot), &done));
+      MPICHECK(ncclMpiTest(SEND_REQ(slot), &done, NULL));
       if (done) {
         tail++;
         data[slot] = tail;
@@ -281,7 +280,6 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
 
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
-  int maxSize = min(sliceSize, args->size);
 
   int head = 0;
   int data[args->substeps];
@@ -293,14 +291,14 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
     if (mpiCudaSupport == 1) {
       while (((head - *nextHead) < args->substeps) && (head < args->nsteps)) {
         int slot = head%args->substeps;
-        MPICHECK(ncclMpiIrecv(resources->mpiRank, nextBuff+slot*sliceSize, maxSize, resources->mpiTag, RECV_REQ(slot)));
+        MPICHECK(ncclMpiIrecv(resources->mpiRank, nextBuff+slot*sliceSize, sliceSize, resources->mpiTag, RECV_REQ(slot)));
         head++;
         idle = 0;
       }
       if (tail < head) {
         int done;
         int slot = tail%args->substeps;
-        MPICHECK(ncclMpiTest(RECV_REQ(slot), &done));
+        MPICHECK(ncclMpiTest(RECV_REQ(slot), &done, NULL));
         if (done) {
           tail++;
           if (directDevMem) {
@@ -316,7 +314,7 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
       if (((head - tail) < args->substeps) && (head < args->nsteps)) {
         int slot = head%args->substeps;
         if (cudaEventQuery(resources->syncEvent[slot]) == cudaSuccess) {
-          MPICHECK(ncclMpiIrecv(resources->mpiRank, localBuff+slot*sliceSize, maxSize, resources->mpiTag, RECV_REQ(slot)));
+          MPICHECK(ncclMpiIrecv(resources->mpiRank, localBuff+slot*sliceSize, sliceSize, resources->mpiTag, RECV_REQ(slot)));
           head++;
           idle = 0;
         }
@@ -324,10 +322,11 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
       if (tail < head && ((tail - *nextHead) < args->substeps)) {
         int done;
         int slot = tail%args->substeps;
-        MPICHECK(ncclMpiTest(RECV_REQ(slot), &done));
+        int size;
+        MPICHECK(ncclMpiTest(RECV_REQ(slot), &done, &size));
         if (done) {
           // Send to GPU
-          CUDACHECK(cudaMemcpyAsync(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, maxSize, cudaMemcpyHostToDevice, resources->stream));
+          CUDACHECK(cudaMemcpyAsync(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, size, cudaMemcpyHostToDevice, resources->stream));
           CUDACHECK(cudaEventRecord(resources->syncEvent[slot], resources->stream));
           tail++;
           data[slot] = tail;

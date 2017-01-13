@@ -63,6 +63,8 @@ static ncclResult_t commFree(ncclComm_t comm) {
     return ncclSuccess;
 
   for (int ring=0; ring<comm->nRings; ring++) {
+    free(comm->rings[ring].userRanks);
+    CUDACHECK(cudaFree(comm->rings[ring].devUserRanks));
     NCCLCHECK(comm->rings[ring].send.transport->send.free(comm->rings[ring].send.transportResources));
     NCCLCHECK(transportDestroyProxy(&comm->rings[ring].send));
     NCCLCHECK(comm->rings[ring].recv.transport->recv.free(comm->rings[ring].recv.transportResources));
@@ -117,6 +119,10 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   if (cudaMemcpy(comm->devComm, comm, sizeof(struct ncclComm), cudaMemcpyHostToDevice) != cudaSuccess) {
     WARN("failed to copy device comm");
     return ncclUnhandledCudaError;
+  }
+  // Copy userRanks
+  for (int r=0; r<comm->nRings; r++) {
+    CUDACHECK(cudaMemcpy(comm->rings[r].devUserRanks, comm->rings[r].userRanks, comm->nRanks*sizeof(int), cudaMemcpyHostToDevice));
   }
   return ncclSuccess;
 }
@@ -208,6 +214,8 @@ static ncclResult_t setupRing(struct ncclComm* comm, struct ncclRing* ring, int 
       break;
     }
   }
+  CUDACHECK(cudaMalloc(&ring->devUserRanks, nranks*sizeof(int)));
+  ring->userRanks = (int*)malloc(nranks*sizeof(int));
   for (int i=0; i<nranks; i++) {
     ring->userRanks[i] = ringRanks[(i+shift)%nranks];
   }
@@ -228,7 +236,8 @@ static void swap(void* mem1, void* mem2, int size) {
 }
 
 #define MAXWIDTH 20
-#define STRLENGTH (4+MAXWIDTH*4)
+#define PREFIXLEN 15
+#define STRLENGTH (PREFIXLEN+4*MAXWIDTH)
 void dumpMatrix(int* connectMatrix, int nranks) {
   char line[STRLENGTH+1];
   line[STRLENGTH] = '\0';
@@ -248,8 +257,8 @@ void dumpLine(int* values, int nranks, const char* prefix) {
   char line[STRLENGTH+1];
   line[STRLENGTH] = '\0';
   memset(line, ' ', STRLENGTH);
-  memcpy(line, prefix, prefixlen);
-  for (int i=0; i<nranks && i<MAXWIDTH; i++) sprintf(prefixlen+line+4*i, " %3d", values[i]);
+  strncpy(line, prefix, PREFIXLEN);
+  for (int i=0; i<nranks && i<MAXWIDTH; i++) sprintf(line+prefixlen+4*i, " %3d", values[i]);
   INFO(line);
 }
 
@@ -269,7 +278,7 @@ static ncclResult_t buildRings(int nrings, int* rings, int rank, int nranks, int
     sprintf(prefix, "[%d] Ring %d : ", rank, r);
     dumpLine(rings+r*nranks, nranks, prefix);
     if (current != rank) {
-      WARN("Error : ring %d do not loop back to start", r);
+      WARN("Error : ring %d does not loop back to start (%d != %d)", r, current, rank);
       return ncclInternalError;
     }
     // Check that all ranks are there

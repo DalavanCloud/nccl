@@ -14,8 +14,6 @@
 #include <cuda_runtime.h>
 
 #define MAXRINGS 12
-#define MAXFLAGS (2*MAXRINGS)
-#define MAXRANKS 32
 #define DEFAULT_BUFFER_SIZE_BYTES (1UL << 22)
 
 struct ncclConnInfo {
@@ -71,7 +69,8 @@ struct ncclRing {
   // Maps an internal nccl index to user-specified rank order. This is necessary
   // since we need to know how the user expects data to be ordered across
   // devices. Ordered from current device.
-  int userRanks[MAXRANKS];
+  int* userRanks;
+  int* devUserRanks;
 };
 
 struct ncclComm {

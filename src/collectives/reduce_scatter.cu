@@ -33,7 +33,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   WaitFlag waitDoneFromNext(ring->send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, -1*NUM_SUBSTEPS);
   PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS, NULL, 0);
-  PostFlag postReadyToNext(ring->send.conn.tail, 0, NULL, 0);
+  PostFlag postReadyToNext(ring->send.conn.tail, 0, ring->send.conn.fifo, NUM_BUFCHUNKS*NUM_SUBSTEPS);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
@@ -65,7 +65,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
     int rankDest;
 
     // step 0: push data to next GPU
-    rankDest = ring->userRanks[nranks-1];
+    rankDest = ring->devUserRanks[nranks-1];
     offset = chunkOffset + rankDest * size;
 
     Prims::Copy(
@@ -80,7 +80,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
     // k-2 steps: reduce and copy to next GPU
     for (int j=2; j<nranks; ++j) {
-      rankDest = ring->userRanks[nranks-j];
+      rankDest = ring->devUserRanks[nranks-j];
       offset = chunkOffset + rankDest * size;
 
       Prims::Reduce(
@@ -97,7 +97,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
     // step k-1: reduce this buffer and data, which will produce the final
     // result that we store in this data and push to the next GPU
-    rankDest = ring->userRanks[0];
+    rankDest = ring->devUserRanks[0];
     offset = chunkOffset + rankDest * size;
 
     Prims::Reduce(
@@ -130,7 +130,7 @@ ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), count*sizeof(T), proxyPatternRing, comm));
+    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
     if (comm->nRings > 1) {

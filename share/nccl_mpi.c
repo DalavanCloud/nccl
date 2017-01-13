@@ -74,7 +74,10 @@ int ncclMpiIrecv(int rank, void* data, int size, int tag, int request) {
   return MPI_Irecv(data, size, MPI_BYTE, rank == -1 ? MPI_ANY_SOURCE : rank, tag, ncclMpiComm, ncclMpiRequests+request+1);
 }
 
-int ncclMpiTest(int request, int* done) {
+int ncclMpiTest(int request, int* done, int* size) {
   CHECKREQINDEX(request);
-  return MPI_Test(ncclMpiRequests+request+1, done, MPI_STATUS_IGNORE);
+  MPI_Status status;
+  int err = MPI_Test(ncclMpiRequests+request+1, done, &status);
+  if (size) MPI_Get_count(&status, MPI_BYTE, size);
+  return err;
 }

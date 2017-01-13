@@ -6,44 +6,43 @@
 
 #include "core.h"
 
-static void recFillMyGroup(int rank, int* groups, int nranks, int* matrix, int transport) {
-  groups[rank] = -2;
-  for (int r=0; r<nranks; r++) {
-    if (groups[r] == -2) continue;
-    if (matrix[rank*nranks+r] <= transport) recFillMyGroup(r, groups, nranks, matrix, transport);
+static void recFillCoords(int rank, int nranks, int* matrix, int* current, int* coords, int* idx, int* rankToIdx, int* idxToRank) {
+  for (int t=0; t<NTRANSPORTS; t++) {
+    coords[rank*NTRANSPORTS+t] = current[t];
+  }
+  rankToIdx[rank] = *idx;
+  idxToRank[*idx] = rank;
+  for (int t=0; t<NTRANSPORTS; t++) {
+    for (int r=0; r<nranks; r++) {
+      if (coords[r*NTRANSPORTS] != -1) continue;
+      if (matrix[rank*nranks+r] == t) {
+        current[t]++;
+        (*idx)++;
+        recFillCoords(r, nranks, matrix, current, coords, idx, rankToIdx, idxToRank);
+      }
+    }
+    current[t] = 0;
   }
 }
 
-static void fillMyGroup(int rank, int* groups, int nranks, int* matrix, int transport) {
-  for (int r=0; r<nranks; r++) groups[r] = -1;
-  recFillMyGroup(rank, groups, nranks, matrix, transport);
-}
-
-static void recNumberMyGroup(int rank, int group, int* groups, int nranks, int* matrix, int transport) {
-  groups[rank] = group;
-  for (int r=0; r<nranks; r++) {
-    if (groups[r] == -1 || groups[r] >= 0) continue;
-    if (matrix[rank*nranks+r] < transport)
-      recNumberMyGroup(r, group, groups, nranks, matrix, transport);
-  }
-}
-
-static int numberMyGroup(int* groups, int nranks, int* matrix, int transport) {
-  int group = 0;
-  for (int i=0; i<nranks; i++) {
-    if (groups[i] == -2)
-      recNumberMyGroup(i, group++, groups, nranks, matrix, transport);
-  }
-  return group;
-}
-
-static int fillGroups(int rank, int* groups, int nranks, int* matrix, int transport) {
-  fillMyGroup(rank, groups, nranks, matrix, transport);
-  return numberMyGroup(groups, nranks, matrix, transport);
+static void fillCoords(int nranks, int* matrix, int* coords, int* rankToIdx, int* idxToRank) {
+  // Set 0's coordinates to (0,0, ... 0)
+  int current[NTRANSPORTS];
+  for (int i=0; i<NTRANSPORTS; i++) current[i] = 0;
+  int index = 0;
+  recFillCoords(0, nranks, matrix, current, coords, &index, rankToIdx, idxToRank);
 }
 
 ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
   *nrings = 0;
+  if (nranks == 1) return ncclSuccess;
+
+  // Compute hierarchical topology groups, indexes, and rank<->index tables
+  int coords[nranks*NTRANSPORTS];
+  int globalIdxToRank[nranks];
+  int globalRankToIdx[nranks];
+  for (int i=0; i<nranks*NTRANSPORTS; i++) coords[i] = -1;
+  fillCoords(nranks, transports, coords, globalRankToIdx, globalIdxToRank);
 
   int pattern = 0;
   int nringsTmp;
@@ -53,28 +52,28 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
     for (int i=0; i<nranks*MAXRINGS; i++) prevTmp[i] = nextTmp[i] = -1;
     nringsTmp = MAXRINGS;
     for (int t=NTRANSPORTS-1; t>=0; t--) {
+      int idxToRank[nranks];
+      int rankToIdx[nranks];
       int groups[nranks];
-      int ngroups = fillGroups(rank, groups, nranks, transports, t);
+      
+      int nidx = 0;
+      for (int i=0; i<nranks; i++) {
+        // Extract only ranks in the same local area as rank
+        // We need to extract them in the topological order, hence we iterate over indexes, not ranks
+        int r = globalIdxToRank[i];
+        int sameLocal = 1;
+        for (int tr = NTRANSPORTS-1; tr > t; tr--) if (coords[r*NTRANSPORTS+tr] != coords[rank*NTRANSPORTS+tr]) sameLocal = 0;
+        if (!sameLocal) continue;
+
+        groups[nidx] = coords[r*NTRANSPORTS+t];
+        rankToIdx[r] = nidx;
+        idxToRank[nidx] = r;
+        nidx++;
+      }
+      // Coords should be ordered
+      int ngroups = groups[nidx-1] + 1;
+
       if (ngroups > 1) {
-        /* Reduce the scope to the local ranks and sort them by group */
-        int idxToRank[nranks];
-        int rankToIdx[nranks];
-        for (int i=0; i<nranks; i++) idxToRank[i] = rankToIdx[i] = -1;
-        int nidx = 0;
-        for (int g=0; g<ngroups; g++) {
-          for (int r=0; r<nranks; r++) {
-            if (groups[r] == g) {
-              rankToIdx[r] = nidx;
-              idxToRank[nidx] = r;
-              nidx++;
-            }
-          }
-        }
-        /* Extract groups */
-        int subgroups[nidx];
-        for (int i=0; i<nidx; i++) {
-          subgroups[i] = groups[idxToRank[i]];
-        }
         /* Extract values */
         int subvalues[nidx*nidx];
         for (int i=0; i<nidx; i++) {
@@ -104,7 +103,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
           }
         }
         /* Get rings */
-        NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, subgroups, subvalues, &nringsTmp, subprev, subnext, pattern));
+        NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, groups, subvalues, &nringsTmp, subprev, subnext, pattern));
         /* Merge prev/next */
         for (int r=0; r<nringsTmp; r++) {
           for (int i=0; i<nidx; i++) {
