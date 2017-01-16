@@ -97,10 +97,12 @@ ncclResult_t bootstrapSocketAllGather(void* commState, void* allData, int size) 
   struct socketState* state = (struct socketState*)commState;
   char* data = (char*)allData;
   if (state->root) {
-    for (int r=1; r<state->nranks; r++) {
+    for (int r=0; r<state->nranks; r++) {
+      if (r == state->rank) continue;
       NCCLCHECK(socketReceive(state->fds[r], data+r*size, size));
     }
-    for (int r=1; r<state->nranks; r++) {
+    for (int r=0; r<state->nranks; r++) {
+      if (r == state->rank) continue;
       NCCLCHECK(socketSend(state->fds[r], data, size*state->nranks));
     }
   } else {
@@ -116,25 +118,28 @@ ncclResult_t bootstrapSocketRingExchange(void* commState, void* prevNextData, in
   int prev_offset = prev*2*size+size, next_offset = next*2*size;
   if (state->root) {
     char* data = (char*)malloc(size*2*state->nranks);
-    // Copy root prev/next 
-    memcpy(data, mydata, 2*size);
 
     // Receive from all and build total table
-    for (int r=1; r<state->nranks; r++) {
-      NCCLCHECK(socketReceive(state->fds[r], data+r*2*size, 2*size));
+    for (int r=0; r<state->nranks; r++) {
+      if (r == state->rank)
+        memcpy(data+r*2*size, mydata, 2*size);
+      else
+        NCCLCHECK(socketReceive(state->fds[r], data+r*2*size, 2*size));
     }
 
-    // Get root prev/next
-    memcpy(mydata, data+prev_offset, size);
-    memcpy(mydata+size, data+next_offset, size);
-
     // Get prev/next request from everyone and answer.
-    for (int r=1; r<state->nranks; r++) {
-      int offset;
-      NCCLCHECK(socketReceive(state->fds[r], &offset, sizeof(int)));
-      NCCLCHECK(socketSend(state->fds[r], data+offset, size));
-      NCCLCHECK(socketReceive(state->fds[r], &offset, sizeof(int)));
-      NCCLCHECK(socketSend(state->fds[r], data+offset, size));
+    for (int r=0; r<state->nranks; r++) {
+      if (r == state->rank) {
+        // Get root prev/next
+        memcpy(mydata, data+prev_offset, size);
+        memcpy(mydata+size, data+next_offset, size);
+      } else {
+        int offset;
+        NCCLCHECK(socketReceive(state->fds[r], &offset, sizeof(int)));
+        NCCLCHECK(socketSend(state->fds[r], data+offset, size));
+        NCCLCHECK(socketReceive(state->fds[r], &offset, sizeof(int)));
+        NCCLCHECK(socketSend(state->fds[r], data+offset, size));
+      }
     }
 
     free(data);
