@@ -4,7 +4,9 @@
 # See LICENCE.txt for license information
 #
 .PHONY : all clean
-.DEFAULT : all
+
+default : src.build
+
 TARGETS := src test fortran debian
 all:   ${TARGETS:%=%.build}
 clean: ${TARGETS:%=%.clean}
