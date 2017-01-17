@@ -194,6 +194,21 @@ ncclResult_t pncclAllGather(const void* sendbuff, int count, ncclDataType_t data
 //    void* recvbuff, ncclComm_t comm, cudaStream_t stream);
 //ncclResult_t pncclAllToAll(void* sendbuff, int count, ncclDataType_t datatype,
 //    void* recvbuff, ncclComm_t comm, cudaStream_t stream);
+ncclResult_t ncclGroupStart();
+ncclResult_t ncclGroupEnd();
+
+// User-defined inter-node transport
+typedef struct {
+  int (*enabled)(void);
+  int (*cudaSupport)(void);
+  int (*getId)(void** id);
+  int (*connectId)(void* id, void** comm);
+  int (*iSend)(void* comm, void* data, int size, void** request);
+  int (*iRecv)(void* comm, void* data, int size, void** request);
+  int (*test)(void* request, int* done);
+} ncclExtTransport_t;
+
+extern ncclExtTransport_t ncclExtTransport;
 
 #ifdef __cplusplus
 } // end extern "C"

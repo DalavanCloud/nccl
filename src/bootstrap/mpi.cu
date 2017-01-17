@@ -45,6 +45,7 @@ struct mpiInfo {
 };
 
 struct mpiState {
+  int myMpiTag;
   struct mpiInfo* rankInfo;
   int root;
   int rank;
@@ -59,6 +60,7 @@ ncclResult_t bootstrapMpiInit(ncclUniqueId* commId, int rank, int nranks, void**
   struct mpiId* id = (struct mpiId*)commId;
   int root = 0;
   struct mpiInfo* rankInfo;
+  int myMpiTag;
 
   char hostname[1024];
   getHostName(hostname, 1024);
@@ -75,17 +77,20 @@ ncclResult_t bootstrapMpiInit(ncclUniqueId* commId, int rank, int nranks, void**
     /* Fill my info */
     struct mpiInfo info;
     rankInfo[rank].mpiRank = id->mpiRank;
-    rankInfo[rank].mpiTag = id->mpiTag;
+    rankInfo[rank].mpiTag = myMpiTag = id->mpiTag;
     rankInfo[rank].rank = rank;
 
     /* Receive addresses from all ranks */
     for (int c=0; c<nranks-1; c++) {
       ncclMpiRecv(-1, &info, sizeof(info), id->mpiTag);
       memcpy(rankInfo+info.rank, &info, sizeof(info));
+      printf("[R] Got data from rank %d, MPI rank/tag %d/%d\n", info.rank, info.mpiRank, info.mpiTag);
     }
+    printf("[R] Got data from everyone, releasing\n");
     for (int r=0; r<nranks; r++) {
       if (r == rank) continue;
       // Just for sync
+      printf("[R] Sending data to %d/%d\n", rankInfo[r].mpiRank, rankInfo[r].mpiTag);
       ncclMpiSend(rankInfo[r].mpiRank, &rank, sizeof(int), rankInfo[r].mpiTag);
     }
     free(id->lock);
@@ -97,9 +102,13 @@ ncclResult_t bootstrapMpiInit(ncclUniqueId* commId, int rank, int nranks, void**
     info.rank = rank;
     ncclMpiCommRank(&info.mpiRank);
     ncclMpiGetTag(&info.mpiTag);
+    myMpiTag = info.mpiTag;
+    printf("[%d] Sending data to %d/%d\n", rank, id->mpiRank, id->mpiTag);
     ncclMpiSend(id->mpiRank, &info, sizeof(info), id->mpiTag);
     int dummy;
-    ncclMpiRecv(id->mpiRank, &dummy, sizeof(int), id->mpiTag);
+    printf("[%d] Receiving data from %d/%d\n", rank, id->mpiRank, myMpiTag);
+    ncclMpiRecv(id->mpiRank, &dummy, sizeof(int), myMpiTag);
+    printf("[%d] Done\n", rank);
   }
   
   struct mpiState* state = (struct mpiState*)malloc(sizeof(struct mpiState));
@@ -107,7 +116,9 @@ ncclResult_t bootstrapMpiInit(ncclUniqueId* commId, int rank, int nranks, void**
   state->rankInfo = rankInfo;
   state->rank = rank;
   state->nranks = nranks;
+  state->myMpiTag = myMpiTag;
   *commState = state;
+  printf("[%d] [%d] Bootstrap Init Done\n", rank, root);
   return ncclSuccess;
 }
 
@@ -119,7 +130,7 @@ ncclResult_t bootstrapMpiAllGather(void* commState, void* allData, int size) {
       if (r == state->rank) { 
         memcpy(data+r*size, data+state->rank*size, size);
       } else {
-	ncclMpiRecv(state->rankInfo[r].mpiRank, data+r*size, size, state->rankInfo[r].mpiTag);
+	ncclMpiRecv(state->rankInfo[r].mpiRank, data+r*size, size, state->myMpiTag);
       }
     }
     for (int r=0; r<state->nranks; r++) {
@@ -128,8 +139,9 @@ ncclResult_t bootstrapMpiAllGather(void* commState, void* allData, int size) {
     }
   } else {
     ncclMpiSend(state->rankInfo[0].mpiRank, data+state->rank*size, size, state->rankInfo[0].mpiTag);
-    ncclMpiRecv(state->rankInfo[0].mpiRank, data, size*state->nranks, state->rankInfo[0].mpiTag);
+    ncclMpiRecv(state->rankInfo[0].mpiRank, data, size*state->nranks, state->myMpiTag);
   }
+  printf("[%d] Allgather Done\n", state->rank);
   return ncclSuccess;
 }
 
@@ -144,7 +156,7 @@ ncclResult_t bootstrapMpiRingExchange(void* commState, void* prevNextData, int p
       if (r == state->rank) {
         memcpy(data+r*2*size, mydata, 2*size);
       } else {
-	ncclMpiRecv(state->rankInfo[r].mpiRank, data+r*2*size, 2*size, state->rankInfo[r].mpiTag);
+	ncclMpiRecv(state->rankInfo[r].mpiRank, data+r*2*size, 2*size, state->myMpiTag);
       }
     }
 
@@ -155,9 +167,9 @@ ncclResult_t bootstrapMpiRingExchange(void* commState, void* prevNextData, int p
         memcpy(mydata+size, data+next_offset, size);
       } else {
 	int offset;
-	ncclMpiRecv(state->rankInfo[r].mpiRank, &offset, sizeof(int), state->rankInfo[r].mpiTag);
+	ncclMpiRecv(state->rankInfo[r].mpiRank, &offset, sizeof(int), state->myMpiTag);
 	ncclMpiSend(state->rankInfo[r].mpiRank, data+offset, size, state->rankInfo[r].mpiTag);
-	ncclMpiRecv(state->rankInfo[r].mpiRank, &offset, sizeof(int), state->rankInfo[r].mpiTag);
+	ncclMpiRecv(state->rankInfo[r].mpiRank, &offset, sizeof(int), state->myMpiTag);
 	ncclMpiSend(state->rankInfo[r].mpiRank, data+offset, size, state->rankInfo[r].mpiTag);
       }
     }
@@ -167,9 +179,9 @@ ncclResult_t bootstrapMpiRingExchange(void* commState, void* prevNextData, int p
     ncclMpiSend(state->rankInfo[0].mpiRank, mydata, 2*size, state->rankInfo[0].mpiTag);
     // Receive prev and next data
     ncclMpiSend(state->rankInfo[0].mpiRank, &prev_offset, sizeof(int), state->rankInfo[0].mpiTag);
-    ncclMpiRecv(state->rankInfo[0].mpiRank, mydata, size, state->rankInfo[0].mpiTag);
+    ncclMpiRecv(state->rankInfo[0].mpiRank, mydata, size, state->myMpiTag);
     ncclMpiSend(state->rankInfo[0].mpiRank, &next_offset, sizeof(int), state->rankInfo[0].mpiTag);
-    ncclMpiRecv(state->rankInfo[0].mpiRank, mydata+size, size, state->rankInfo[0].mpiTag);
+    ncclMpiRecv(state->rankInfo[0].mpiRank, mydata+size, size, state->myMpiTag);
   }
   return ncclSuccess;
 }

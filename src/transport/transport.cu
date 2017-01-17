@@ -8,6 +8,8 @@
 #include "core.h"
 #include "common_kernel.h"
 
+ncclExtTransport_t ncclExtTransport;
+
 extern struct ncclTransport p2pTransport;
 extern struct ncclTransport shmTransport;
 extern struct ncclTransport mpiTransport;
