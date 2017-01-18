@@ -7,19 +7,20 @@
 #include "core.h"
 #include "transport.h"
 #include <cuda_runtime.h>
-#include "mpi.h"
+#include "ext.h"
 #include "gdcopy.h"
 #include <assert.h>
 
-struct mpiInfo {
+struct extInfo {
   int rank;
-  int mpiRank;
-  int mpiTag;
 };
 
-struct mpiSendResources {
-  int mpiRank;
-  int mpiTag;
+struct extConnectInfo {
+  ncclExtHandle_t extHandle;
+};
+
+struct extSendResources {
+  void* extSendComm;
   cudaStream_t stream;
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
@@ -28,9 +29,8 @@ struct mpiSendResources {
 
 #define MAXSTEPS 8
 
-struct mpiRecvResources {
-  int mpiRank;
-  int mpiTag;
+struct extRecvResources {
+  void* extRecvComm;
   cudaStream_t stream;
   cudaEvent_t syncEvent[MAXSTEPS];
   struct ncclSendRecvMem* hostMem;
@@ -40,16 +40,16 @@ struct mpiRecvResources {
 
 /* Fill information necessary to exchange between ranks to choose whether or not
  * to use this transport */
-ncclResult_t mpiFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
-  struct mpiInfo* info = (struct mpiInfo*)opaqueInfo;
-  static_assert(sizeof(struct mpiInfo) <= sizeof(ncclTinfo_t), "MPI Info too large");
+ncclResult_t extFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
+  struct extInfo* info = (struct extInfo*)opaqueInfo;
+  static_assert(sizeof(struct extInfo) <= sizeof(ncclTinfo_t), "EXT Info too large");
   info->rank = rank;
   return ncclSuccess;
 }
 
 /* Determine if we can communicate with the peer */
-ncclResult_t mpiCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
-  *ret = ncclMpiEnabled();
+ncclResult_t extCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
+  *ret = ncclExtEnabled() == ncclSuccess ? 1 : 0;
   return ncclSuccess;
 }
 
@@ -60,7 +60,7 @@ void connectScattered(int nranks, int* groups, int group, int nextGroup, int* sr
   *dst = groupPos(nranks, groups, nextGroup, steps);
 }
 
-ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
+ncclResult_t extGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
   if (pattern >= 2) {
     *nringsRet = 0;
     return ncclSuccess;
@@ -103,13 +103,10 @@ ncclResult_t mpiGetRings(int nranks, int ngroups, int* groups, int* values, int*
 
 /* Determine if we will use this transport for this peer and return connect
  * information for this peer */
-ncclResult_t mpiSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct mpiSendResources* resources = (struct mpiSendResources*) malloc(sizeof(struct mpiSendResources));
+ncclResult_t extSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct extSendResources* resources = (struct extSendResources*) malloc(sizeof(struct extSendResources));
   ring->send.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
-
-  struct mpiInfo* info = (struct mpiInfo*)myOpaqueInfo;
-  MPICHECK(ncclMpiCommRank(&info->mpiRank));
 
   // Create stream for proxy
   CUDACHECK(cudaStreamCreateWithFlags(&resources->stream, cudaStreamNonBlocking));
@@ -118,20 +115,13 @@ ncclResult_t mpiSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   CUDACHECK(cudaHostAlloc(&resources->hostMem, size, cudaHostAllocMapped));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
 
-  memcpy(connectInfo, info, sizeof(struct mpiInfo));
   return ncclSuccess;
 }
 
-ncclResult_t mpiRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct mpiRecvResources* resources = (struct mpiRecvResources*) malloc(sizeof(struct mpiRecvResources));
+ncclResult_t extRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct extRecvResources* resources = (struct extRecvResources*) malloc(sizeof(struct extRecvResources));
   ring->recv.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
-
-  struct mpiInfo* info = (struct mpiInfo*)myOpaqueInfo;
-  MPICHECK(ncclMpiCommRank(&info->mpiRank));
-  // Allocate a tag for this peer
-  MPICHECK(ncclMpiGetTag(&info->mpiTag));
-  resources->mpiTag = info->mpiTag;
 
   // Create stream for proxy
   CUDACHECK(cudaStreamCreateWithFlags(&resources->stream, cudaStreamNonBlocking));
@@ -143,41 +133,40 @@ ncclResult_t mpiRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   CUDACHECK(cudaHostAlloc(&resources->hostMem, size, cudaHostAllocMapped));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
   
-  struct mpiInfo* peerInfo = (struct mpiInfo*)peerOpaqueInfo;
-  INFO("%d -> %d via MPI%s%s", peerInfo->rank, info->rank, ncclMpiCudaSupport() ? "/GDRDMA" : "", (resources->hostDevMem != NULL) ? "/GDCopy" : "");
-  memcpy(connectInfo, info, sizeof(struct mpiInfo));
+  struct extInfo* myInfo = (struct extInfo*)myOpaqueInfo;
+  struct extInfo* peerInfo = (struct extInfo*)peerOpaqueInfo;
+  INFO("%d -> %d via EXT%s%s", peerInfo->rank, myInfo->rank, ncclExtCudaSupport() ? "/GDRDMA" : "", (resources->hostDevMem != NULL) ? "/GDCopy" : "");
+  struct extConnectInfo* info = (struct extConnectInfo*) connectInfo;
+  NCCLCHECK(ncclExtGetHandle(&info->extHandle, &resources->extRecvComm));
   return ncclSuccess;
 }
 
-ncclResult_t mpiSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
+ncclResult_t extSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   // Setup device pointers
-  struct mpiSendResources* resources = (struct mpiSendResources*)send->transportResources;
+  struct extSendResources* resources = (struct extSendResources*)send->transportResources;
   send->conn.buff = resources->devHostMem->buff;
   send->conn.tail = &resources->devHostMem->tail;
   send->conn.opCount = &resources->devHostMem->opCount;
   send->conn.fifo = resources->devHostMem->sizesFifo;
 
   // Setup remote MPI rank / tag
-  struct mpiInfo* info = (struct mpiInfo*)connectInfo;
-  resources->mpiRank = info->mpiRank;
-  resources->mpiTag = info->mpiTag;
+  struct extConnectInfo* info = (struct extConnectInfo*)connectInfo;
+  NCCLCHECK(ncclExtConnectHandle(info->extHandle, &resources->extSendComm));
   return ncclSuccess;
 }
 
 /* Connect to this peer */
-ncclResult_t mpiRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
+ncclResult_t extRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
   // Setup device pointers
-  struct mpiRecvResources* resources = (struct mpiRecvResources*)recv->transportResources;
+  struct extRecvResources* resources = (struct extRecvResources*)recv->transportResources;
   recv->conn.head = &resources->devHostMem->head;
 
   // Setup remote MPI rank / tag
-  struct mpiInfo* info = (struct mpiInfo*)connectInfo;
-  resources->mpiRank = info->mpiRank;
   return ncclSuccess;
 }
 
-ncclResult_t mpiSendFree(void* transportResources) {
-  struct mpiSendResources* resources = (struct mpiSendResources*)transportResources;
+ncclResult_t extSendFree(void* transportResources) {
+  struct extSendResources* resources = (struct extSendResources*)transportResources;
   CUDACHECK(cudaStreamDestroy(resources->stream));
   CUDACHECK(cudaFreeHost(resources->hostMem));
   // TODO : unmap hostDevMem
@@ -185,8 +174,8 @@ ncclResult_t mpiSendFree(void* transportResources) {
   return ncclSuccess;
 }
 
-ncclResult_t mpiRecvFree(void* transportResources) {
-  struct mpiRecvResources* resources = (struct mpiRecvResources*)transportResources;
+ncclResult_t extRecvFree(void* transportResources) {
+  struct extRecvResources* resources = (struct extRecvResources*)transportResources;
   CUDACHECK(cudaStreamDestroy(resources->stream));
   for (int i=0; i<MAXSTEPS; i++) {
     CUDACHECK(cudaEventDestroy(resources->syncEvent[i]));
@@ -197,13 +186,9 @@ ncclResult_t mpiRecvFree(void* transportResources) {
   return ncclSuccess;
 }
 
-// Don't use the same requests for Send and Recv 
-#define SEND_REQ(slot) (2*slot)
-#define RECV_REQ(slot) (2*slot+1)
-
-ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
+ncclResult_t extSendProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct mpiSendResources* resources = (struct mpiSendResources*) (ring->send.transportResources);
+  struct extSendResources* resources = (struct extSendResources*) (ring->send.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = &devMem->head;
@@ -220,19 +205,20 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
 
   int tail = 0;
   int idle = 0;
+  void* requests[args->substeps];
   while (tail < args->nsteps) {
     idle++;
     while (head != *prevTail) {
       // Send through MPI
       int slot = head%args->substeps;
-      MPICHECK(ncclMpiIsend(resources->mpiRank, localBuff+slot*sliceSize, sizesFifo[slot], resources->mpiTag, SEND_REQ(slot)));
+      NCCLCHECK(ncclExtIsend(resources->extSendComm, localBuff+slot*sliceSize, sizesFifo[slot], requests+slot));
       head++;
       idle = 0;
     }
     if (tail < head) {
       int done;
       int slot = tail%args->substeps;
-      MPICHECK(ncclMpiTest(SEND_REQ(slot), &done, NULL));
+      NCCLCHECK(ncclExtTest(requests[slot], &done, NULL));
       if (done) {
         tail++;
         data[slot] = tail;
@@ -251,12 +237,12 @@ ncclResult_t mpiSendProxy(struct ncclProxyArgs* args) {
   return ncclSuccess;
 }
 
-ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
+ncclResult_t extRecvProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct mpiRecvResources* resources = (struct mpiRecvResources*) (ring->recv.transportResources);
+  struct extRecvResources* resources = (struct extRecvResources*) (ring->recv.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
 
-  int mpiCudaSupport = ncclMpiCudaSupport();
+  int extCudaSupport = ncclExtCudaSupport();
   bool directDevMem = resources->hostDevMem != NULL;
 
   assert(MAXSTEPS >= args->substeps);
@@ -274,7 +260,7 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
   }
 
   volatile int* nextHead = &resources->hostMem->head;
-  int* nextTail = (mpiCudaSupport && directDevMem) ? &resources->hostDevMem->tail : &devMem->tail;
+  int* nextTail = (extCudaSupport && directDevMem) ? &resources->hostDevMem->tail : &devMem->tail;
   char* localBuff = resources->hostMem->buff;
   char* nextBuff = devMem->buff;
 
@@ -286,19 +272,20 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
 
   int tail = 0;
   int idle = 0;
+  void* requests[args->substeps];
   while (tail < args->nsteps) {
     idle++;
-    if (mpiCudaSupport == 1) {
+    if (extCudaSupport == 1) {
       while (((head - *nextHead) < args->substeps) && (head < args->nsteps)) {
         int slot = head%args->substeps;
-        MPICHECK(ncclMpiIrecv(resources->mpiRank, nextBuff+slot*sliceSize, sliceSize, resources->mpiTag, RECV_REQ(slot)));
+        NCCLCHECK(ncclExtIrecv(resources->extRecvComm, nextBuff+slot*sliceSize, sliceSize, requests+slot));
         head++;
         idle = 0;
       }
       if (tail < head) {
         int done;
         int slot = tail%args->substeps;
-        MPICHECK(ncclMpiTest(RECV_REQ(slot), &done, NULL));
+        NCCLCHECK(ncclExtTest(requests[slot], &done, NULL));
         if (done) {
           tail++;
           if (directDevMem) {
@@ -314,7 +301,7 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
       if (((head - tail) < args->substeps) && (head < args->nsteps)) {
         int slot = head%args->substeps;
         if (cudaEventQuery(resources->syncEvent[slot]) == cudaSuccess) {
-          MPICHECK(ncclMpiIrecv(resources->mpiRank, localBuff+slot*sliceSize, sliceSize, resources->mpiTag, RECV_REQ(slot)));
+          NCCLCHECK(ncclExtIrecv(resources->extRecvComm, localBuff+slot*sliceSize, sliceSize, requests+slot));
           head++;
           idle = 0;
         }
@@ -323,7 +310,7 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
         int done;
         int slot = tail%args->substeps;
         int size;
-        MPICHECK(ncclMpiTest(RECV_REQ(slot), &done, &size));
+        NCCLCHECK(ncclExtTest(requests[slot], &done, &size));
         if (done) {
           // Send to GPU
           CUDACHECK(cudaMemcpyAsync(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, size, cudaMemcpyHostToDevice, resources->stream));
@@ -347,11 +334,11 @@ ncclResult_t mpiRecvProxy(struct ncclProxyArgs* args) {
   return ncclSuccess;
 }
 
-struct ncclTransport mpiTransport = {
-  "MPI",
-  mpiFillInfo,
-  mpiCanConnect,
-  mpiGetRings,
-  { mpiSendSetup, mpiSendConnect, mpiSendFree, mpiSendProxy },
-  { mpiRecvSetup, mpiRecvConnect, mpiRecvFree, mpiRecvProxy }
+struct ncclTransport extTransport = {
+  "EXT",
+  extFillInfo,
+  extCanConnect,
+  extGetRings,
+  { extSendSetup, extSendConnect, extSendFree, extSendProxy },
+  { extRecvSetup, extRecvConnect, extRecvFree, extRecvProxy }
 };

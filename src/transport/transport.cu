@@ -8,17 +8,15 @@
 #include "core.h"
 #include "common_kernel.h"
 
-ncclExtTransport_t ncclExtTransport;
-
 extern struct ncclTransport p2pTransport;
 extern struct ncclTransport shmTransport;
-extern struct ncclTransport mpiTransport;
+extern struct ncclTransport extTransport;
 extern struct ncclTransport socketTransport;
 
 struct ncclTransport ncclTransports[NTRANSPORTS] = {
   p2pTransport,
   shmTransport,
-  mpiTransport,
+  extTransport,
   socketTransport
 };
 

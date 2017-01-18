@@ -10,10 +10,10 @@
 #define NBOOTSTRAPS 2
 
 extern struct ncclBootstrap bootstrapSocket;
-extern struct ncclBootstrap bootstrapMpi;
+extern struct ncclBootstrap bootstrapExt;
 
 struct ncclBootstrap bootstraps[NBOOTSTRAPS] = {
-  bootstrapMpi,
+  bootstrapExt,
   bootstrapSocket
 };
 

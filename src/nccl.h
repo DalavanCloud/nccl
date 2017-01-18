@@ -197,18 +197,29 @@ ncclResult_t pncclAllGather(const void* sendbuff, int count, ncclDataType_t data
 ncclResult_t ncclGroupStart();
 ncclResult_t ncclGroupEnd();
 
-// User-defined inter-node transport
+// Inter-node transport to replace the default socket-based transport.
+// An example using MPI can be found in share/nccl_mpi.c.
+#define NCCL_EXT_HANDLE_MAXSIZE 32
 typedef struct {
+  // Should return 1 to enable inter-node communication. XXX : remove that when socket transport is the default
   int (*enabled)(void);
+  // Return 1 if we're allowed to pass CUDA pointers to send/recv functions, 0 otherwise.
   int (*cudaSupport)(void);
-  int (*getId)(void** id);
-  int (*connectId)(void* id, void** comm);
-  int (*iSend)(void* comm, void* data, int size, void** request);
-  int (*iRecv)(void* comm, void* data, int size, void** request);
-  int (*test)(void* request, int* done);
+  // Create a receiving object and provide a handle to connect to it. The 
+  // handle can be up to NCCL_EXT_HANDLE_MAXSIZE bytes and will be exchanged 
+  // between ranks to create a connection.
+  int (*getHandle)(void* handle, void** recvComm);
+  // Connect to a handle and return a sending comm object for that peer.
+  int (*connectHandle)(void* handle, void** sendComm);
+  // Asynchronous send to a peer.
+  int (*iSend)(void* sendComm, void* data, int size, void** request);
+  // Asynchronous recv from a peer.
+  int (*iRecv)(void* recvComm, void* data, int size, void** request);
+  // Test whether a request is complete and return the size received (can be less than requested).
+  int (*test)(void* request, int* done, int* size);
 } ncclExtTransport_t;
 
-extern ncclExtTransport_t ncclExtTransport;
+extern ncclExtTransport_t* ncclExtTransport;
 
 #ifdef __cplusplus
 } // end extern "C"
