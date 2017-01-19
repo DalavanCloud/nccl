@@ -201,8 +201,6 @@ ncclResult_t ncclGroupEnd();
 // An example using MPI can be found in share/nccl_mpi.c.
 #define NCCL_NET_HANDLE_MAXSIZE 32
 typedef struct {
-  // Should return 1 to enable inter-node communication. XXX : remove that when socket transport is the default
-  int (*enabled)(void);
   // Return 1 if we're allowed to pass CUDA pointers to send/recv functions, 0 otherwise.
   int (*cudaSupport)(void);
   // Create a receiving object and provide a handle to connect to it. The 

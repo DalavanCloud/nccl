@@ -11,30 +11,30 @@
 
 typedef char ncclNetHandle_t[NCCL_NET_HANDLE_MAXSIZE];
 
-#define EXTCHECK(cmd) do { \
+#define NETCHECK(cmd) do { \
   int err = cmd; \
   if (err != 0) return ncclSystemError; \
 } while (false)
 
-static ncclResult_t ncclNetCudaSupport() { EXTCHECK(ncclNet->cudaSupport()); return ncclSuccess; }
-static ncclResult_t ncclNetGetHandle(void* handle, void** recvComm) { EXTCHECK(ncclNet->getHandle(handle, recvComm)); return ncclSuccess; }
-static ncclResult_t ncclNetConnectHandle(void* handle, void** sendComm) { EXTCHECK(ncclNet->connectHandle(handle, sendComm)); return ncclSuccess; }
-static ncclResult_t ncclNetIsend(void* sendComm, void* data, int size, void** request) { EXTCHECK(ncclNet->iSend(sendComm, data, size, request)); return ncclSuccess; }
-static ncclResult_t ncclNetIrecv(void* recvComm, void* data, int size, void** request) { EXTCHECK(ncclNet->iRecv(recvComm, data, size, request)); return ncclSuccess; }
-static ncclResult_t ncclNetTest(void* request, int* done, int* size) { EXTCHECK(ncclNet->test(request, done, size)); return ncclSuccess; }
+static ncclResult_t ncclNetCudaSupport() { return ncclNet->cudaSupport() ? ncclSuccess : ncclInternalError; }
+static ncclResult_t ncclNetGetHandle(void* handle, void** recvComm) { NETCHECK(ncclNet->getHandle(handle, recvComm)); return ncclSuccess; }
+static ncclResult_t ncclNetConnectHandle(void* handle, void** sendComm) { NETCHECK(ncclNet->connectHandle(handle, sendComm)); return ncclSuccess; }
+static ncclResult_t ncclNetIsend(void* sendComm, void* data, int size, void** request) { NETCHECK(ncclNet->iSend(sendComm, data, size, request)); return ncclSuccess; }
+static ncclResult_t ncclNetIrecv(void* recvComm, void* data, int size, void** request) { NETCHECK(ncclNet->iRecv(recvComm, data, size, request)); return ncclSuccess; }
+static ncclResult_t ncclNetTest(void* request, int* done, int* size) { NETCHECK(ncclNet->test(request, done, size)); return ncclSuccess; }
 
 static ncclResult_t ncclNetSend(void* sendComm, void* data, int size) {
   void* request;
-  EXTCHECK(ncclNetIsend(sendComm, data, size, &request));
+  NETCHECK(ncclNetIsend(sendComm, data, size, &request));
   int done = 0;
-  while (!done) EXTCHECK(ncclNetTest(request, &done, NULL));
+  while (!done) NETCHECK(ncclNetTest(request, &done, NULL));
   return ncclSuccess;
 }
 static ncclResult_t ncclNetRecv(void* recvComm, void* data, int size) {
   void* request;
-  EXTCHECK(ncclNetIrecv(recvComm, data, size, &request));
+  NETCHECK(ncclNetIrecv(recvComm, data, size, &request));
   int done = 0;
-  while (!done) EXTCHECK(ncclNetTest(request, &done, NULL));
+  while (!done) NETCHECK(ncclNetTest(request, &done, NULL));
   return ncclSuccess;
 }
 

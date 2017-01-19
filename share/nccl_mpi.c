@@ -53,16 +53,6 @@ void ncclMpiFreeRequest(MPI_Request* request) {
   pthread_mutex_unlock(&ncclMpiRequestsLock);
 }
 
-int ncclMpiEnabled() {
-  int threadLevel;
-  MPI_Query_thread(&threadLevel);
-  if (threadLevel < MPI_THREAD_MULTIPLE) {
-    fprintf(stderr, "Warning : NCCL requires at least MPI_THREAD_SERIALIZED, got %d. MPI bindings are disabled.\n", threadLevel);
-    return 0;
-  }
-  return 1;
-}
-
 int ncclMpiCudaSupport() {
   static int mpiCudaSupport = -1;
   if (mpiCudaSupport == -1) {
@@ -99,7 +89,7 @@ static void getTag(int *tag) {
 int ncclMpiGetHandle(void* opaqueHandle, void** recvComm) {
   struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)malloc(sizeof(struct ncclMpiRecvComm));
   struct ncclMpiHandle* handle = (struct ncclMpiHandle*) opaqueHandle;
-  assert(sizeof(struct ncclMpiHandle) < NCCL_EXT_HANDLE_MAXSIZE);
+  assert(sizeof(struct ncclMpiHandle) < NCCL_NET_HANDLE_MAXSIZE);
   int tag;
   getTag(&tag);
   comm->tag = handle->tag = tag;
@@ -142,8 +132,7 @@ int ncclMpiTest(void* request, int* done, int* size) {
   return err;
 }
 
-ncclExtTransport_t ncclMpiTransport = {
-  ncclMpiEnabled,
+ncclNet_t ncclMpi = {
   ncclMpiCudaSupport,
   ncclMpiGetHandle,
   ncclMpiConnectHandle,
@@ -154,6 +143,6 @@ ncclExtTransport_t ncclMpiTransport = {
 
 void ncclMpiHook(MPI_Comm comm) {
   ncclMpiComm = comm;
-  ncclExtTransport = &ncclMpiTransport;
+  ncclNet = &ncclMpi;
 }
 
