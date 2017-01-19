@@ -347,17 +347,16 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   int rank = comm->rank;
   int nranks = comm->nRanks;
   void* commState;
-  struct ncclBootstrap* bootstrap;
-  NCCLCHECK(bootstrapInit(commId, rank, nranks, &bootstrap, &commState));
+  NCCLCHECK(bootstrapInit(commId, rank, nranks, &commState));
   
   struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
   fillInfo(allInfo+rank, rank);
-  NCCLCHECK(bootstrap->allGather(commState, allInfo, sizeof(struct ncclInfo)));
+  NCCLCHECK(bootstrapAllGather(commState, allInfo, sizeof(struct ncclInfo)));
   int connectTransport[nranks*nranks];
   int connectValue[nranks*nranks];
   NCCLCHECK(fillConnect(allInfo, nranks, rank, connectTransport+nranks*rank, connectValue+nranks*rank));
-  NCCLCHECK(bootstrap->allGather(commState, connectTransport, nranks*(sizeof(int))));
-  NCCLCHECK(bootstrap->allGather(commState, connectValue, nranks*(sizeof(int))));
+  NCCLCHECK(bootstrapAllGather(commState, connectTransport, nranks*(sizeof(int))));
+  NCCLCHECK(bootstrapAllGather(commState, connectValue, nranks*(sizeof(int))));
   //if (rank == 0) dumpMatrix(connectTransport, nranks);
   //if (rank == 0) dumpMatrix(connectValue, nranks);
 
@@ -370,15 +369,15 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   // Find min nrings across ranks
   int allNrings[nranks];
   allNrings[rank] = nrings;
-  NCCLCHECK(bootstrap->allGather(commState, allNrings, sizeof(int)));
+  NCCLCHECK(bootstrapAllGather(commState, allNrings, sizeof(int)));
   for (int i=0; i<nranks; i++)
     nrings = min(allNrings[i], nrings);
 
   // Exchange data with others to build complete rings
   comm->nRings = nrings;
   for (int r=0; r<nrings; r++) {
-    NCCLCHECK(bootstrap->allGather(commState, prev+r*nranks, sizeof(int)));
-    NCCLCHECK(bootstrap->allGather(commState, next+r*nranks, sizeof(int)));
+    NCCLCHECK(bootstrapAllGather(commState, prev+r*nranks, sizeof(int)));
+    NCCLCHECK(bootstrapAllGather(commState, next+r*nranks, sizeof(int)));
   }
   int rings[nranks*MAXRINGS];
   NCCLCHECK(buildRings(nrings, rings, rank, nranks, prev, next));
@@ -389,7 +388,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     struct ncclRing *ring = comm->rings+r;
     struct ncclConnect connect[2];
     NCCLCHECK(setupRing(comm, ring, r, rank, nranks, ringRanks, allInfo, connect));
-    NCCLCHECK(bootstrap->ringExchange(commState, connect, ring->userRanks[nranks-1], ring->userRanks[1], sizeof(struct ncclConnect)));
+    NCCLCHECK(bootstrapRingExchange(commState, connect, ring->userRanks[nranks-1], ring->userRanks[1], sizeof(struct ncclConnect)));
     NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
   }

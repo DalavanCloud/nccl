@@ -7,20 +7,20 @@
 #include "core.h"
 #include "transport.h"
 #include <cuda_runtime.h>
-#include "ext.h"
+#include "net.h"
 #include "gdcopy.h"
 #include <assert.h>
 
-struct extInfo {
+struct netInfo {
   int rank;
 };
 
-struct extConnectInfo {
-  ncclExtHandle_t extHandle;
+struct netConnectInfo {
+  ncclNetHandle_t netHandle;
 };
 
-struct extSendResources {
-  void* extSendComm;
+struct netSendResources {
+  void* netSendComm;
   cudaStream_t stream;
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
@@ -29,8 +29,8 @@ struct extSendResources {
 
 #define MAXSTEPS 8
 
-struct extRecvResources {
-  void* extRecvComm;
+struct netRecvResources {
+  void* netRecvComm;
   cudaStream_t stream;
   cudaEvent_t syncEvent[MAXSTEPS];
   struct ncclSendRecvMem* hostMem;
@@ -40,16 +40,16 @@ struct extRecvResources {
 
 /* Fill information necessary to exchange between ranks to choose whether or not
  * to use this transport */
-ncclResult_t extFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
-  struct extInfo* info = (struct extInfo*)opaqueInfo;
-  static_assert(sizeof(struct extInfo) <= sizeof(ncclTinfo_t), "EXT Info too large");
+ncclResult_t netFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
+  struct netInfo* info = (struct netInfo*)opaqueInfo;
+  static_assert(sizeof(struct netInfo) <= sizeof(ncclTinfo_t), "EXT Info too large");
   info->rank = rank;
   return ncclSuccess;
 }
 
 /* Determine if we can communicate with the peer */
-ncclResult_t extCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
-  *ret = ncclExtEnabled() == ncclSuccess ? 1 : 0;
+ncclResult_t netCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
+  *ret = 1;
   return ncclSuccess;
 }
 
@@ -60,7 +60,7 @@ void connectScattered(int nranks, int* groups, int group, int nextGroup, int* sr
   *dst = groupPos(nranks, groups, nextGroup, steps);
 }
 
-ncclResult_t extGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
+ncclResult_t netGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
   if (pattern >= 2) {
     *nringsRet = 0;
     return ncclSuccess;
@@ -103,8 +103,8 @@ ncclResult_t extGetRings(int nranks, int ngroups, int* groups, int* values, int*
 
 /* Determine if we will use this transport for this peer and return connect
  * information for this peer */
-ncclResult_t extSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct extSendResources* resources = (struct extSendResources*) malloc(sizeof(struct extSendResources));
+ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct netSendResources* resources = (struct netSendResources*) malloc(sizeof(struct netSendResources));
   ring->send.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
@@ -118,8 +118,8 @@ ncclResult_t extSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   return ncclSuccess;
 }
 
-ncclResult_t extRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct extRecvResources* resources = (struct extRecvResources*) malloc(sizeof(struct extRecvResources));
+ncclResult_t netRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+  struct netRecvResources* resources = (struct netRecvResources*) malloc(sizeof(struct netRecvResources));
   ring->recv.transportResources = resources;
   resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
@@ -133,40 +133,40 @@ ncclResult_t extRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   CUDACHECK(cudaHostAlloc(&resources->hostMem, size, cudaHostAllocMapped));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
   
-  struct extInfo* myInfo = (struct extInfo*)myOpaqueInfo;
-  struct extInfo* peerInfo = (struct extInfo*)peerOpaqueInfo;
-  INFO("%d -> %d via EXT%s%s", peerInfo->rank, myInfo->rank, ncclExtCudaSupport() ? "/GDRDMA" : "", (resources->hostDevMem != NULL) ? "/GDCopy" : "");
-  struct extConnectInfo* info = (struct extConnectInfo*) connectInfo;
-  NCCLCHECK(ncclExtGetHandle(&info->extHandle, &resources->extRecvComm));
+  struct netInfo* myInfo = (struct netInfo*)myOpaqueInfo;
+  struct netInfo* peerInfo = (struct netInfo*)peerOpaqueInfo;
+  INFO("%d -> %d via EXT%s%s", peerInfo->rank, myInfo->rank, ncclNetCudaSupport() ? "/GDRDMA" : "", (resources->hostDevMem != NULL) ? "/GDCopy" : "");
+  struct netConnectInfo* info = (struct netConnectInfo*) connectInfo;
+  NCCLCHECK(ncclNetGetHandle(&info->netHandle, &resources->netRecvComm));
   return ncclSuccess;
 }
 
-ncclResult_t extSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
+ncclResult_t netSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   // Setup device pointers
-  struct extSendResources* resources = (struct extSendResources*)send->transportResources;
+  struct netSendResources* resources = (struct netSendResources*)send->transportResources;
   send->conn.buff = resources->devHostMem->buff;
   send->conn.tail = &resources->devHostMem->tail;
   send->conn.opCount = &resources->devHostMem->opCount;
   send->conn.fifo = resources->devHostMem->sizesFifo;
 
   // Setup remote MPI rank / tag
-  struct extConnectInfo* info = (struct extConnectInfo*)connectInfo;
-  NCCLCHECK(ncclExtConnectHandle(info->extHandle, &resources->extSendComm));
+  struct netConnectInfo* info = (struct netConnectInfo*)connectInfo;
+  NCCLCHECK(ncclNetConnectHandle(info->netHandle, &resources->netSendComm));
   return ncclSuccess;
 }
 
 /* Connect to this peer */
-ncclResult_t extRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
+ncclResult_t netRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
   // Setup device pointers
-  struct extRecvResources* resources = (struct extRecvResources*)recv->transportResources;
+  struct netRecvResources* resources = (struct netRecvResources*)recv->transportResources;
   recv->conn.head = &resources->devHostMem->head;
 
   // Setup remote MPI rank / tag
   return ncclSuccess;
 }
 
-ncclResult_t extSendFree(void* transportResources) {
-  struct extSendResources* resources = (struct extSendResources*)transportResources;
+ncclResult_t netSendFree(void* transportResources) {
+  struct netSendResources* resources = (struct netSendResources*)transportResources;
   CUDACHECK(cudaStreamDestroy(resources->stream));
   CUDACHECK(cudaFreeHost(resources->hostMem));
   // TODO : unmap hostDevMem
@@ -174,8 +174,8 @@ ncclResult_t extSendFree(void* transportResources) {
   return ncclSuccess;
 }
 
-ncclResult_t extRecvFree(void* transportResources) {
-  struct extRecvResources* resources = (struct extRecvResources*)transportResources;
+ncclResult_t netRecvFree(void* transportResources) {
+  struct netRecvResources* resources = (struct netRecvResources*)transportResources;
   CUDACHECK(cudaStreamDestroy(resources->stream));
   for (int i=0; i<MAXSTEPS; i++) {
     CUDACHECK(cudaEventDestroy(resources->syncEvent[i]));
@@ -186,9 +186,9 @@ ncclResult_t extRecvFree(void* transportResources) {
   return ncclSuccess;
 }
 
-ncclResult_t extSendProxy(struct ncclProxyArgs* args) {
+ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct extSendResources* resources = (struct extSendResources*) (ring->send.transportResources);
+  struct netSendResources* resources = (struct netSendResources*) (ring->send.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = &devMem->head;
@@ -211,14 +211,14 @@ ncclResult_t extSendProxy(struct ncclProxyArgs* args) {
     while (head != *prevTail) {
       // Send through MPI
       int slot = head%args->substeps;
-      NCCLCHECK(ncclExtIsend(resources->extSendComm, localBuff+slot*sliceSize, sizesFifo[slot], requests+slot));
+      NCCLCHECK(ncclNetIsend(resources->netSendComm, localBuff+slot*sliceSize, sizesFifo[slot], requests+slot));
       head++;
       idle = 0;
     }
     if (tail < head) {
       int done;
       int slot = tail%args->substeps;
-      NCCLCHECK(ncclExtTest(requests[slot], &done, NULL));
+      NCCLCHECK(ncclNetTest(requests[slot], &done, NULL));
       if (done) {
         tail++;
         data[slot] = tail;
@@ -237,12 +237,12 @@ ncclResult_t extSendProxy(struct ncclProxyArgs* args) {
   return ncclSuccess;
 }
 
-ncclResult_t extRecvProxy(struct ncclProxyArgs* args) {
+ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
-  struct extRecvResources* resources = (struct extRecvResources*) (ring->recv.transportResources);
+  struct netRecvResources* resources = (struct netRecvResources*) (ring->recv.transportResources);
   struct ncclSendRecvMem* devMem = ring->devMem;
 
-  int extCudaSupport = ncclExtCudaSupport();
+  int netCudaSupport = ncclNetCudaSupport();
   bool directDevMem = resources->hostDevMem != NULL;
 
   assert(MAXSTEPS >= args->substeps);
@@ -260,7 +260,7 @@ ncclResult_t extRecvProxy(struct ncclProxyArgs* args) {
   }
 
   volatile int* nextHead = &resources->hostMem->head;
-  int* nextTail = (extCudaSupport && directDevMem) ? &resources->hostDevMem->tail : &devMem->tail;
+  int* nextTail = (netCudaSupport && directDevMem) ? &resources->hostDevMem->tail : &devMem->tail;
   char* localBuff = resources->hostMem->buff;
   char* nextBuff = devMem->buff;
 
@@ -275,17 +275,17 @@ ncclResult_t extRecvProxy(struct ncclProxyArgs* args) {
   void* requests[args->substeps];
   while (tail < args->nsteps) {
     idle++;
-    if (extCudaSupport == 1) {
+    if (netCudaSupport == 1) {
       while (((head - *nextHead) < args->substeps) && (head < args->nsteps)) {
         int slot = head%args->substeps;
-        NCCLCHECK(ncclExtIrecv(resources->extRecvComm, nextBuff+slot*sliceSize, sliceSize, requests+slot));
+        NCCLCHECK(ncclNetIrecv(resources->netRecvComm, nextBuff+slot*sliceSize, sliceSize, requests+slot));
         head++;
         idle = 0;
       }
       if (tail < head) {
         int done;
         int slot = tail%args->substeps;
-        NCCLCHECK(ncclExtTest(requests[slot], &done, NULL));
+        NCCLCHECK(ncclNetTest(requests[slot], &done, NULL));
         if (done) {
           tail++;
           if (directDevMem) {
@@ -301,7 +301,7 @@ ncclResult_t extRecvProxy(struct ncclProxyArgs* args) {
       if (((head - tail) < args->substeps) && (head < args->nsteps)) {
         int slot = head%args->substeps;
         if (cudaEventQuery(resources->syncEvent[slot]) == cudaSuccess) {
-          NCCLCHECK(ncclExtIrecv(resources->extRecvComm, localBuff+slot*sliceSize, sliceSize, requests+slot));
+          NCCLCHECK(ncclNetIrecv(resources->netRecvComm, localBuff+slot*sliceSize, sliceSize, requests+slot));
           head++;
           idle = 0;
         }
@@ -310,7 +310,7 @@ ncclResult_t extRecvProxy(struct ncclProxyArgs* args) {
         int done;
         int slot = tail%args->substeps;
         int size;
-        NCCLCHECK(ncclExtTest(requests[slot], &done, &size));
+        NCCLCHECK(ncclNetTest(requests[slot], &done, &size));
         if (done) {
           // Send to GPU
           CUDACHECK(cudaMemcpyAsync(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, size, cudaMemcpyHostToDevice, resources->stream));
@@ -334,11 +334,11 @@ ncclResult_t extRecvProxy(struct ncclProxyArgs* args) {
   return ncclSuccess;
 }
 
-struct ncclTransport extTransport = {
-  "EXT",
-  extFillInfo,
-  extCanConnect,
-  extGetRings,
-  { extSendSetup, extSendConnect, extSendFree, extSendProxy },
-  { extRecvSetup, extRecvConnect, extRecvFree, extRecvProxy }
+struct ncclTransport netTransport = {
+  "NET",
+  netFillInfo,
+  netCanConnect,
+  netGetRings,
+  { netSendSetup, netSendConnect, netSendFree, netSendProxy },
+  { netRecvSetup, netRecvConnect, netRecvFree, netRecvProxy }
 };
