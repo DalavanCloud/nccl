@@ -201,8 +201,8 @@ ncclResult_t ncclGroupEnd();
 // An example using MPI can be found in share/nccl_mpi.c.
 #define NCCL_NET_HANDLE_MAXSIZE 32
 typedef struct {
-  // Return 1 if we're allowed to pass CUDA pointers to send/recv functions, 0 otherwise.
-  int (*cudaSupport)(void);
+  // Return the name of the network
+  const char* name;
   // Create a receiving object and provide a handle to connect to it. The 
   // handle can be up to NCCL_NET_HANDLE_MAXSIZE bytes and will be exchanged 
   // between ranks to create a connection.

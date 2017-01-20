@@ -53,15 +53,6 @@ void ncclMpiFreeRequest(MPI_Request* request) {
   pthread_mutex_unlock(&ncclMpiRequestsLock);
 }
 
-int ncclMpiCudaSupport() {
-  static int mpiCudaSupport = -1;
-  if (mpiCudaSupport == -1) {
-    char* str = getenv("NCCL_MPI_GDRDMA");
-    mpiCudaSupport = str == NULL ? 0 : atoi(str);
-  }
-  return mpiCudaSupport;
-}
-
 struct ncclMpiHandle {
   int rank;
   int tag;
@@ -133,7 +124,7 @@ int ncclMpiTest(void* request, int* done, int* size) {
 }
 
 ncclNet_t ncclMpi = {
-  ncclMpiCudaSupport,
+  "MPI",
   ncclMpiGetHandle,
   ncclMpiConnectHandle,
   ncclMpiIsend,

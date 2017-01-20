@@ -16,7 +16,7 @@ typedef char ncclNetHandle_t[NCCL_NET_HANDLE_MAXSIZE];
   if (err != 0) return ncclSystemError; \
 } while (false)
 
-static ncclResult_t ncclNetCudaSupport() { return ncclNet->cudaSupport() ? ncclSuccess : ncclInternalError; }
+static const char* ncclNetName() { return ncclNet->name; }
 static ncclResult_t ncclNetGetHandle(void* handle, void** recvComm) { NETCHECK(ncclNet->getHandle(handle, recvComm)); return ncclSuccess; }
 static ncclResult_t ncclNetConnectHandle(void* handle, void** sendComm) { NETCHECK(ncclNet->connectHandle(handle, sendComm)); return ncclSuccess; }
 static ncclResult_t ncclNetIsend(void* sendComm, void* data, int size, void** request) { NETCHECK(ncclNet->iSend(sendComm, data, size, request)); return ncclSuccess; }
