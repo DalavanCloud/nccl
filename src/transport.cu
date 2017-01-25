@@ -10,14 +10,12 @@
 
 extern struct ncclTransport p2pTransport;
 extern struct ncclTransport shmTransport;
-extern struct ncclTransport mpiTransport;
-extern struct ncclTransport socketTransport;
+extern struct ncclTransport netTransport;
 
 struct ncclTransport ncclTransports[NTRANSPORTS] = {
   p2pTransport,
   shmTransport,
-  mpiTransport,
-  socketTransport
+  netTransport,
 };
 
 static void FifoPullArgs(struct transportProxyInfo* info, struct ncclProxyArgs *args) {

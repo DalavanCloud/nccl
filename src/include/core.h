@@ -95,8 +95,6 @@ struct ncclComm {
   struct ncclComm *devComm;
 };
 
-extern int ncclPrintCRCs;
-
 // Check CUDA calls
 #define CUDACHECK(cmd) do {                                 \
     cudaError_t e = cmd;                                    \
@@ -105,6 +103,27 @@ extern int ncclPrintCRCs;
         return ncclUnhandledCudaError;                      \
     }                                                       \
 } while(false)
+
+// Check system calls
+#define SYSCHECK(call, name) do { \
+  int ret = -1; \
+  while (ret == -1) { \
+    SYSCHECKVAL(call, name, ret); \
+    if (ret == -1) { \
+      INFO("Got retcode %d, retrying", errno); \
+    }\
+  } \
+} while (0);
+
+#define SYSCHECKVAL(call, name, retval) do { \
+  retval = call; \
+  if (retval == -1 && errno != EINTR && errno != EWOULDBLOCK && errno != EAGAIN) { \
+    WARN("call to " name " failed with ret %d", errno); \
+    perror(name); \
+    return ncclSystemError; \
+  } \
+} while (0);
+
 
 // Propagate errors up
 #define NCCLCHECK(call) do { \

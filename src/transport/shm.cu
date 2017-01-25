@@ -128,7 +128,7 @@ ncclResult_t shmGetRings(int nranks, int ngroups, int* groups, int* values, int*
 }
 
 /* Create and return connect structures for this peer to connect to me */
-ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+ncclResult_t shmSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
   struct shmInfo* peerInfo = (struct shmInfo*)peerOpaqueInfo;
 
@@ -141,7 +141,7 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   if (myInfo->pid == peerInfo->pid) {
     info.direct = 1;
     info.directPtr = ring->devMem;
-    INFO("SetupSend : sending devMem ptr %p", info.directPtr);
+    INFO("SendSetup : sending devMem ptr %p", info.directPtr);
   } else {
     info.direct = 0;
     // Map IPC
@@ -164,7 +164,7 @@ ncclResult_t shmSetupSend(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   return ncclSuccess;
 }
 
-ncclResult_t shmSetupRecv(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
+ncclResult_t shmRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
   struct shmRecvResources* resources = (struct shmRecvResources*) malloc(sizeof(struct shmRecvResources));
   ring->recv.transportResources = resources;
@@ -333,8 +333,8 @@ struct ncclTransport shmTransport = {
   shmFillInfo,
   shmCanConnect,
   shmGetRings,
-  { shmSetupSend, shmSendConnect, shmSendFree, NULL },
-  { shmSetupRecv, shmRecvConnect, shmRecvFree,
+  { shmSendSetup, shmSendConnect, shmSendFree, NULL },
+  { shmRecvSetup, shmRecvConnect, shmRecvFree,
 #ifdef SHM_PROXY
     shmRecvProxy
 #else

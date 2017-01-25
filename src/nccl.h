@@ -194,6 +194,30 @@ ncclResult_t pncclAllGather(const void* sendbuff, int count, ncclDataType_t data
 //    void* recvbuff, ncclComm_t comm, cudaStream_t stream);
 //ncclResult_t pncclAllToAll(void* sendbuff, int count, ncclDataType_t datatype,
 //    void* recvbuff, ncclComm_t comm, cudaStream_t stream);
+ncclResult_t ncclGroupStart();
+ncclResult_t ncclGroupEnd();
+
+// Inter-node transport to replace the default socket-based transport.
+// An example using MPI can be found in share/nccl_mpi.c.
+#define NCCL_NET_HANDLE_MAXSIZE 32
+typedef struct {
+  // Return the name of the network
+  const char* name;
+  // Create a receiving object and provide a handle to connect to it. The 
+  // handle can be up to NCCL_NET_HANDLE_MAXSIZE bytes and will be exchanged 
+  // between ranks to create a connection.
+  int (*getHandle)(void* handle, void** recvComm);
+  // Connect to a handle and return a sending comm object for that peer.
+  int (*connectHandle)(void* handle, void** sendComm);
+  // Asynchronous send to a peer.
+  int (*iSend)(void* sendComm, void* data, int size, void** request);
+  // Asynchronous recv from a peer.
+  int (*iRecv)(void* recvComm, void* data, int size, void** request);
+  // Test whether a request is complete and return the size received (can be less than requested).
+  int (*test)(void* request, int* done, int* size);
+} ncclNet_t;
+
+extern ncclNet_t* ncclNet;
 
 #ifdef __cplusplus
 } // end extern "C"

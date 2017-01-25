@@ -9,13 +9,8 @@
 
 #include "nccl.h"
 
-struct ncclBootstrap {
-  ncclResult_t (*getUniqueId)(ncclUniqueId*);
-  ncclResult_t (*init)(ncclUniqueId*, int, int, void**);
-  ncclResult_t (*allGather)(void*, void*, int);
-  ncclResult_t (*ringExchange)(void*, void*, int, int, int);
-};
-
 ncclResult_t bootstrapGetUniqueId(ncclUniqueId* out);
-ncclResult_t bootstrapInit(ncclUniqueId* id, int rank, int nranks, struct ncclBootstrap** bootstrap, void** commState);
+ncclResult_t bootstrapInit(ncclUniqueId* id, int rank, int nranks, void** commState);
+ncclResult_t bootstrapAllGather(void* commState, void* allData, int size);
+ncclResult_t bootstrapRingExchange(void* commState, void* prevNextData, int prev, int next, int size);
 #endif

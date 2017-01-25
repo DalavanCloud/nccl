@@ -22,7 +22,75 @@
 #include <errno.h>
 
 DebugLevel ncclDebugLevel;
+pthread_mutex_t ncclDebugOutputLock;
+
 int ncclPrintCRCs;
+
+#define MAX_ASYNC_THREADS 128
+thread_local pthread_t ncclThreads[MAX_ASYNC_THREADS];
+thread_local int ncclThreadIndex = 0;
+thread_local bool ncclThreadMode = 0;
+
+NCCL_API(ncclResult_t, ncclGroupStart);
+ncclResult_t ncclGroupStart() {
+  ncclThreadMode = 1;
+  return ncclSuccess;
+}
+
+struct ncclInitArgs {
+  int cudaDev;
+  ncclResult_t ret;
+  ncclComm_t* newcomm;
+  int ndev;
+  ncclUniqueId commId;
+  int myrank; 
+};
+
+NCCL_API(ncclResult_t, ncclGroupEnd);
+ncclResult_t ncclGroupEnd() {
+  int done = ncclThreadIndex;
+  int doneArray[ncclThreadIndex];
+  for (int i=0; i<ncclThreadIndex; i++) doneArray[i] = 0;
+  while (done) {
+    for (int i=0; i<ncclThreadIndex; i++) {
+      struct ncclInitArgs* args;
+      if (doneArray[i] == 1) continue;
+      int err = pthread_tryjoin_np(ncclThreads[i], (void**)&args);
+      if (err == EBUSY) continue;
+      if (err != 0) return ncclSystemError;
+      if (args->ret != ncclSuccess) return args->ret;
+      doneArray[i] = 1;
+      done--;
+      free(args);
+    }
+  }
+  ncclThreadIndex = 0;
+  ncclThreadMode = 0;
+  return ncclSuccess;
+}
+
+ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank);
+
+void* ncclCommInitRankThread(void* args_) {
+  struct ncclInitArgs* args = (struct ncclInitArgs*)args_;
+  cudaSetDevice(args->cudaDev);
+  args->ret = ncclCommInitRankSync(args->newcomm, args->ndev, args->commId, args->myrank);
+  return args;
+}
+
+static ncclResult_t ncclCommInitRankAsync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
+  struct ncclInitArgs* args = (struct ncclInitArgs*)malloc(sizeof(struct ncclInitArgs));
+  
+  CUDACHECK(cudaGetDevice(&args->cudaDev));
+  args->newcomm = newcomm;
+  args->ndev = ndev;
+  memcpy(&args->commId, &commId, sizeof(commId));
+  args->myrank = myrank;
+  
+  SYSCHECK(pthread_create(ncclThreads+ncclThreadIndex, NULL, ncclCommInitRankThread, args), "pthread_create");
+  ncclThreadIndex++;
+  return ncclSuccess;
+}
 
 NCCL_API(ncclResult_t, ncclGetUniqueId, ncclUniqueId* out);
 ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
@@ -32,30 +100,6 @@ ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
     return ncclInternalError;
   }
   return ncclSuccess;
-}
-
-static void initDebug() {
-  const char* nccl_debug = getenv("NCCL_DEBUG");
-  if (nccl_debug == NULL) {
-    ncclDebugLevel = NONE;
-  } else if (strcmp(nccl_debug, "VERSION") == 0) {
-    ncclDebugLevel = VERSION;
-  } else if (strcmp(nccl_debug, "WARN") == 0) {
-    ncclDebugLevel = WARN;
-  } else if (strcmp(nccl_debug, "INFO") == 0) {
-    ncclDebugLevel = INFO;
-    INFO("NCCL debug level set to INFO");
-  } else if (strcmp(nccl_debug, "ABORT") == 0) {
-    ncclDebugLevel = ABORT;
-    INFO("NCCL debug level set to ABORT");
-  }
-
-  const char* nccl_crc = getenv("NCCL_CRC");
-  if (nccl_crc != NULL && strcmp(nccl_crc, "PRINT")==0 ) {
-    ncclPrintCRCs = 1;
-  } else {
-    ncclPrintCRCs = 0;
-  }
 }
 
 static ncclResult_t commFree(ncclComm_t comm) {
@@ -88,6 +132,11 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
     return ncclInvalidRank;
   }
 
+  // Try to create a CUDA object right away. If there is something wrong with
+  // the device we're on (failure cause #1) , better know it early.
+  cudaEvent_t doneEvent;
+  CUDACHECK(cudaEventCreateWithFlags(&doneEvent, cudaEventDisableTiming));
+
   struct ncclComm* comm = (struct ncclComm*)malloc(sizeof(struct ncclComm));
   if (comm == NULL) {
     WARN("comm allocation failed");
@@ -98,12 +147,7 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
   comm->rank = rank;
   comm->nRanks = ndev;
   cudaGetDevice(&comm->cudaDev);
-
-  if (cudaEventCreateWithFlags(&comm->doneEvent, cudaEventDisableTiming) != cudaSuccess) {
-    WARN("ncclComm on rank %d failed to create doneEvent", rank);
-    commFree(comm);
-    return ncclUnhandledCudaError;
-  }
+  comm->doneEvent = doneEvent;
 
   *comret = comm;
   return ncclSuccess;
@@ -303,17 +347,16 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   int rank = comm->rank;
   int nranks = comm->nRanks;
   void* commState;
-  struct ncclBootstrap* bootstrap;
-  NCCLCHECK(bootstrapInit(commId, rank, nranks, &bootstrap, &commState));
+  NCCLCHECK(bootstrapInit(commId, rank, nranks, &commState));
   
   struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
   fillInfo(allInfo+rank, rank);
-  NCCLCHECK(bootstrap->allGather(commState, allInfo, sizeof(struct ncclInfo)));
+  NCCLCHECK(bootstrapAllGather(commState, allInfo, sizeof(struct ncclInfo)));
   int connectTransport[nranks*nranks];
   int connectValue[nranks*nranks];
   NCCLCHECK(fillConnect(allInfo, nranks, rank, connectTransport+nranks*rank, connectValue+nranks*rank));
-  NCCLCHECK(bootstrap->allGather(commState, connectTransport, nranks*(sizeof(int))));
-  NCCLCHECK(bootstrap->allGather(commState, connectValue, nranks*(sizeof(int))));
+  NCCLCHECK(bootstrapAllGather(commState, connectTransport, nranks*(sizeof(int))));
+  NCCLCHECK(bootstrapAllGather(commState, connectValue, nranks*(sizeof(int))));
   //if (rank == 0) dumpMatrix(connectTransport, nranks);
   //if (rank == 0) dumpMatrix(connectValue, nranks);
 
@@ -326,15 +369,15 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   // Find min nrings across ranks
   int allNrings[nranks];
   allNrings[rank] = nrings;
-  NCCLCHECK(bootstrap->allGather(commState, allNrings, sizeof(int)));
+  NCCLCHECK(bootstrapAllGather(commState, allNrings, sizeof(int)));
   for (int i=0; i<nranks; i++)
     nrings = min(allNrings[i], nrings);
 
   // Exchange data with others to build complete rings
   comm->nRings = nrings;
   for (int r=0; r<nrings; r++) {
-    NCCLCHECK(bootstrap->allGather(commState, prev+r*nranks, sizeof(int)));
-    NCCLCHECK(bootstrap->allGather(commState, next+r*nranks, sizeof(int)));
+    NCCLCHECK(bootstrapAllGather(commState, prev+r*nranks, sizeof(int)));
+    NCCLCHECK(bootstrapAllGather(commState, next+r*nranks, sizeof(int)));
   }
   int rings[nranks*MAXRINGS];
   NCCLCHECK(buildRings(nrings, rings, rank, nranks, prev, next));
@@ -345,7 +388,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     struct ncclRing *ring = comm->rings+r;
     struct ncclConnect connect[2];
     NCCLCHECK(setupRing(comm, ring, r, rank, nranks, ringRanks, allInfo, connect));
-    NCCLCHECK(bootstrap->ringExchange(commState, connect, ring->userRanks[nranks-1], ring->userRanks[1], sizeof(struct ncclConnect)));
+    NCCLCHECK(bootstrapRingExchange(commState, connect, ring->userRanks[nranks-1], ring->userRanks[1], sizeof(struct ncclConnect)));
     NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
   }
@@ -355,6 +398,12 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
 
 NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank);
 ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
+  return ncclThreadMode ? 
+    ncclCommInitRankAsync(newcomm, ndev, commId, myrank) :
+    ncclCommInitRankSync(newcomm, ndev, commId, myrank);
+}
+
+ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   if (myrank == 0) showVersion();
 
   initDebug();
