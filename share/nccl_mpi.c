@@ -12,12 +12,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+pthread_mutex_t ncclMpiGlobalLock = PTHREAD_MUTEX_INITIALIZER;
+static int ncclMpiLockMode = -1;
+
+static void ncclMpiGetLockMode() {
+  int provided;
+  MPI_Query_thread(&provided);
+  char* str = getenv("NCCL_MPI_FORCE_LOCK");
+  if (provided < MPI_THREAD_MULTIPLE || (str && atoi(str) == 1)) {
+    ncclMpiLockMode = 1;
+  } else {
+    ncclMpiLockMode = 0;
+  }
+}
+
+#define NCCL_MPI_CHECK_LOCK_MODE do { \
+  if (ncclMpiLockMode == -1) { \
+    ncclMpiGetLockMode(); \
+  } \
+} while (0)
+
+#define MPI_CALL(retvar, cmd) do { \
+  NCCL_MPI_CHECK_LOCK_MODE; \
+  if (ncclMpiLockMode == 1) pthread_mutex_lock(&ncclMpiGlobalLock); \
+  retvar = cmd; \
+  if (ncclMpiLockMode == 1) pthread_mutex_unlock(&ncclMpiGlobalLock); \
+} while (0)
+
 static MPI_Comm ncclMpiComm;
 
 static int numRequests = 0;
 MPI_Request* ncclMpiRequests = NULL;
 int* ncclMpiRequestUsed = NULL;
 pthread_mutex_t ncclMpiRequestsLock = PTHREAD_MUTEX_INITIALIZER;
+
 
 MPI_Request* ncclMpiGetRequest() {
   pthread_mutex_lock(&ncclMpiRequestsLock);
@@ -84,7 +112,8 @@ int ncclMpiGetHandle(void* opaqueHandle, void** recvComm) {
   int tag;
   getTag(&tag);
   comm->tag = handle->tag = tag;
-  int ret = MPI_Comm_rank(ncclMpiComm, &handle->rank);
+  int ret;
+  MPI_CALL(ret, MPI_Comm_rank(ncclMpiComm, &handle->rank));
   *recvComm = comm;
   return ret;
 }
@@ -102,22 +131,27 @@ int ncclMpiIsend(void* sendComm, void* data, int size, void** request) {
   struct ncclMpiSendComm* comm = (struct ncclMpiSendComm*)sendComm;
   MPI_Request* mpiRequest = ncclMpiGetRequest();
   *request = mpiRequest;
-  return MPI_Isend(data, size, MPI_BYTE, comm->rank, comm->tag, ncclMpiComm, mpiRequest);
+  int ret;
+  MPI_CALL(ret, MPI_Isend(data, size, MPI_BYTE, comm->rank, comm->tag, ncclMpiComm, mpiRequest));
+  return ret;
 }
 
 int ncclMpiIrecv(void* recvComm, void* data, int size, void** request) {
   struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)recvComm;
   MPI_Request* mpiRequest = ncclMpiGetRequest();
   *request = mpiRequest;
-  return MPI_Irecv(data, size, MPI_BYTE, MPI_ANY_SOURCE, comm->tag, ncclMpiComm, mpiRequest);
+  int ret;
+  MPI_CALL(ret, MPI_Irecv(data, size, MPI_BYTE, MPI_ANY_SOURCE, comm->tag, ncclMpiComm, mpiRequest));
+  return ret;
 }
 
 int ncclMpiTest(void* request, int* done, int* size) {
   MPI_Request* mpiRequest = (MPI_Request*)request;
   MPI_Status status;
-  int err = MPI_Test(mpiRequest, done, &status);
-  if (*done == 1) {
-    if (size) MPI_Get_count(&status, MPI_BYTE, size);
+  int err;
+  MPI_CALL(err, MPI_Test(mpiRequest, done, &status));
+  if (err == 0 && *done == 1) {
+    if (size) MPI_CALL(err, MPI_Get_count(&status, MPI_BYTE, size));
     ncclMpiFreeRequest(request);
   }
   return err;

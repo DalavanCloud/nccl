@@ -115,6 +115,7 @@ int benchCollective(int collective, int rank, int nranks, int* ddata, int* hdata
     }
     int nbytes = realSize*sizeof(int);
     int errors = 0;
+    CUDACHECK(cudaStreamSynchronize(stream));
     MPI_Barrier(MPI_COMM_WORLD);
     double start = MPI_Wtime();
     int niters = min(NITERS, 1000000000/realSize);
@@ -122,6 +123,7 @@ int benchCollective(int collective, int rank, int nranks, int* ddata, int* hdata
       NCCLCHECK(ncclOp(collective, rank, nranks, ddata, realSize, comm, stream));
     }
     CUDACHECK(cudaStreamSynchronize(stream));
+    MPI_Barrier(MPI_COMM_WORLD);
     double delta = MPI_Wtime() - start;
     delta = delta*1e6/niters;
 
@@ -142,6 +144,9 @@ int benchCollective(int collective, int rank, int nranks, int* ddata, int* hdata
   return failed;
 }
 
+//extern "C"
+//void ncclMpiHook(MPI_Comm comm);
+
 int main(int argc, char *argv[]) {
   ncclUniqueId commId;
   int nranks, rank;
@@ -149,8 +154,10 @@ int main(int argc, char *argv[]) {
 
   int threadProvided;
   MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &threadProvided);
+  printf("provided : %d\n", threadProvided);
   MPI_Comm_size(MPI_COMM_WORLD, &nranks);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  //ncclMpiHook(MPI_COMM_WORLD);
 
   if (argc < nranks) {
     if (rank == 0)
@@ -182,12 +189,12 @@ int main(int argc, char *argv[]) {
   CUDACHECK(cudaMalloc(&ddata, MAXSIZE*2*sizeof(int)));
   int *hdata = (int*) malloc(MAXSIZE*sizeof(int));
 
-  int failed;
-  failed = benchCollective(0, rank, nranks, ddata, hdata, comm, stream);
-  failed = benchCollective(1, rank, nranks, ddata, hdata, comm, stream);
-  failed = benchCollective(2, rank, nranks, ddata, hdata, comm, stream);
-  failed = benchCollective(3, rank, nranks, ddata, hdata, comm, stream);
-  failed = benchCollective(4, rank, nranks, ddata, hdata, comm, stream);
+  int failed = 0;
+  failed += benchCollective(0, rank, nranks, ddata, hdata, comm, stream);
+  failed += benchCollective(1, rank, nranks, ddata, hdata, comm, stream);
+  failed += benchCollective(2, rank, nranks, ddata, hdata, comm, stream);
+  failed += benchCollective(3, rank, nranks, ddata, hdata, comm, stream);
+  failed += benchCollective(4, rank, nranks, ddata, hdata, comm, stream);
 
   CUDACHECK(cudaFree(ddata));
   free(hdata);
