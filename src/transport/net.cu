@@ -6,9 +6,10 @@
 
 #include "core.h"
 #include "transport.h"
-#include <cuda_runtime.h>
+#include "nvmlwrap.h"
 #include "net.h"
 #include "gdcopy.h"
+#include <cuda_runtime.h>
 #include <assert.h>
 
 struct netInfo {
@@ -25,8 +26,6 @@ struct netSendResources {
   struct ncclSendRecvMem* devHostMem;
   struct ncclSendRecvMem* hostDevMem;
 };
-
-#define MAXSTEPS 8
 
 struct netRecvResources {
   void* netRecvComm;
@@ -98,6 +97,18 @@ ncclResult_t netGetRings(int nranks, int ngroups, int* groups, int* values, int*
   return ncclSuccess;
 }
 
+static ncclResult_t netHostAlloc(struct ncclSendRecvMem** ptr, size_t size) {
+  // Allocate memory close to the device we are using
+  int cudaDev;
+  CUDACHECK(cudaGetDevice(&cudaDev));
+  nvmlDevice_t nvmlDevice;
+  NCCLCHECK(wrapNvmlDeviceGetHandleByIndex(cudaDev, &nvmlDevice));
+  NCCLCHECK(wrapNvmlDeviceSetCpuAffinity(nvmlDevice));
+  CUDACHECK(cudaHostAlloc(ptr, size, cudaHostAllocMapped));
+  NCCLCHECK(wrapNvmlDeviceClearCpuAffinity(nvmlDevice));
+  return ncclSuccess;
+}
+
 /* Determine if we will use this transport for this peer and return connect
  * information for this peer */
 ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
@@ -106,7 +117,7 @@ ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   resources->hostDevMem = NULL; //(struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
   int size = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
-  CUDACHECK(cudaHostAlloc(&resources->hostMem, size, cudaHostAllocMapped));
+  NCCLCHECK(netHostAlloc(&resources->hostMem, size));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
 
   return ncclSuccess;
@@ -118,7 +129,7 @@ ncclResult_t netRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   resources->hostDevMem = NULL; //(struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
   int size = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
-  CUDACHECK(cudaHostAlloc(&resources->hostMem, size, cudaHostAllocMapped));
+  NCCLCHECK(netHostAlloc(&resources->hostMem, size));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
   
   struct netInfo* myInfo = (struct netInfo*)myOpaqueInfo;
@@ -227,8 +238,6 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
 ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
   struct netRecvResources* resources = (struct netRecvResources*) (ring->recv.transportResources);
-
-  assert(MAXSTEPS >= args->substeps);
 
   int* nextOpCount = resources->hostDevMem ? &resources->hostDevMem->opCount : &resources->hostMem->opCount;
   transportProxyWait([=] { return *nextOpCount >= args->opCount; });
