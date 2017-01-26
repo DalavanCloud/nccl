@@ -4,10 +4,9 @@ include ../makefiles/version.mk
 CXXFLAGS  += -DNCCL_MAJOR=$(NCCL_MAJOR) -DNCCL_MINOR=$(NCCL_MINOR) -DNCCL_PATCH=$(NCCL_PATCH)
 ##### src files
 INCEXPORTS  := nccl.h
-LIBSRCFILES := init.cu \
-		misc/nvmlwrap.cu misc/crc32.cu misc/rings.cu misc/utils.cu misc/mpi.cu misc/gdcopy.cu \
-		bootstrap/bootstrap.cu bootstrap/socket.cu bootstrap/mpi.cu \
-		transport/transport.cu transport/p2p.cu transport/shm.cu transport/socket.cu transport/mpi.cu \
+LIBSRCFILES := init.cu bootstrap.cu transport.cu \
+		misc/nvmlwrap.cu misc/crc32.cu misc/rings.cu misc/utils.cu misc/gdcopy.cu \
+		transport/p2p.cu transport/shm.cu transport/net.cu transport/net_socket.cu \
 		collectives/all_gather.cu collectives/all_reduce.cu collectives/broadcast.cu \
 		collectives/reduce.cu collectives/reduce_scatter.cu
 ##### lib files
