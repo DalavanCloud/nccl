@@ -9,6 +9,7 @@
 #include "rings.h"
 #include "bootstrap.h"
 #include "transport.h"
+#include "common_coll.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -94,12 +95,8 @@ static ncclResult_t ncclCommInitRankAsync(ncclComm_t* newcomm, int ndev, ncclUni
 
 NCCL_API(ncclResult_t, ncclGetUniqueId, ncclUniqueId* out);
 ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
-  bootstrapGetUniqueId(out);
-  if (out == NULL) {
-    WARN("Error : no bootstrap available");
-    return ncclInternalError;
-  }
-  return ncclSuccess;
+  NCCLCHECK(PtrCheck(out, "GetUniqueId", "out"));
+  return bootstrapGetUniqueId(out);
 }
 
 static ncclResult_t commFree(ncclComm_t comm) {
@@ -406,6 +403,8 @@ ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId
 ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   if (myrank == 0) showVersion();
 
+  NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));
+
   initDebug();
   ncclResult_t res;
 
@@ -512,6 +511,13 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   initDebug();
 
   showVersion();
+
+  NCCLCHECK(PtrCheck(comms, "CommInitAll", "comms"));
+
+  if (ndev < 1) {
+    WARN("Invalid device count requested : %d", ndev);
+    return ncclUnsupportedDeviceCount;
+  }
 
   ncclResult_t res;
   int savedDevice;
@@ -660,18 +666,24 @@ const char* ncclGetErrorString(ncclResult_t code) {
 
 NCCL_API(ncclResult_t, ncclCommCount, const ncclComm_t comm, int* count);
 ncclResult_t ncclCommCount(const ncclComm_t comm, int* count) {
+  NCCLCHECK(PtrCheck(comm, "CommCount", "comm"));
+  NCCLCHECK(PtrCheck(count, "CommCount", "count"));
   *count = comm->nRanks;
   return ncclSuccess;
 }
 
 NCCL_API(ncclResult_t, ncclCommCuDevice, const ncclComm_t comm, int* devid);
 ncclResult_t ncclCommCuDevice(const ncclComm_t comm, int* devid) {
+  NCCLCHECK(PtrCheck(comm, "CommCuDevice", "comm"));
+  NCCLCHECK(PtrCheck(devid, "CommCuDevice", "devid"));
   *devid = comm->cudaDev;
   return ncclSuccess;
 }
 
 NCCL_API(ncclResult_t, ncclCommUserRank, const ncclComm_t comm, int* rank);
 ncclResult_t ncclCommUserRank(const ncclComm_t comm, int* rank) {
+  NCCLCHECK(PtrCheck(comm, "CommUserRank", "comm"));
+  NCCLCHECK(PtrCheck(rank, "CommUserRank", "rank"));
   *rank = comm->rank;
   return ncclSuccess;
 }

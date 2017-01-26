@@ -83,10 +83,9 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
           waitReadyFromPrev,
           postDoneToPrev);
     } else {
-      Prims::ReduceCopy(
+      Prims::Reduce(
           thisInput + offset,
           prevInput + boffset,
-          thisOutput + offset,
           nextOutput + boffset,
           sliceSize, maxOffset,
           step,
