@@ -144,13 +144,34 @@ int ncclSocketTest(void* request, int* done, int* size) {
   return 0;
 }
 
+int ncclSocketCloseSend(void* sendComm) {
+  if (sendComm) {
+    struct ncclSocketSendComm* comm = (struct ncclSocketSendComm*)sendComm;
+    close(comm->fd);
+    free(comm);
+  }
+  return 0;
+}
+
+int ncclSocketCloseRecv(void* recvComm) {
+  if (recvComm) {
+    struct ncclSocketRecvComm* comm = (struct ncclSocketRecvComm*)recvComm;
+    for (int i=0; i<comm->nfdsActive; i++) close(comm->fds[i].fd);
+    free(comm->fds);
+    free(comm);
+  }
+  return 0;
+}
+
 ncclNet_t ncclNetSocket = {
   "Socket",
   ncclSocketGetHandle,
   ncclSocketConnectHandle,
   ncclSocketIsend,
   ncclSocketIrecv,
-  ncclSocketTest
+  ncclSocketTest,
+  ncclSocketCloseSend,
+  ncclSocketCloseRecv
 };
 
 extern "C" __attribute__ ((visibility("default")))

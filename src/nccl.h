@@ -215,6 +215,9 @@ typedef struct {
   int (*iRecv)(void* recvComm, void* data, int size, void** request);
   // Test whether a request is complete and return the size received (can be less than requested).
   int (*test)(void* request, int* done, int* size);
+  // Close and free send/recv comm objects
+  int (*closeSend)(void* sendComm);
+  int (*closeRecv)(void* recvComm);
 } ncclNet_t;
 
 extern ncclNet_t* ncclNet;

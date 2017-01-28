@@ -101,9 +101,7 @@ ncclResult_t bootstrapAllGather(void* commState, void* allData, int size) {
   char* data = (char*)allData;
   if (state->root) {
     for (int r=0; r<state->nranks; r++) {
-      if (r == state->rank) { 
-        memcpy(data+r*size, data+state->rank*size, size);
-      } else {
+      if (r != state->rank) { 
         int go = 1;
         NCCLCHECK(ncclNetSend(state->extSendComm[r], &go, sizeof(int)));
 	NCCLCHECK(ncclNetRecv(state->extRecvComm, data+r*size, size));
@@ -169,3 +167,20 @@ ncclResult_t bootstrapRingExchange(void* commState, void* prevNextData, int prev
   }
   return ncclSuccess;
 }
+
+ncclResult_t bootstrapClose(void* commState) {
+  struct extState* state = (struct extState*)commState;
+  NCCLCHECK(ncclNetCloseRecv(state->extRecvComm));
+  if (state->root) {
+    for (int r=0; r<state->nranks; r++) {
+      if (r == state->rank) continue;
+      NCCLCHECK(ncclNetCloseSend(state->extSendComm[r]));
+    }
+  } else {
+    NCCLCHECK(ncclNetCloseSend(state->extSendComm[0]));
+  }
+  free(state->extSendComm);
+  free(state);
+  return ncclSuccess;
+}
+

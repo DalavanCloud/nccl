@@ -103,13 +103,16 @@ static ncclResult_t commFree(ncclComm_t comm) {
   if (comm == NULL)
     return ncclSuccess;
 
+  CUDACHECK(cudaFree(comm->devComm));
+
   for (int ring=0; ring<comm->nRings; ring++) {
-    free(comm->rings[ring].userRanks);
-    CUDACHECK(cudaFree(comm->rings[ring].devUserRanks));
     NCCLCHECK(comm->rings[ring].send.transport->send.free(comm->rings[ring].send.transportResources));
     NCCLCHECK(transportDestroyProxy(&comm->rings[ring].send));
     NCCLCHECK(comm->rings[ring].recv.transport->recv.free(comm->rings[ring].recv.transportResources));
     NCCLCHECK(transportDestroyProxy(&comm->rings[ring].recv));
+    CUDACHECK(cudaFree(comm->rings[ring].devMem));
+    free(comm->rings[ring].userRanks);
+    CUDACHECK(cudaFree(comm->rings[ring].devUserRanks));
   }
 
   if (comm->doneEvent != NULL)
@@ -390,6 +393,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
   }
   free(allInfo);
+  bootstrapClose(commState);
   return ncclSuccess;
 }
 
@@ -623,9 +627,9 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
 
 NCCL_API(ncclResult_t, ncclCommDestroy, ncclComm_t comm);
 ncclResult_t ncclCommDestroy(ncclComm_t comm) {
+
   if (comm == NULL)
     return ncclSuccess;
-
   int savedDevice;
   CUDACHECK(cudaGetDevice(&savedDevice));
   int commDevice = comm->cudaDev;

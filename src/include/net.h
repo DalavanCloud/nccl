@@ -23,6 +23,7 @@ static ncclResult_t ncclNetIsend(void* sendComm, void* data, int size, void** re
 static ncclResult_t ncclNetIrecv(void* recvComm, void* data, int size, void** request) { NETCHECK(ncclNet->iRecv(recvComm, data, size, request)); return ncclSuccess; }
 static ncclResult_t ncclNetTest(void* request, int* done, int* size) { NETCHECK(ncclNet->test(request, done, size)); return ncclSuccess; }
 
+// Additional sync functions based on async + test
 static ncclResult_t ncclNetSend(void* sendComm, void* data, int size) {
   void* request;
   NETCHECK(ncclNetIsend(sendComm, data, size, &request));
@@ -38,4 +39,6 @@ static ncclResult_t ncclNetRecv(void* recvComm, void* data, int size) {
   return ncclSuccess;
 }
 
+static ncclResult_t ncclNetCloseSend(void* sendComm) { NETCHECK(ncclNet->closeSend(sendComm)); return ncclSuccess; }
+static ncclResult_t ncclNetCloseRecv(void* recvComm) { NETCHECK(ncclNet->closeRecv(recvComm)); return ncclSuccess; }
 #endif

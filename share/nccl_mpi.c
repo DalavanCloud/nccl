@@ -157,13 +157,23 @@ int ncclMpiTest(void* request, int* done, int* size) {
   return err;
 }
 
+int ncclMpiCloseSend(void* sendComm) {
+  return 0;
+}
+
+int ncclMpiCloseRecv(void* recvComm) {
+  return 0;
+}
+
 ncclNet_t ncclMpi = {
   "MPI",
   ncclMpiGetHandle,
   ncclMpiConnectHandle,
   ncclMpiIsend,
   ncclMpiIrecv,
-  ncclMpiTest
+  ncclMpiTest,
+  ncclMpiCloseSend,
+  ncclMpiCloseRecv
 };
 
 void ncclMpiHook(MPI_Comm comm) {

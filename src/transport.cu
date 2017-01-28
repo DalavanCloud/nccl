@@ -149,6 +149,7 @@ ncclResult_t transportDestroyProxy(struct ncclConnector* connector) {
     StopProxy(connector->proxyInfo);
     pthread_join(connector->proxyInfo->thread, NULL);
     free(connector->proxyInfo);
+    connector->proxyInfo = NULL;
   }
   return ncclSuccess;
 }
