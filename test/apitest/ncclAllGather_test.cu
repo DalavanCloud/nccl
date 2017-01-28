@@ -9,7 +9,7 @@ TYPED_TEST(ncclAllGather_test, basic) {
                                                  << std::endl;
         ASSERT_EQ(ncclSuccess,
                   ncclAllGather(this->sendbuffs[i],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->recvbuffs[i],
                                 this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
@@ -21,7 +21,7 @@ TYPED_TEST(ncclAllGather_test, DISABLED_pinned_mem) {
                                                  << std::endl;
         EXPECT_EQ(ncclSuccess,
                   ncclAllGather(this->sendbuffs_pinned[i],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->recvbuffs_pinned[i],
                                 this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
@@ -33,7 +33,7 @@ TYPED_TEST(ncclAllGather_test, host_mem) {
                                                  << std::endl;
         EXPECT_EQ(ncclInvalidDevicePointer,
                   ncclAllGather(this->sendbuffs_host[i],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->recvbuffs_host[i],
                                 this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
@@ -43,15 +43,15 @@ TYPED_TEST(ncclAllGather_test, host_mem) {
 TYPED_TEST(ncclAllGather_test, sendbuf_null) {
     int i = 0;
     EXPECT_EQ(ncclInvalidDevicePointer,
-              ncclAllGather(NULL, std::min(this->N, 1024 * 1024),
+              ncclAllGather(NULL, std::min(this->N/this->nVis, 1024 * 1024),
                             this->DataType(), this->recvbuffs[i],
                             this->comms[i], this->streams[i]));
 };
 TYPED_TEST(ncclAllGather_test, sendbuf_wrong) {
     int i = 0, j = 1;
-    ASSERT_EQ(cudaSuccess, cudaSetDevice(j));
+    ASSERT_EQ(cudaSuccess, cudaSetDevice(i));
     EXPECT_EQ(ncclInvalidDevicePointer,
-              ncclAllGather(this->sendbuffs[i], std::min(this->N, 1024 * 1024),
+              ncclAllGather(this->sendbuffs[j], std::min(this->N/this->nVis, 1024 * 1024),
                             this->DataType(), this->recvbuffs[i],
                             this->comms[i], this->streams[i]));
 };
@@ -60,7 +60,7 @@ TYPED_TEST(ncclAllGather_test, recvbuf_null) {
     int i = 0;
     ASSERT_EQ(cudaSuccess, cudaSetDevice(i));
     EXPECT_EQ(ncclInvalidDevicePointer,
-              ncclAllGather(this->sendbuffs[i], std::min(this->N, 1024 * 1024),
+              ncclAllGather(this->sendbuffs[i], std::min(this->N/this->nVis, 1024 * 1024),
                             this->DataType(), NULL, this->comms[i],
                             this->streams[i]));
 }
@@ -68,7 +68,7 @@ TYPED_TEST(ncclAllGather_test, recvbuf_null) {
 TYPED_TEST(ncclAllGather_test, sendbuff_recvbuff_diff_device) {
     int i = 0, j = 1;
     ASSERT_EQ(ncclInvalidDevicePointer,
-              ncclAllGather(this->sendbuffs[i], std::min(this->N, 1024 * 1024),
+              ncclAllGather(this->sendbuffs[i], std::min(this->N/this->nVis, 1024 * 1024),
                             this->DataType(), this->recvbuffs[j],
                             this->comms[i], this->streams[i]));
 };
@@ -95,7 +95,7 @@ TYPED_TEST(ncclAllGather_test, N_minus1) {
 TYPED_TEST(ncclAllGather_test, DataType_wrong) {
     int i = 0;
     ASSERT_EQ(ncclInvalidType,
-              ncclAllGather(this->sendbuffs[i], std::min(this->N, 1024 * 1024),
+              ncclAllGather(this->sendbuffs[i], std::min(this->N/this->nVis, 1024 * 1024),
                             nccl_NUM_TYPES, this->recvbuffs[i], this->comms[i],
                             this->streams[i]));
 };
@@ -103,23 +103,23 @@ TYPED_TEST(ncclAllGather_test, DataType_wrong) {
 TYPED_TEST(ncclAllGather_test, comm_null) {
     int i = 0;
     ASSERT_EQ(ncclInvalidArgument,
-              ncclAllGather(this->sendbuffs[i], std::min(this->N, 1024 * 1024),
+              ncclAllGather(this->sendbuffs[i], std::min(this->N/this->nVis, 1024 * 1024),
                             this->DataType(), this->recvbuffs[i], NULL,
                             this->streams[i]));
 };
 TYPED_TEST(ncclAllGather_test, comm_wrong) {
     int i = 0, j = 1;
     ASSERT_EQ(ncclInvalidDevicePointer,
-              ncclAllGather(this->sendbuffs[i], std::min(this->N, 1024 * 1024),
+              ncclAllGather(this->sendbuffs[i], std::min(this->N/this->nVis, 1024 * 1024),
                             this->DataType(), this->recvbuffs[i],
                             this->comms[j], this->streams[i]));
 };
 // STREAM can be NULL.
 // stream on a diff device
-TYPED_TEST(ncclAllGather_test, stream_wrong) {
+TYPED_TEST(ncclAllGather_test, DISABLED_stream_wrong) {
     int i = 0, j = 1;
     ASSERT_EQ(ncclInvalidDevicePointer,
-              ncclAllGather(this->sendbuffs[i], std::min(this->N, 1024 * 1024),
+              ncclAllGather(this->sendbuffs[i], std::min(this->N/this->nVis, 1024 * 1024),
                             this->DataType(), this->recvbuffs[i],
                             this->comms[i], this->streams[j]));
 };

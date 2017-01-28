@@ -3,10 +3,11 @@ TEST(ncclCommDestroy, basic) {
     ncclComm_t* comms = (ncclComm_t*)calloc(ndev, sizeof(ncclComm_t));
     ASSERT_EQ(ncclSuccess, ncclCommInitAll(comms, ndev, NULL));
     for (int i = 0; i < ndev; ++i)
-        ncclCommDestroy(comms[i]);
+        ASSERT_EQ(ncclSuccess, ncclCommDestroy(comms[i]));
+    free(comms);
     SUCCEED();
 }
 TEST(ncclCommDestroy, null) {
-    ncclCommDestroy(NULL);
+    ASSERT_EQ(ncclSuccess, ncclCommDestroy(NULL));
     SUCCEED();
 }

@@ -11,7 +11,7 @@ TYPED_TEST(ncclReduceScatter_test, basic) {
                                                      << std::endl;
             ASSERT_EQ(ncclSuccess,
                       ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
-                                        std::min(this->N, 1024 * 1024),
+                                        std::min(this->N/this->nVis, 1024 * 1024),
                                         this->DataType(), op, this->comms[i],
                                         this->streams[i]))
                 << "op: " << op << ", "
@@ -28,7 +28,7 @@ TYPED_TEST(ncclReduceScatter_test, host_mem) {
             ASSERT_EQ(ncclInvalidDevicePointer,
                       ncclReduceScatter(
                           this->sendbuffs_host[i], this->recvbuffs_host[i],
-                          std::min(this->N, 1024 * 1024), this->DataType(), op,
+                          std::min(this->N/this->nVis, 1024 * 1024), this->DataType(), op,
                           this->comms[i], this->streams[i]))
                 << "op: " << op << ", "
                 << "i" << i << ", " << std::endl;
@@ -44,7 +44,7 @@ TYPED_TEST(ncclReduceScatter_test, DISABLED_pinned_mem) {
             ASSERT_EQ(ncclSuccess,
                       ncclReduceScatter(
                           this->sendbuffs_pinned[i], this->recvbuffs_pinned[i],
-                          std::min(this->N, 1024 * 1024), this->DataType(), op,
+                          std::min(this->N/this->nVis, 1024 * 1024), this->DataType(), op,
                           this->comms[i], this->streams[i]))
                 << "op: " << op << ", "
                 << "i" << i << ", " << std::endl;
@@ -56,7 +56,7 @@ TYPED_TEST(ncclReduceScatter_test, sendbuf_null) {
     int i = 0;
     EXPECT_EQ(ncclInvalidDevicePointer,
               ncclReduceScatter(NULL, this->recvbuffs[i],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
                                 this->comms[i], this->streams[i]));
 };
@@ -65,7 +65,7 @@ TYPED_TEST(ncclReduceScatter_test, recvbuf_null) {
     int i = 0;
     EXPECT_EQ(ncclInvalidDevicePointer,
               ncclReduceScatter(this->sendbuffs[i], NULL,
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
                                 this->comms[i], this->streams[i]));
 };
@@ -74,7 +74,7 @@ TYPED_TEST(ncclReduceScatter_test, sendbuff_recvbuff_diff_device) {
     int i = 0, j = 1;
     ASSERT_EQ(ncclInvalidDevicePointer,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[j],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
                                 this->comms[i], this->streams[i]));
 };
@@ -106,7 +106,7 @@ TYPED_TEST(ncclReduceScatter_test, DataType_wrong) {
     int i = 0;
     ASSERT_EQ(ncclInvalidType,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
-                                std::min(this->N, 1024 * 1024), nccl_NUM_TYPES,
+                                std::min(this->N/this->nVis, 1024 * 1024), nccl_NUM_TYPES,
                                 this->RedOps[0], this->comms[i],
                                 this->streams[i]));
 };
@@ -115,7 +115,7 @@ TYPED_TEST(ncclReduceScatter_test, op_wrong) {
     int i = 0;
     ASSERT_EQ(ncclInvalidOperation,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), nccl_NUM_OPS, this->comms[i],
                                 this->streams[i]));
 };
@@ -124,7 +124,7 @@ TYPED_TEST(ncclReduceScatter_test, comm_null) {
     int i = 0;
     ASSERT_EQ(ncclInvalidArgument,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0], NULL,
                                 this->streams[i]));
 };
@@ -132,17 +132,17 @@ TYPED_TEST(ncclReduceScatter_test, comm_wrong) {
     int i = 0, j = 1;
     ASSERT_EQ(ncclInvalidDevicePointer,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
                                 this->comms[j], this->streams[i]));
 };
 // STREAM can be NULL.
 // stream on a diff device
-TYPED_TEST(ncclReduceScatter_test, stream_wrong) {
+TYPED_TEST(ncclReduceScatter_test, DISABLED_stream_wrong) {
     int i = 0, j = 1;
     ASSERT_EQ(ncclInvalidDevicePointer,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
-                                std::min(this->N, 1024 * 1024),
+                                std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
                                 this->comms[i], this->streams[j]));
 };

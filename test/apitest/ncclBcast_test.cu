@@ -126,7 +126,7 @@ TYPED_TEST(ncclBcast_test, comm_wrong) {
 };
 // STREAM can be NULL.
 // stream on a diff device
-TYPED_TEST(ncclBcast_test, stream_wrong) {
+TYPED_TEST(ncclBcast_test, DISABLED_stream_wrong) {
     int i = 0, j = 1, root = 0;
     ASSERT_EQ(ncclInvalidDevicePointer,
               ncclBcast(this->sendbuffs[i], std::min(this->N, 32 * 1024),

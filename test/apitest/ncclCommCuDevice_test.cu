@@ -10,7 +10,7 @@ class ncclCommCuDevice_test : public ::testing::Test {
     virtual void TearDown() {
         if (comms != NULL) {
             for (int i = 0; i < nVis; ++i) {
-                ncclCommDestroy(comms[i]);
+                ASSERT_EQ(ncclSuccess, ncclCommDestroy(comms[i]));
             }
             free(comms);
         }

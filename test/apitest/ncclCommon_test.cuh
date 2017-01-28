@@ -30,9 +30,20 @@ class ncclCommon_test : public ::testing::Test {
     int root = -1;
     void SetUp(){};
     void TearDown() {
-        for (int i = 0; i < this->nVis; ++i) {
+        int done[nVis];
+        int total = 0;
+        for (int i = 0; i < this->nVis; ++i) done[i] = 0;
+        while (total < nVis) {
+          for (int i = 0; i < this->nVis; ++i) {
             EXPECT_EQ(cudaSuccess, cudaSetDevice(i));
-            EXPECT_EQ(cudaSuccess, cudaStreamSynchronize(this->streams[i]));
+            if (done[i]) continue;
+            cudaError_t err = cudaStreamQuery(this->streams[i]);
+            if (err != cudaErrorNotReady) {
+              EXPECT_EQ(cudaSuccess, err) << "Rank : " << i << std::endl;
+              done[i] = 1;
+              total++;
+            }
+          }
         }
     };
 };
@@ -76,8 +87,8 @@ void ncclCommon_test<DT>::SetUpTestCase() {
         ASSERT_EQ(cudaSuccess, cudaSetDevice(i));
         ASSERT_EQ(cudaSuccess, cudaMalloc(&sendbuffs[i], N * sizeof(DT)));
         ASSERT_EQ(cudaSuccess, cudaMalloc(&recvbuffs[i], N * sizeof(DT)));
-        ASSERT_EQ(cudaSuccess, cudaMemset(sendbuffs[i], N * sizeof(DT), 0));
-        ASSERT_EQ(cudaSuccess, cudaMemset(recvbuffs[i], N * sizeof(DT), 0));
+        ASSERT_EQ(cudaSuccess, cudaMemset(sendbuffs[i], 0, N * sizeof(DT)));
+        ASSERT_EQ(cudaSuccess, cudaMemset(recvbuffs[i], 0, N * sizeof(DT)));
         ASSERT_EQ(cudaSuccess, cudaStreamCreate(&streams[i])) << i;
         sendbuffs_host[i] = (DT*)calloc(N, sizeof(DT));
         recvbuffs_host[i] = (DT*)calloc(N, sizeof(DT));
@@ -100,15 +111,15 @@ void ncclCommon_test<DT>::TearDownTestCase() {
     auto freecuda = [](DT* ptr) { cudaFree(ptr); };
     EXPECT_NO_FATAL_FAILURE(freePP<>(freecuda, sendbuffs, nVis));
     EXPECT_NO_FATAL_FAILURE(freePP<>(freecuda, recvbuffs, nVis));
-    auto freehost = [](DT* ptr) { free(ptr); };
-    EXPECT_NO_FATAL_FAILURE(freePP<>(freehost, sendbuffs_host, nVis));
-    EXPECT_NO_FATAL_FAILURE(freePP<>(freehost, recvbuffs_host, nVis));
     auto freePinned = [](DT* ptr) {
         EXPECT_EQ(cudaSuccess, cudaHostUnregister(ptr));
         free(ptr);
     };
     EXPECT_NO_FATAL_FAILURE(freePP<>(freePinned, sendbuffs_pinned, nVis));
     EXPECT_NO_FATAL_FAILURE(freePP<>(freePinned, recvbuffs_pinned, nVis));
+    auto freehost = [](DT* ptr) { free(ptr); };
+    EXPECT_NO_FATAL_FAILURE(freePP<>(freehost, sendbuffs_host, nVis));
+    EXPECT_NO_FATAL_FAILURE(freePP<>(freehost, recvbuffs_host, nVis));
     auto freeStream = [](cudaStream_t st) { cudaStreamDestroy(st); };
     EXPECT_NO_FATAL_FAILURE(freePP<>(freeStream, streams, nVis));
 };

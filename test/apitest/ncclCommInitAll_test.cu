@@ -19,7 +19,7 @@ class ncclCommInitAll_test : public ::testing::Test {
         }
         if (NULL != comms) {
             for (int i = 0; i < nVis; ++i) {
-                ncclCommDestroy(comms[i]);
+                ASSERT_EQ(ncclSuccess, ncclCommDestroy(comms[i]));
                 comms[i] = NULL;
             }
             free(comms);

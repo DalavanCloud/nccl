@@ -131,7 +131,7 @@ TYPED_TEST(ncclAllReduce_test, comm_wrong) {
 };
 // STREAM can be NULL.
 // stream on a diff device
-TYPED_TEST(ncclAllReduce_test, stream_wrong) {
+TYPED_TEST(ncclAllReduce_test, DISABLED_stream_wrong) {
     int i = 0, j = 1;
     ASSERT_EQ(ncclInvalidDevicePointer,
               ncclAllReduce(this->sendbuffs[i], this->recvbuffs[i],
