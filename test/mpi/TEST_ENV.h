@@ -7,6 +7,7 @@ class TEST_ENV : public ::testing::Environment {
     static const int mpi_root = 0;
     TEST_ENV(){};
     virtual ~TEST_ENV(){};
+    void SetGPU();
     // Override this to define how to set up the environment.
     virtual void SetUp();
     // Override this to define how to tear down the environment.

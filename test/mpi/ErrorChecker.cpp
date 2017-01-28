@@ -28,7 +28,7 @@ void ErrorChecker(const T expected, const T code) {
     bool ret = true;
     MPI_Allgather(&code, sizeof(T), MPI_CHAR, retcodes.data(), sizeof(T),
                   MPI_CHAR, MPI_COMM_WORLD);
-    for (int i = 0; i < retcodes.size(); ++i) {
+    for (unsigned int i = 0; i < retcodes.size(); ++i) {
         expect_log<T>(i, expected, retcodes.at(i));
         if (expected != retcodes.at(i)) {
             ret = false;
