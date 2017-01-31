@@ -1,11 +1,69 @@
 /*************************************************************************
- * Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ *  Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+ * 
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *  * Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *  * Neither the name of NVIDIA CORPORATION, nor the names of their
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
  *
- * See LICENSE.txt for license information
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ ************************************************************************/
+
+/************************************************************************
+ * This is an example using the NCCL network API to use MPI for inter-node
+ * communication.
+ *
+ * This file should be included in the code and the ncclMpiHook function 
+ * should be called before any call to NCCL (ncclCommInitRank in particular).
+ *
  ************************************************************************/
 
 #include "mpi.h"
 #include "nccl.h"
+
+int ncclMpiGetHandle(void* handle, void** recvComm);
+int ncclMpiConnectHandle(void* handle, void** sendComm);
+int ncclMpiIsend(void* sendComm, void* data, int size, void** request);
+int ncclMpiIrecv(void* recvComm, void* data, int size, void** request);
+int ncclMpiTest(void* request, int* done, int* size);
+int ncclMpiCloseSend(void* sendComm);
+int ncclMpiCloseRecv(void* recvComm);
+
+ncclNet_t ncclMpi = {
+  "MPI",
+  ncclMpiGetHandle,
+  ncclMpiConnectHandle,
+  ncclMpiIsend,
+  ncclMpiIrecv,
+  ncclMpiTest,
+  ncclMpiCloseSend,
+  ncclMpiCloseRecv
+};
+
+static MPI_Comm ncclMpiComm;
+
+void ncclMpiHook(MPI_Comm comm) {
+  ncclMpiComm = comm;
+  ncclNet = &ncclMpi;
+}
 
 #include <assert.h>
 #include <pthread.h>
@@ -38,8 +96,6 @@ static void ncclMpiGetLockMode() {
   retvar = cmd; \
   if (ncclMpiLockMode == 1) pthread_mutex_unlock(&ncclMpiGlobalLock); \
 } while (0)
-
-static MPI_Comm ncclMpiComm;
 
 static int numRequests = 0;
 MPI_Request* ncclMpiRequests = NULL;
@@ -163,21 +219,5 @@ int ncclMpiCloseSend(void* sendComm) {
 
 int ncclMpiCloseRecv(void* recvComm) {
   return 0;
-}
-
-ncclNet_t ncclMpi = {
-  "MPI",
-  ncclMpiGetHandle,
-  ncclMpiConnectHandle,
-  ncclMpiIsend,
-  ncclMpiIrecv,
-  ncclMpiTest,
-  ncclMpiCloseSend,
-  ncclMpiCloseRecv
-};
-
-void ncclMpiHook(MPI_Comm comm) {
-  ncclMpiComm = comm;
-  ncclNet = &ncclMpi;
 }
 
