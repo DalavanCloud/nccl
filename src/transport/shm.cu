@@ -47,7 +47,6 @@ struct shmSendResources {
   int remShmSize;
   struct ncclSendRecvMem* remHostMem;
   struct ncclSendRecvMem* devRemHostMem;
-  char shmName[1024];
   int shmSize;
   int* hostMem;
   int* devHostMem;
@@ -68,7 +67,6 @@ struct shmRecvResources {
   struct ncclSendRecvMem* remHostMem;
   struct ncclSendRecvMem* devRemHostMem;
 #endif
-  char shmName[1024];
   int shmSize;
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
@@ -152,9 +150,10 @@ ncclResult_t shmSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   }
   INFO("%d -> %d via proxy shared memory", myInfo->rank, peerInfo->rank);
 #else
-  sprintf(resources->shmName, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
+  char shmName[1024];
+  sprintf(shmName, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
   info.shmSize = resources->shmSize = sizeof(int);
-  NCCLCHECK(shmOpen(resources->shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
+  NCCLCHECK(shmOpen(shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
   INFO("%d -> %d via direct shared memory", myInfo->rank, peerInfo->rank);
   info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid;
@@ -184,9 +183,10 @@ ncclResult_t shmRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
 
   struct shmSendConnectInfo info;
 
-  sprintf(resources->shmName, "nccl-shm-recv-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
+  char shmName[1024];
+  sprintf(shmName, "nccl-shm-recv-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
   info.shmSize = resources->shmSize = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
-  NCCLCHECK(shmOpen(resources->shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
+  NCCLCHECK(shmOpen(shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
   info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid;
   static_assert(sizeof(struct shmRecvConnectInfo) <= sizeof(struct ncclConnect), "shm Connect Send Info is too big");
@@ -204,6 +204,8 @@ ncclResult_t shmSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   sprintf(shmName, "nccl-shm-recv-%d-%d-%d", info->pid, info->id, info->rank);
   resources->remShmSize = info->shmSize;
   NCCLCHECK(shmOpen(shmName, resources->remShmSize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
+  // Remove the file to ensure proper clean-up
+  NCCLCHECK(shmUnlink(shmName));
 
   send->transportResources = resources;
   send->conn.buff = resources->devRemHostMem->buff;
@@ -237,6 +239,7 @@ ncclResult_t shmRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   sprintf(shmName, "nccl-shm-send-%d-%d-%d", info->pid, info->id, info->rank);
   resources->remShmSize = info->shmSize;
   NCCLCHECK(shmOpen(shmName, resources->remShmSize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
+  NCCLCHECK(shmUnlink(shmName));
   recv->conn.head = &resources->devRemHostMem->head;
   recv->conn.buff = resources->devHostMem->buff;
   recv->conn.tail = &resources->devHostMem->tail;
@@ -247,15 +250,15 @@ ncclResult_t shmRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
 
 ncclResult_t shmSendFree(void* transportResources) {
   struct shmSendResources* resources = (struct shmSendResources*)transportResources;
-  NCCLCHECK(shmClose(resources->hostMem, resources->devHostMem, resources->shmName, resources->shmSize));
-  NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, NULL, resources->remShmSize));
+  NCCLCHECK(shmClose(resources->hostMem, resources->devHostMem, resources->shmSize));
+  NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, resources->remShmSize));
   free(resources);
   return ncclSuccess;
 }
 
 ncclResult_t shmRecvFree(void* transportResources) {
   struct shmRecvResources* resources = (struct shmRecvResources*)transportResources;
-  NCCLCHECK(shmClose(resources->hostMem, resources->devHostMem, resources->shmName, resources->shmSize));
+  NCCLCHECK(shmClose(resources->hostMem, resources->devHostMem, resources->shmSize));
 #ifdef SHM_PROXY
   CUDACHECK(cudaStreamDestroy(prevStream));
   CUDACHECK(cudaStreamDestroy(localStream));
@@ -264,7 +267,7 @@ ncclResult_t shmRecvFree(void* transportResources) {
   }
   CUDACHECK(cudaIpcCloseMemHandle(resources->remDevMem));
 #else
-  NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, NULL, resources->remShmSize));
+  NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, resources->remShmSize));
 #endif
   free(resources);
   return ncclSuccess;

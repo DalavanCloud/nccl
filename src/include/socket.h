@@ -13,7 +13,6 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <ifaddrs.h>
-#include <errno.h>
 
 typedef enum {
   GETIP_ENV = 1,

@@ -104,6 +104,7 @@ struct ncclComm {
     }                                                       \
 } while(false)
 
+#include <errno.h>
 // Check system calls
 #define SYSCHECK(call, name) do { \
   int ret = -1; \

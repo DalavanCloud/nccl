@@ -54,8 +54,12 @@ static ncclResult_t shmOpen(const char* shmname, const int shmsize, void** shmPt
   return ncclSuccess;
 }
 
-static ncclResult_t shmClose(void* shmPtr, void* devShmPtr, const char* shmname, const int shmsize) {
-  if (shmname != NULL) shm_unlink(shmname);
+static ncclResult_t shmUnlink(const char* shmname) {
+  if (shmname != NULL) SYSCHECK(shm_unlink(shmname), "shm_unlink");
+  return ncclSuccess;
+}
+
+static ncclResult_t shmClose(void* shmPtr, void* devShmPtr, const int shmsize) {
   CUDACHECK(cudaHostUnregister(devShmPtr));
   if (munmap(shmPtr, shmsize) != 0) {
     WARN("munmap of shared memory failed");
