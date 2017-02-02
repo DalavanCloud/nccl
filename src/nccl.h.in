@@ -160,10 +160,10 @@ ncclResult_t pncclBcast(void* buff, int count, ncclDataType_t datatype, int root
  * in communicator clique.
  * Sendbuff and recvbuff are assumed to reside on same device.
  * Must be called separately for each communicator in communicator clique. */
-ncclResult_t  ncclAllGather(const void* sendbuff, int count, ncclDataType_t datatype,
-    void* recvbuff, ncclComm_t comm, cudaStream_t stream);
-ncclResult_t pncclAllGather(const void* sendbuff, int count, ncclDataType_t datatype,
-    void* recvbuff, ncclComm_t comm, cudaStream_t stream);
+ncclResult_t  ncclAllGather(const void* sendbuff, void* recvbuff, int count,
+    ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream);
+ncclResult_t pncclAllGather(const void* sendbuff, void* recvbuff, int count,
+    ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream);
 
 
 /* The following collective operations are not implemented yet */

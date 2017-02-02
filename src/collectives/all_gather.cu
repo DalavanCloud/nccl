@@ -198,10 +198,10 @@ class AllGather {
   }
 };
 
-NCCL_API(ncclResult_t, ncclAllGather, const void* sendbuff, int count, ncclDataType_t datatype,
-    void* recvbuff, ncclComm_t comm, cudaStream_t stream);
-ncclResult_t ncclAllGather(const void* sendbuff, int count, ncclDataType_t datatype,
-    void* recvbuff, ncclComm_t comm, cudaStream_t stream) {
+NCCL_API(ncclResult_t, ncclAllGather, const void* sendbuff, void* recvbuff, int count,
+    ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream);
+ncclResult_t ncclAllGather(const void* sendbuff, void* recvbuff, int count,
+    ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream) {
   NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, datatype, ncclSum, 0, comm, "AllGather"));
   return enqueue<AllGather, FuncNull>(sendbuff, recvbuff, count, datatype, 0, comm, stream);
 }

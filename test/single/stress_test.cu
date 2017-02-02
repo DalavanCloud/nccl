@@ -147,7 +147,7 @@ int testAllGather(int count, int type, int op, int root, int nranks, ncclComm_t 
   for (int rep=0; rep<NREPS; ++rep) {
     for (int i=0; i<nranks; ++i) {
       CUDACHECK(cudaSetDevice(devList[i]));
-      ncclAllGather(sendbuff[i], sendcount, (ncclDataType_t)type, recvbuff[i], comms[i], streams[i]);
+      ncclAllGather(sendbuff[i], recvbuff[i], sendcount, (ncclDataType_t)type, comms[i], streams[i]);
     }
   }
 #ifdef CHECK

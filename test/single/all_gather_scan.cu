@@ -188,7 +188,7 @@ int main(int argc, char* argv[]) {
     auto start = std::chrono::high_resolution_clock::now();
     for(int g=0; g<gpus; ++g) {
       CUDACHECK(cudaSetDevice(list[g]));
-      NCCLCHECK(ncclAllGather(input[g], n, type, output[g], comm[g], stream[g]));
+      NCCLCHECK(ncclAllGather(input[g], output[g], n, type, comm[g], stream[g]));
     }
     for(int g=0; g<gpus; ++g) {
       CUDACHECK(cudaSetDevice(list[g]));

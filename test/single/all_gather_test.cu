@@ -43,8 +43,8 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
   // warm up GPU
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
-    NCCLCHECK(ncclAllGather((const void*)sendbuff[i], std::min(32 * 1024, N), type,
-        (void*)recvbuff[i], comms[i], s[i]));
+    NCCLCHECK(ncclAllGather((const void*)sendbuff[i], (void*)recvbuff[i],
+        std::min(32 * 1024, N), type, comms[i], s[i]));
   }
 
   for (int i = 0; i < nDev; ++i) {
@@ -61,7 +61,7 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
 
     for (int i = 0; i < nDev; ++i) {
       CUDACHECK(cudaSetDevice(dList[i]));
-      NCCLCHECK(ncclAllGather((const void*)sendbuff[i], n, type, (void*)recvbuff[i], comms[i],
+      NCCLCHECK(ncclAllGather((const void*)sendbuff[i], (void*)recvbuff[i], n, type, comms[i],
           s[i]));
     }
 
