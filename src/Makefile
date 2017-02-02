@@ -1,7 +1,6 @@
 include ../makefiles/common.mk
 include ../makefiles/version.mk
 
-CXXFLAGS  += -DNCCL_MAJOR=$(NCCL_MAJOR) -DNCCL_MINOR=$(NCCL_MINOR) -DNCCL_PATCH=$(NCCL_PATCH)
 ##### src files
 INCEXPORTS  := nccl.h
 LIBSRCFILES := init.cu bootstrap.cu transport.cu \
@@ -35,25 +34,32 @@ staticlib : $(INCTARGETS) $(LIBDIR)/$(STATICLIBTARGET)
 -include $(DEPFILES)
 $(LIBDIR)/$(LIBTARGET) $(LIBDIR)/$(STATICLIBTARGET) : $(LIBOBJ)
 
+nccl.h : nccl.h.in
+	@printf "Generating %-35s > %s\n" $< $@
+	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
+	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
+	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
+	    $< > $@
+
 $(LIBDIR)/$(LIBTARGET):
-	@printf "Linking   %-35s > %s\n" $(LIBTARGET) $@
+	@printf "Linking    %-35s > %s\n" $(LIBTARGET) $@
 	mkdir -p $(LIBDIR)
 	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ)
 	ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
 	ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
 
 $(LIBDIR)/$(STATICLIBTARGET):
-	@printf "Archiving %-35s > %s\n" $(STATICLIBTARGET) $@
+	@printf "Archiving  %-35s > %s\n" $(STATICLIBTARGET) $@
 	mkdir -p $(LIBDIR)
 	ar cr $@ $(LIBOBJ)
 
 $(INCDIR)/%.h : %.h
-	@printf "Grabbing  %-35s > %s\n" $< $@
+	@printf "Grabbing   %-35s > %s\n" $< $@
 	mkdir -p $(INCDIR)
 	cp -f $< $@
 
 $(OBJDIR)/%.o : %.cu
-	@printf "Compiling %-35s > %s\n" $< $@
+	@printf "Compiling  %-35s > %s\n" $< $@
 	mkdir -p `dirname $@`
 	$(NVCC) -Iinclude -c $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< -o $@
 	@$(NVCC) -Iinclude -M $(NVCUFLAGS) --compiler-options "$(CXXFLAGS)" $< > $(@:%.o=%.d.tmp)

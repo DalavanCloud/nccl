@@ -16,6 +16,10 @@
 #undef CUDA_HAS_HALF
 #endif
 
+#define NCCL_MAJOR ${nccl:Major}
+#define NCCL_MINOR ${nccl:Minor}
+#define NCCL_PATCH ${nccl:Patch}
+
 #ifdef __cplusplus
 extern "C" {
 #endif
