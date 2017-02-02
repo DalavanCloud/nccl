@@ -7,7 +7,7 @@ include ../gtest.mk
 MPI_HOME ?= $(realpath $(dir $(or \
 	$(realpath /usr/include/mpi.h),\
 	$(realpath /usr/lib/openmpi/include/mpi.h)))..)
-NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi -lmpi_cxx
+NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 NVCUFLAGS += -I$(MPI_HOME)/include
 ### flags
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h -I../include ${CPPFLAGS} ${GTEST_CPPFLAGS}

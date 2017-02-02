@@ -147,7 +147,7 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
 #define UNROLL 8
 
 template<class FUNC, typename T>
-ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const int count, const int root,
+ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const size_t count, const int root,
     ncclComm* comm, cudaStream_t stream) {
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
@@ -170,14 +170,14 @@ template<typename T, template<typename> class RedOp>
 class Broadcast {
   public:
   static ncclResult_t entry(const void* sendbuff, void* recvbuff,
-      int count, int root, ncclComm* comm, cudaStream_t stream) {
+      size_t count, int root, ncclComm* comm, cudaStream_t stream) {
     return RingBroadcast<RedOp<T>, T>(sendbuff, recvbuff, count, root, comm, stream);
   }
 };
 
-NCCL_API(ncclResult_t, ncclBcast, void* buff, int count, ncclDataType_t datatype, int root,
+NCCL_API(ncclResult_t, ncclBcast, void* buff, size_t count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream);
-ncclResult_t ncclBcast(void* buff, int count, ncclDataType_t datatype, int root,
+ncclResult_t ncclBcast(void* buff, size_t count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream) {
   NCCLCHECK(ArgsCheck(buff, buff, count, datatype, ncclSum, root, comm, "Bcast"));
   return enqueue<Broadcast, FuncNull>(buff, buff, count, datatype, root, comm, stream);

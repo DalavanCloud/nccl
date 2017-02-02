@@ -81,13 +81,6 @@ TYPED_TEST(ncclAllGather_test, DISABLED_N_zero) {
             << "i" << i << ", " << std::endl;
     }
 };
-TYPED_TEST(ncclAllGather_test, N_minus1) {
-    int i = 0;
-    ASSERT_EQ(ncclInvalidArgument,
-              ncclAllGather(this->sendbuffs[i], this->recvbuffs[i],
-                            -1, this->DataType(), this->comms[i],
-                            this->streams[i]));
-};
 // data type
 TYPED_TEST(ncclAllGather_test, DataType_wrong) {
     int i = 0;

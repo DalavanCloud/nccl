@@ -19,7 +19,7 @@
  *   template <typename T, template <typename> class RedOp>
  *   class CollectiveFunctor {
  *     public:
- *     static ncclResult_t entry(const void* sendbuff, void* recvbuff, int count,
+ *     static ncclResult_t entry(const void* sendbuff, void* recvbuff, size_t count,
  *         int root, ncclComm* comm, cudaStream_t stream);
  *   };
  * The entry() method can assume that the appropriate cuda device has been set. */
@@ -28,7 +28,7 @@ template< template<typename, template<typename> class> class ColFunc,
           template<typename> class Op >
 ncclResult_t enqueue(const void* sendbuff,
                      void* recvbuff,
-                     int count,
+                     size_t count,
                      int root,
                      ncclComm_t comm,
                      cudaStream_t stream)
@@ -63,7 +63,7 @@ template< template<typename, template<typename> class> class ColFunc,
           template<typename> class Op >
 ncclResult_t enqueue(const void* sendbuff,
                      void* recvbuff,
-                     int count,
+                     size_t count,
                      ncclDataType_t type,
                      int root,
                      ncclComm_t comm,
@@ -96,7 +96,7 @@ ncclResult_t enqueue(const void* sendbuff,
 template< template<typename, template<typename> class> class ColFunc>
 ncclResult_t enqueue(const void* sendbuff,
                      void* recvbuff,
-                     int count,
+                     size_t count,
                      ncclDataType_t type,
                      ncclRedOp_t op,
                      int root,

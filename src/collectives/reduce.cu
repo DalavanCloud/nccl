@@ -112,7 +112,7 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
 #define UNROLL 8
 
 template<class FUNC, typename T>
-ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const int count, const int root,
+ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const size_t count, const int root,
     ncclComm* comm, cudaStream_t stream) {
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
@@ -135,14 +135,14 @@ template<typename T, template<typename> class RedOp>
 class ReduceFunctor {
   public:
   static ncclResult_t entry(const void* sendbuff, void* recvbuff,
-      int count, int root, ncclComm* comm, cudaStream_t stream) {
+      size_t count, int root, ncclComm* comm, cudaStream_t stream) {
     return RingReduce<RedOp<T>, T>(sendbuff, recvbuff, count, root, comm, stream);
   }
 };
 
-NCCL_API(ncclResult_t, ncclReduce, const void* sendbuff, void* recvbuff, int count,
+NCCL_API(ncclResult_t, ncclReduce, const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
-ncclResult_t ncclReduce(const void* sendbuff, void* recvbuff, int count,
+ncclResult_t ncclReduce(const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
   NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, datatype, op, root, comm, "Reduce"));
   return enqueue<ReduceFunctor>(sendbuff, recvbuff, count, datatype, op, root, comm, stream);

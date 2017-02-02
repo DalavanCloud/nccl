@@ -31,7 +31,7 @@ static ncclResult_t PtrCheck(void* ptr, const char* opname, const char* ptrname)
   return ncclSuccess;
 }
 
-static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, int count, ncclDataType_t type, ncclRedOp_t op, int root, struct ncclComm* comm, const char* opname) {
+static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, struct ncclComm* comm, const char* opname) {
   NCCLCHECK(PtrCheck(comm, opname, "comm"));
   // First, the easy ones
   if (root < 0 || root >= comm->nRanks) {
@@ -45,10 +45,6 @@ static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, int co
   if (op < 0 || op >= nccl_NUM_OPS) {
     WARN("%s : invalid reduction operation %d\n", opname, op);
     return ncclInvalidOperation;
-  }
-  if (count < 0) {
-    WARN("%s : invalid count %d\n", opname, count);
-    return ncclInvalidArgument;
   }
 
   // Check pointers
@@ -79,7 +75,7 @@ struct KernelArgs {
 
 template<typename T>
 void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
-		const int root, const int count, ncclComm *comm) {
+		const int root, const size_t count, ncclComm *comm) {
   args->root = root;
   args->N = count;
   args->ThisInput = (const T*)sendbuff;

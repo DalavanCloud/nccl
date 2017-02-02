@@ -207,7 +207,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
 template<class FUNC, typename T>
 ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
-    const int count, ncclComm* comm, cudaStream_t stream) {
+    const size_t count, ncclComm* comm, cudaStream_t stream) {
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
@@ -229,14 +229,14 @@ template<typename T, template <typename> class RedOp>
 class AllReduce {
   public:
   static ncclResult_t entry(const void* sendbuff, void* recvbuff,
-      int count, int /*root*/, ncclComm* comm, cudaStream_t stream) {
+      size_t count, int /*root*/, ncclComm* comm, cudaStream_t stream) {
     return RingAllReduce<RedOp<T>, T>(sendbuff, recvbuff, count, comm, stream);
   }
 };
 
-NCCL_API(ncclResult_t, ncclAllReduce, const void* sendbuff, void* recvbuff, int count,
+NCCL_API(ncclResult_t, ncclAllReduce, const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream);
-ncclResult_t ncclAllReduce(const void* sendbuff, void* recvbuff, int count,
+ncclResult_t ncclAllReduce(const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream) {
   NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, datatype, op, 0, comm, "AllReduce"));
   return enqueue<AllReduce>(sendbuff, recvbuff, count, datatype, op, 0, comm, stream);

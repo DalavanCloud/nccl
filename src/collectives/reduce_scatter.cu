@@ -125,7 +125,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
 template<class FUNC, typename T>
 ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
-    const int count, ncclComm* comm, cudaStream_t stream) {
+    const size_t count, ncclComm* comm, cudaStream_t stream) {
   if (comm->nRanks == 1) {
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
@@ -148,14 +148,14 @@ template<typename T, template <typename> class RedOp>
 class ReduceScatter {
   public:
   static ncclResult_t entry(const void* sendbuff, void* recvbuff,
-      int count, int /*root*/, ncclComm* comm, cudaStream_t stream) {
+      size_t count, int /*root*/, ncclComm* comm, cudaStream_t stream) {
     return RingReduceScatter<RedOp<T>, T>(sendbuff, recvbuff, count, comm, stream);
   }
 };
 
-NCCL_API(ncclResult_t, ncclReduceScatter, const void* sendbuff, void* recvbuff, int recvcount,
+NCCL_API(ncclResult_t, ncclReduceScatter, const void* sendbuff, void* recvbuff, size_t recvcount,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm* comm, cudaStream_t stream);
-ncclResult_t ncclReduceScatter(const void* sendbuff, void* recvbuff, int recvcount,
+ncclResult_t ncclReduceScatter(const void* sendbuff, void* recvbuff, size_t recvcount,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm* comm, cudaStream_t stream) {
   NCCLCHECK(ArgsCheck(sendbuff, recvbuff, recvcount, datatype, op, 0, comm, "ReduceScatter"));
   return enqueue<ReduceScatter>(sendbuff, recvbuff, recvcount, datatype, op, 0, comm, stream);

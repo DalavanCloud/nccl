@@ -81,12 +81,6 @@ TYPED_TEST(ncclBcast_test, N_zero) {
         }
     }
 };
-TYPED_TEST(ncclBcast_test, N_minus1) {
-    int i = 0, root = 0;
-    ASSERT_EQ(ncclInvalidArgument,
-              ncclBcast(this->sendbuffs[i], -1, this->DataType(), root,
-                        this->comms[i], this->streams[i]));
-};
 // data type
 TYPED_TEST(ncclBcast_test, DataType_wrong) {
     int i = 0, root = 0;
