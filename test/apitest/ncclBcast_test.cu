@@ -86,7 +86,7 @@ TYPED_TEST(ncclBcast_test, DataType_wrong) {
     int i = 0, root = 0;
     ASSERT_EQ(ncclInvalidType,
               ncclBcast(this->sendbuffs[i], std::min(this->N, 32 * 1024),
-                        nccl_NUM_TYPES, root, this->comms[i],
+                        ncclNumTypes, root, this->comms[i],
                         this->streams[i]));
 };
 // root

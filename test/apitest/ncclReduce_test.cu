@@ -151,7 +151,7 @@ TYPED_TEST(ncclReduce_test, DataType_wrong) {
     int i = 0, root = 0;
     ASSERT_EQ(ncclInvalidType,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
-                         std::min(this->N, 1024 * 1024), nccl_NUM_TYPES,
+                         std::min(this->N, 1024 * 1024), ncclNumTypes,
                          this->RedOps[0], root, this->comms[i],
                          this->streams[i]));
 };
@@ -161,7 +161,7 @@ TYPED_TEST(ncclReduce_test, op_wrong) {
     ASSERT_EQ(ncclInvalidOperation,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
                          std::min(this->N, 1024 * 1024), this->DataType(),
-                         nccl_NUM_OPS, root, this->comms[i], this->streams[i]));
+                         ncclNumOps, root, this->comms[i], this->streams[i]));
 };
 // root
 TYPED_TEST(ncclReduce_test, root_minus1) {

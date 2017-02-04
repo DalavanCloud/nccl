@@ -36,13 +36,6 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
     CUDACHECK(cudaStreamCreate(s+i));
-    CUDACHECK(cudaMemset(recvbuff[i], 0, N * sizeof(T)));
-    Randomize(sendbuff[i], N, i);
-    if(i == 0) {
-      CUDACHECK(cudaMemcpy(result, sendbuff[i], N*sizeof(T), cudaMemcpyDeviceToHost));
-    } else {
-      Accumulate<T>(result, sendbuff[i], N, op);
-    }
   }
 
   // warm up GPU
@@ -65,6 +58,17 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
 
     // do out-of-place reduction first
     nvtxRangePushA("out of place");
+    // init values
+    for (int i = 0; i < nDev; ++i) {
+      CUDACHECK(cudaSetDevice(dList[i]));
+      CUDACHECK(cudaMemset(recvbuff[i], 0, N * sizeof(T)));
+      Randomize(sendbuff[i], N, i);
+      if(i == 0) {
+        CUDACHECK(cudaMemcpy(result, sendbuff[i], N*sizeof(T), cudaMemcpyDeviceToHost));
+      } else {
+        Accumulate<T>(result, sendbuff[i], N, op);
+      }
+    }
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
       for (int i = 0; i < nDev; ++i) {
@@ -112,6 +116,17 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     int n = N;
     // now do in-place reduction
     nvtxRangePushA("in place");
+    // init values
+    for (int i = 0; i < nDev; ++i) {
+      CUDACHECK(cudaSetDevice(dList[i]));
+      Randomize(sendbuff[i], N, i);
+      if(i == 0) {
+        CUDACHECK(cudaMemcpy(result, sendbuff[i], N*sizeof(T), cudaMemcpyDeviceToHost));
+      } else {
+        Accumulate<T>(result, sendbuff[i], N, op);
+      }
+    }
+
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
       for (int i = 0; i < nDev; ++i) {
@@ -270,15 +285,15 @@ int main(int argc, char* argv[]) {
     printf("B,N,type,op,oop_time,oop_algbw,oop_busbw,oop_res,ip_time,ip_algbw,ip_busbw,ip_res\n");
   }
 
-  RunTests<char>(N / sizeof(char), ncclChar, comms, dList);
-  RunTests<int>(N / sizeof(int), ncclInt, comms, dList);
-#ifdef CUDA_HAS_HALF
+  RunTests<int8_t>(N / sizeof(int8_t), ncclInt8, comms, dList);
+  RunTests<uint8_t>(N / sizeof(uint8_t), ncclUint8, comms, dList);
+  RunTests<int32_t>(N / sizeof(int32_t), ncclInt32, comms, dList);
+  RunTests<uint32_t>(N / sizeof(uint32_t), ncclUint32, comms, dList);
   RunTests<half>(N / sizeof(half), ncclHalf, comms, dList);
-#endif
   RunTests<float>(N / sizeof(float), ncclFloat, comms, dList);
   RunTests<double>(N / sizeof(double), ncclDouble, comms, dList);
-  RunTests<long long>(N / sizeof(long long), ncclInt64, comms, dList);
-  RunTests<unsigned long long>(N / sizeof(unsigned long long), ncclUint64, comms, dList);
+  RunTests<int64_t>(N / sizeof(int64_t), ncclInt64, comms, dList);
+  RunTests<uint64_t>(N / sizeof(uint64_t), ncclUint64, comms, dList);
 
   printf("\n");
 

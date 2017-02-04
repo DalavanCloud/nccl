@@ -6,9 +6,7 @@
         return (Y);                                                            \
     };
 GEN_DATATYPE(char, ncclChar);
-#ifdef CUDA_HAS_HALF
 GEN_DATATYPE(half, ncclHalf);
-#endif
 GEN_DATATYPE(int, ncclInt);
 GEN_DATATYPE(float, ncclFloat);
 GEN_DATATYPE(double, ncclDouble);

@@ -50,7 +50,7 @@ struct MULTI {
 };
 
 template<class FUNC>
-struct MULTI<FUNC, char> {
+struct MULTI<FUNC, int8_t> {
   static_assert(sizeof(PackType) == 2 * sizeof(uint32_t),
       "PackType must be twice the size of uint32_t.");
   union converter {
@@ -74,13 +74,37 @@ struct MULTI<FUNC, char> {
 };
 
 template<class FUNC>
-struct MULTI<FUNC, int> {
-  static_assert(sizeof(PackType) == 2 * sizeof(int),
+struct MULTI<FUNC, uint8_t> {
+  static_assert(sizeof(PackType) == 2 * sizeof(uint32_t),
+      "PackType must be twice the size of uint32_t.");
+  union converter {
+    PackType storage;
+    struct {
+      uint32_t a, b;
+    };
+  };
+
+  __device__ PackType operator()(const PackType x, const PackType y) const {
+    converter cx, cy, cr;
+    cx.storage = x;
+    cy.storage = y;
+
+    // for char, we do these as vector ops
+    cr.a = FUNC()(cx.a, cy.a);
+    cr.b = FUNC()(cx.b, cy.b);
+
+    return cr.storage;
+  }
+};
+
+template<class FUNC>
+struct MULTI<FUNC, int32_t> {
+  static_assert(sizeof(PackType) == 2 * sizeof(int32_t),
       "PackType must be twice the size of int.");
   union converter {
     PackType storage;
     struct {
-      int a, b;
+      int32_t a, b;
     };
   };
 
@@ -96,7 +120,29 @@ struct MULTI<FUNC, int> {
   }
 };
 
-#ifdef CUDA_HAS_HALF
+template<class FUNC>
+struct MULTI<FUNC, uint32_t> {
+  static_assert(sizeof(PackType) == 2 * sizeof(uint32_t),
+      "PackType must be twice the size of int.");
+  union converter {
+    PackType storage;
+    struct {
+      uint32_t a, b;
+    };
+  };
+
+  __device__ PackType operator()(const PackType x, const PackType y) const {
+    converter cx, cy, cr;
+    cx.storage = x;
+    cy.storage = y;
+
+    cr.a = FUNC()(cx.a, cy.a);
+    cr.b = FUNC()(cx.b, cy.b);
+
+    return cr.storage;
+  }
+};
+
 template<class FUNC>
 struct MULTI<FUNC, half> {
   static_assert(sizeof(PackType) == 2 * sizeof(float),
@@ -119,7 +165,6 @@ struct MULTI<FUNC, half> {
     return cr.storage;
   }
 };
-#endif
 
 template<class FUNC>
 struct MULTI<FUNC, float> {
@@ -155,21 +200,21 @@ struct MULTI<FUNC, double> {
 };
 
 template<class FUNC>
-struct MULTI<FUNC, unsigned long long> {
-  static_assert(sizeof(PackType) == sizeof(unsigned long long),
-      "PackType must be the same size as unsigned long long.");
+struct MULTI<FUNC, uint64_t> {
+  static_assert(sizeof(PackType) == sizeof(uint64_t),
+      "PackType must be the same size as uint64_t.");
   __device__ PackType operator()(const PackType x, const PackType y) const {
-    unsigned long long rv = FUNC()(x, y);
+    uint64_t rv = FUNC()(x, y);
     return rv;
   }
 };
 
 template<class FUNC>
-struct MULTI<FUNC, long long> {
-  static_assert(sizeof(PackType) == sizeof(long long),
-      "PackType must be the same size as long long.");
+struct MULTI<FUNC, int64_t> {
+  static_assert(sizeof(PackType) == sizeof(int64_t),
+      "PackType must be the same size as int64_t.");
   __device__ PackType operator()(const PackType x, const PackType y) const {
-    long long rv = FUNC()((long long)x, (long long)y);
+    int64_t rv = FUNC()((int64_t)x, (int64_t)y);
     return rv;
   }
 };
@@ -230,26 +275,22 @@ T vFetch(const volatile T* ptr) {
   return *ptr;
 }
 
-#ifdef CUDA_HAS_HALF
 template<> inline __device__
 half vFetch<half>(const volatile half* ptr) {
   half r;
   r.x = ptr->x;
   return r;
 }
-#endif
 
 template<typename T> inline __device__
 void vStore(volatile T* ptr, const T val) {
   *ptr = val;
 }
 
-#ifdef CUDA_HAS_HALF
 template<> inline __device__
 void vStore<half>(volatile half* ptr, const half val) {
   ptr->x = val.x;
 }
-#endif
 
 // Assumptions:
 // - there is exactly 1 block

@@ -8,13 +8,7 @@
 #define NCCL_H_
 
 #include <cuda_runtime.h>
-
-#if CUDART_VERSION >= 7050
 #include <cuda_fp16.h>
-#define CUDA_HAS_HALF 1
-#else
-#undef CUDA_HAS_HALF
-#endif
 
 #define NCCL_MAJOR ${nccl:Major}
 #define NCCL_MINOR ${nccl:Minor}
@@ -46,7 +40,7 @@ typedef enum { ncclSuccess                 =  0,
                ncclInvalidArgument         = 12,
                ncclInvalidType             = 13,
                ncclInvalidOperation        = 14,
-               nccl_NUM_RESULTS            = 15 } ncclResult_t;
+               ncclNumResults              = 15 } ncclResult_t;
 
 /* Generates a unique Id with each call. Used to generate commId for
  * ncclCommInitAll. uniqueId will be created in such a way that it is
@@ -97,19 +91,19 @@ typedef enum { ncclSum        = 0,
                ncclProd       = 1,
                ncclMax        = 2,
                ncclMin        = 3,
-               nccl_NUM_OPS   = 4 } ncclRedOp_t;
+               ncclNumOps     = 4 } ncclRedOp_t;
 
 /* Data types */
-typedef enum { ncclChar       = 0,
-               ncclInt        = 1,
-#ifdef CUDA_HAS_HALF
-               ncclHalf       = 2,
-#endif
-               ncclFloat      = 3,
-               ncclDouble     = 4,
-               ncclInt64      = 5,
-               ncclUint64     = 6,
-               nccl_NUM_TYPES = 7 } ncclDataType_t;
+typedef enum { ncclInt8       = 0, ncclChar       = 0,
+               ncclUint8      = 1,
+               ncclInt32      = 2, ncclInt        = 2,
+               ncclUint32     = 3,
+               ncclInt64      = 4,
+               ncclUint64     = 5,
+               ncclFloat16    = 6, ncclHalf       = 6,
+               ncclFloat32    = 7, ncclFloat      = 7,
+               ncclFloat64    = 8, ncclDouble     = 8,
+               ncclNumTypes   = 9 } ncclDataType_t;
 
 /* Reduces data arrays of length count in sendbuff into recvbuf using op operation.
  * recvbuf may be NULL on all calls except for root device.

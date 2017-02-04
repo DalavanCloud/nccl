@@ -48,57 +48,54 @@ char** recvbuff;
 char* reference;
 char* results;
 
-int typesSizes[nccl_NUM_TYPES];
-double typesDeltas[nccl_NUM_TYPES];
-
 double CheckTypeDelta(int type, char* devmem, char* ref, int count) {
   switch(type) {
-    case ncclChar:   return CheckDelta<char>(devmem, ref, count);
-    case ncclInt:    return CheckDelta<int>((int*)devmem, (int*)ref, count);
-#ifdef CUDA_HAS_HALF
+    case ncclInt8:   return CheckDelta<int8_t>((int8_t*)devmem, (int8_t*)ref, count);
+    case ncclUint8:  return CheckDelta<uint8_t>((uint8_t*)devmem, (uint8_t*)ref, count);
+    case ncclInt32:  return CheckDelta<int32_t>((int32_t*)devmem, (int32_t*)ref, count);
+    case ncclUint32: return CheckDelta<uint32_t>((uint32_t*)devmem, (uint32_t*)ref, count);
     case ncclHalf:   return CheckDelta<half>((half*)devmem, (half*)ref, count);
-#endif
     case ncclFloat:  return CheckDelta<float>((float*)devmem, (float*)ref, count);
     case ncclDouble: return CheckDelta<double>((double*)devmem, (double*)ref, count);
-    case ncclInt64:  return CheckDelta<long long>((long long*)devmem, (long long*)ref, count);
-    case ncclUint64: return CheckDelta<unsigned long long>((unsigned long long*)devmem, (unsigned long long*)ref, count);
+    case ncclInt64:  return CheckDelta<int64_t>((int64_t*)devmem, (int64_t*)ref, count);
+    case ncclUint64: return CheckDelta<uint64_t>((uint64_t*)devmem, (uint64_t*)ref, count);
   }
   return 0.0;
 }
 
 void AccumulateType(int type, char* ref, char*devmem, int count, ncclRedOp_t op) {
   switch(type) {
-    case ncclChar:   return Accumulate<char>(ref, devmem, count, op);
-    case ncclInt:    return Accumulate<int>((int*)ref, (int*)devmem, count, op);
-#ifdef CUDA_HAS_HALF
+    case ncclInt8:   return Accumulate<int8_t>((int8_t*)ref, (int8_t*)devmem, count, op);
+    case ncclUint8:  return Accumulate<uint8_t>((uint8_t*)ref, (uint8_t*)devmem, count, op);
+    case ncclInt32:  return Accumulate<int32_t>((int32_t*)ref, (int32_t*)devmem, count, op);
+    case ncclUint32: return Accumulate<uint32_t>((uint32_t*)ref, (uint32_t*)devmem, count, op);
     case ncclHalf:   return Accumulate<half>((half*)ref, (half*)devmem, count, op);
-#endif
     case ncclFloat:  return Accumulate<float>((float*)ref, (float*)devmem, count, op);
     case ncclDouble: return Accumulate<double>((double*)ref, (double*)devmem, count, op);
-    case ncclInt64:  return Accumulate<long long>((long long*)ref, (long long*)devmem, count, op);
-    case ncclUint64: return Accumulate<unsigned long long>((unsigned long long*)ref, (unsigned long long*)devmem, count, op);
+    case ncclInt64:  return Accumulate<int64_t>((int64_t*)ref, (int64_t*)devmem, count, op);
+    case ncclUint64: return Accumulate<uint64_t>((uint64_t*)ref, (uint64_t*)devmem, count, op);
   }
 }
 
 void RandomizeType(int type, char* devmem, int count, int seed) {
   switch(type) {
-    case ncclChar:   return Randomize(devmem, count, seed);
-    case ncclInt:    return Randomize((int*)devmem, count, seed);
-#ifdef CUDA_HAS_HALF
+    case ncclInt8:   return Randomize((int8_t*)devmem, count, seed);
+    case ncclUint8:  return Randomize((uint8_t*)devmem, count, seed);
+    case ncclInt32:  return Randomize((int32_t*)devmem, count, seed);
+    case ncclUint32: return Randomize((uint32_t*)devmem, count, seed);
     case ncclHalf:   return Randomize((half*)devmem, count, seed);
-#endif
     case ncclFloat:  return Randomize((float*)devmem, count, seed);
     case ncclDouble: return Randomize((double*)devmem, count, seed);
-    case ncclInt64:  return Randomize((long long*)devmem, count, seed);
-    case ncclUint64: return Randomize((unsigned long long*)devmem, count, seed);
+    case ncclInt64:  return Randomize((int64_t*)devmem, count, seed);
+    case ncclUint64: return Randomize((uint64_t*)devmem, count, seed);
   }
 }
 
-typedef int (*test_func_t)(int, int, int, int, int, ncclComm_t*);
+typedef int (*test_func_t)(int, ncclDataType_t, int, int, int, ncclComm_t*);
 
-int testBcast(int count, int type, int op, int root, int nranks, ncclComm_t *comms) {
+int testBcast(int count, ncclDataType_t type, int op, int root, int nranks, ncclComm_t *comms) {
   int errors = 0;
-  int nbytes = count*typesSizes[type];
+  size_t nbytes = count*wordSize(type);
 #ifdef CHECK
   for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
@@ -129,12 +126,12 @@ int testBcast(int count, int type, int op, int root, int nranks, ncclComm_t *com
   return errors;
 }
 
-int testAllGather(int count, int type, int op, int root, int nranks, ncclComm_t *comms) {
+int testAllGather(int count, ncclDataType_t type, int op, int root, int nranks, ncclComm_t *comms) {
   int errors = 0;
   int sendcount = (count + nranks - 1) / nranks;
   int recvcount = sendcount * nranks;
-  int sendnbytes = sendcount*typesSizes[type];
-  int recvnbytes = recvcount*typesSizes[type];
+  int sendnbytes = sendcount*wordSize(type);
+  int recvnbytes = recvcount*wordSize(type);
 #ifdef CHECK
   for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
@@ -162,11 +159,11 @@ int testAllGather(int count, int type, int op, int root, int nranks, ncclComm_t 
       for (int c=1; c<count; c++) {
 	if (type == ncclFloat) {
           float res = *((float*)results+c), ref = *((float*)reference+c);
-          if (fabs(res-ref) > typesDeltas[type]*nranks) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
+          if (fabs(res-ref) > deltaMaxValue(type, 0)*nranks) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
         } else if (type == ncclDouble) {
           double res = *((double*)results+c), ref = *((double*)reference+c);
-          if (fabs(ref-res) > typesDeltas[type]*nranks) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
-        } else if (c*8 < count*typesSizes[type]) {
+          if (fabs(ref-res) > deltaMaxValue(type, 0)*nranks) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
+        } else if (c*8 < count*wordSize(type)) {
           uint64_t res = *((uint64_t*)results+c), ref = *((uint64_t*)reference+c);
           if (res != ref) printf("[%d/%3d] %16lX != %16lX\n", i, c, res, ref);
         }
@@ -177,9 +174,9 @@ int testAllGather(int count, int type, int op, int root, int nranks, ncclComm_t 
   return errors;
 }
 
-int testAllReduce(int count, int type, int op, int root, int nranks, ncclComm_t *comms) {
+int testAllReduce(int count, ncclDataType_t type, int op, int root, int nranks, ncclComm_t *comms) {
   int errors = 0;
-  int nbytes = count*typesSizes[type];
+  int nbytes = count*wordSize(type);
 #ifdef CHECK
   for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
@@ -204,7 +201,7 @@ int testAllReduce(int count, int type, int op, int root, int nranks, ncclComm_t 
     CUDACHECK(cudaSetDevice(devList[i]));
     CUDACHECK(cudaStreamSynchronize(streams[i]));
     double delta = CheckTypeDelta(type, recvbuff[i], reference, count);
-    if (delta > typesDeltas[type]*nranks) {
+    if (delta > deltaMaxValue(type, 1)*nranks) {
       errors++;
       CUDACHECK(cudaMemcpy(results, recvbuff[i], nbytes, cudaMemcpyDeviceToHost));
       printf("Allreduce size %d, type %d, op %d : delta %g\n", count, type, op, delta);
@@ -212,11 +209,11 @@ int testAllReduce(int count, int type, int op, int root, int nranks, ncclComm_t 
       for (int c=1; c<count; c++) {
 	if (type == ncclFloat) {
           float res = *((float*)results+c), ref = *((float*)reference+c);
-          if (fabs(res-ref) > typesDeltas[type]*nranks) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
+          if (fabs(res-ref) > deltaMaxValue(type, 1)*nranks) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
         } else if (type == ncclDouble) {
           double res = *((double*)results+c), ref = *((double*)reference+c);
-          if (fabs(ref-res) > typesDeltas[type]*nranks) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
-        } else if (c*8 < count*typesSizes[type]) {
+          if (fabs(ref-res) > deltaMaxValue(type, 1)*nranks) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
+        } else if (c*8 < count*wordSize(type)) {
           uint64_t res = *((uint64_t*)results+c), ref = *((uint64_t*)reference+c);
           if (res != ref) printf("[%d/%3d] %16lX != %16lX\n", i, c, res, ref);
         }
@@ -228,9 +225,9 @@ int testAllReduce(int count, int type, int op, int root, int nranks, ncclComm_t 
   return errors;
 }
 
-int testReduce(int count, int type, int op, int root, int nranks, ncclComm_t *comms) {
+int testReduce(int count, ncclDataType_t type, int op, int root, int nranks, ncclComm_t *comms) {
   int errors = 0;
-  int nbytes = count*typesSizes[type];
+  int nbytes = count*wordSize(type);
 #ifdef CHECK
   for (int i=0; i<nranks; ++i) {
     CUDACHECK(cudaSetDevice(devList[i]));
@@ -258,7 +255,7 @@ int testReduce(int count, int type, int op, int root, int nranks, ncclComm_t *co
     CUDACHECK(cudaStreamSynchronize(streams[i]));
     if (i == root) {
       double delta = CheckTypeDelta(type, recvbuff[i], reference, count);
-      if (delta > typesDeltas[type]*nranks) {
+      if (delta > deltaMaxValue(type, 1)*nranks) {
         errors++;
         CUDACHECK(cudaMemcpy(results, recvbuff[i], nbytes, cudaMemcpyDeviceToHost));
         printf("Reduce size %d, type %d, op %d, root %d : delta %g\n", count, type, op, root, delta);
@@ -285,14 +282,12 @@ int ncclTest(ncclComm_t ** comms) {
   // Use MAX_POW2-3 because datatypes are up to 8-bytes wide
   int size_pow2 = rand() % (MAX_POW2-3); 
   int size = (1<<size_pow2) + rand() % (1<<size_pow2);
-  int type = rand() % nccl_NUM_TYPES;
-  int op = rand() % nccl_NUM_OPS;
+  ncclDataType_t type = (ncclDataType_t)( rand() % ncclNumTypes );
+  int op = rand() % ncclNumOps;
   int commidx = rand() % nDev;
   int nranks = commidx + 1;
   int root = rand() % nranks;
-#ifndef CUDA_HAS_HALF
   if (type == 2) return 0; // ncclHalf not supported
-#endif
   if (ncclPrims[nccl_prim]) {
     printf("Prim %d size %d type %d op %d nranks %d root %d\n", nccl_prim, size, type, op, commidx+1, root);
     errors += ncclPrims[nccl_prim](size, type, op, root, nranks, comms[commidx]);
@@ -353,17 +348,6 @@ int main(int argc, char* argv[]) {
       }
     }
   }
-
-  typesSizes[ncclChar] = 1; typesSizes[ncclInt] = 4; typesSizes[ncclFloat] = 4;
-  typesSizes[ncclDouble] = 8; typesSizes[ncclInt64] = 8; typesSizes[ncclUint64] = 8;
-#ifdef CUDA_HAS_HALF
-  typesSizes[ncclHalf] = 2;
-#endif
-  typesDeltas[ncclChar] = 0; typesDeltas[ncclInt] = 0; typesDeltas[ncclFloat] = 1e-6;
-  typesDeltas[ncclDouble] = 1e-15; typesDeltas[ncclInt64] = 0; typesDeltas[ncclUint64] = 0;
-#ifdef CUDA_HAS_HALF
-  typesDeltas[ncclHalf] = 2e-3;
-#endif
 
   ncclComm_t** comms = (ncclComm_t**)malloc(sizeof(ncclComm_t*)*nDev);
   for (int i=0; i<nDev; i++) {

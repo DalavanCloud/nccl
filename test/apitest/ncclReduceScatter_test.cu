@@ -99,7 +99,7 @@ TYPED_TEST(ncclReduceScatter_test, DataType_wrong) {
     int i = 0;
     ASSERT_EQ(ncclInvalidType,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
-                                std::min(this->N/this->nVis, 1024 * 1024), nccl_NUM_TYPES,
+                                std::min(this->N/this->nVis, 1024 * 1024), ncclNumTypes,
                                 this->RedOps[0], this->comms[i],
                                 this->streams[i]));
 };
@@ -109,7 +109,7 @@ TYPED_TEST(ncclReduceScatter_test, op_wrong) {
     ASSERT_EQ(ncclInvalidOperation,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
                                 std::min(this->N/this->nVis, 1024 * 1024),
-                                this->DataType(), nccl_NUM_OPS, this->comms[i],
+                                this->DataType(), ncclNumOps, this->comms[i],
                                 this->streams[i]));
 };
 // comm

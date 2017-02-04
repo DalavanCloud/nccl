@@ -38,11 +38,11 @@ static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, size_t
     WARN("%s : invalid root %d (root should be in the 0..%d range)\n", opname, root, comm->nRanks);
     return ncclInvalidRank;
   }
-  if (type < 0 || type >= nccl_NUM_TYPES) {
+  if (type < 0 || type >= ncclNumTypes) {
     WARN("%s : invalid type %d\n", opname, type);
     return ncclInvalidType;
   }
-  if (op < 0 || op >= nccl_NUM_OPS) {
+  if (op < 0 || op >= ncclNumOps) {
     WARN("%s : invalid reduction operation %d\n", opname, op);
     return ncclInvalidOperation;
   }

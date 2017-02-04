@@ -87,7 +87,7 @@ TYPED_TEST(ncclAllGather_test, DataType_wrong) {
     ASSERT_EQ(ncclInvalidType,
               ncclAllGather(this->sendbuffs[i], this->recvbuffs[i],
                             std::min(this->N/this->nVis, 1024 * 1024),
-                            nccl_NUM_TYPES, this->comms[i], this->streams[i]));
+                            ncclNumTypes, this->comms[i], this->streams[i]));
 };
 // comm
 TYPED_TEST(ncclAllGather_test, comm_null) {

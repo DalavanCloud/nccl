@@ -44,11 +44,7 @@ void showUsage(const char* bin) {
   printf("\n"
          "Usage: %s <type> <op> <n_min> <n_max> [delta] [gpus] [gpu0 [gpu1 [...]]]\n"
          "Where:\n"
-#ifdef CUDA_HAS_HALF
          "    type   =   [char|int|half|float|double|int64|uint64]\n"
-#else
-         "    type   =   [char|int|float|double|int64|uint64]\n"
-#endif
          "    op     =   [sum|prod|max|min]\n"
          "    n_min  >   0\n"
          "    n_max  >=  n_min\n"
@@ -249,14 +245,14 @@ int main(int argc, char* argv[]) {
   }
 
   type = strToType(argv[1]);
-  if (type == nccl_NUM_TYPES) {
+  if (type == ncclNumTypes) {
     printf("Invalid <type> '%s'\n", argv[1]);
     showUsage(argv[0]);
     exit(EXIT_FAILURE);
   }
 
   op = strToOp(argv[2]);
-  if (op == nccl_NUM_OPS) {
+  if (op == ncclNumOps) {
     printf("Invalid <op> '%s'\n", argv[2]);
     showUsage(argv[0]);
     exit(EXIT_FAILURE);

@@ -47,7 +47,7 @@ struct FuncMin {
 };
 
 template<>
-struct FuncSum<char> {
+struct FuncSum<int8_t> {
   union converter {
     uint32_t storage;
     char4 a;
@@ -75,69 +75,107 @@ struct FuncSum<char> {
     return cr.storage;
 #endif
   }
-  __device__ char operator()(const char x, const char y) const {
+  __device__ int8_t operator()(const int8_t x, const int8_t y) const {
     return x+y;
   }
 };
-
 template<>
-struct FuncProd<char> {
-  union converter { uint32_t storage; char4 a; };
+struct FuncSum<uint8_t> {
+  union converter {
+    uint32_t storage;
+    char4 a;
+  };
   __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
-#if (__CUDA_ARCH__ >= 300)
-    int32_t rv, zero=0;
-    asm("{ .reg .u32 t0, t1, t2, t3;\n\t"
-        " vmad.u32.u32.u32 t3, %1.b3, %2.b3, %3;\n\t"
-        " vmad.u32.u32.u32 t2, %1.b2, %2.b2, %3;\n\t"
-        " shl.b32          t3, t3, 16;\n\t"
-        " shl.b32          t2, t2, 16;\n\t"
-        " vmad.u32.u32.u32 t1, %1.b1, %2.b1, t3;\n\t"
-        " shl.b32          t1, t1, 8;\n\t"
-        " vmad.u32.u32.u32 t0, %1.b0, %2.b0, t2;\n\t"
-        " and.b32          t1, t1, 0xff00ff00;\n\t"
-        " and.b32          t0, t0, 0x00ff00ff;\n\t"
-        " or.b32           %0,  t0, t1;\n\t"
-        "}" : "=r"(rv) : "r"(x), "r"(y), "r"(zero));
+#if (__CUDA_ARCH__ >= 300) && (__CUDA_ARCH__ < 500)
+    int32_t rv, z=0;
+    asm("vadd4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
+    return rv;
+#elif (__CUDA_ARCH__ >= 500)
+    int32_t rv;
+    asm("vadd.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
+        "vadd.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
+        "vadd.s32.s32.s32 %0.b2, %1.b2, %2.b2, %0;\n\t"
+        "vadd.s32.s32.s32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
     return rv;
 #else
     converter cx, cy, cr;
     cx.storage = x;
     cy.storage = y;
-    cr.a.x = cx.a.x * cy.a.x;
-    cr.a.y = cx.a.y * cy.a.y;
-    cr.a.z = cx.a.z * cy.a.z;
-    cr.a.w = cx.a.w * cy.a.w;
+    cr.a.x = cx.a.x + cy.a.x;
+    cr.a.y = cx.a.y + cy.a.y;
+    cr.a.z = cx.a.z + cy.a.z;
+    cr.a.w = cx.a.w + cy.a.w;
     return cr.storage;
 #endif
   }
-  __device__ char operator()(const char x, const char y) const {
+  __device__ uint8_t operator()(const uint8_t x, const uint8_t y) const {
+    return x+y;
+  }
+};
+
+static __device__ uint32_t mulChar4(const uint32_t x, const uint32_t y) {
+  /* This can be used both for signed and unsigned 8-bit multiplication */
+#if (__CUDA_ARCH__ >= 300)
+  uint32_t rv;
+  asm("{ .reg .u32 t0, t1, t2, t3;\n\t"
+      " vmad.u32.u32.u32 t3, %1.b3, %2.b3, 0;\n\t"
+      " vmad.u32.u32.u32 t2, %1.b2, %2.b2, 0;\n\t"
+      " shl.b32          t3, t3, 16;\n\t"
+      " shl.b32          t2, t2, 16;\n\t"
+      " vmad.u32.u32.u32 t1, %1.b1, %2.b1, t3;\n\t"
+      " shl.b32          t1, t1, 8;\n\t"
+      " vmad.u32.u32.u32 t0, %1.b0, %2.b0, t2;\n\t"
+      " and.b32          t1, t1, 0xff00ff00;\n\t"
+      " and.b32          t0, t0, 0x00ff00ff;\n\t"
+      " or.b32           %0,  t0, t1;\n\t"
+      "}" : "=r"(rv) : "r"(x), "r"(y));
+  return rv;
+#else
+  union converter { uint32_t storage; char4 a; };
+  converter cx, cy, cr;
+  cx.storage = x;
+  cy.storage = y;
+  cr.a.x = cx.a.x * cy.a.x;
+  cr.a.y = cx.a.y * cy.a.y;
+  cr.a.z = cx.a.z * cy.a.z;
+  cr.a.w = cx.a.w * cy.a.w;
+  return cr.storage;
+#endif
+}
+
+template<>
+struct FuncProd<int8_t> {
+  __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
+    return mulChar4(x, y);
+  }
+  __device__ int8_t operator()(const int8_t x, const int8_t y) const {
+    return x*y;
+  }
+};
+template<>
+struct FuncProd<uint8_t> {
+  __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
+    return mulChar4(x, y);
+  }
+  __device__ uint8_t operator()(const uint8_t x, const uint8_t y) const {
     return x*y;
   }
 };
 
 template<>
-struct FuncMax<char> {
+struct FuncMax<int8_t> {
   union converter { uint32_t storage; char4 a; };
   __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
 #if (__CUDA_ARCH__ >= 300) && (__CUDA_ARCH__ < 500)
     int32_t rv, z=0;
-    if (std::numeric_limits<char>::is_signed)
-      asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
-    else
-      asm("vmax4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
+    asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
     return rv;
 #elif (__CUDA_ARCH__ >= 500)
     int32_t rv;
-    if (std::numeric_limits<char>::is_signed)
-      asm("vmax.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
-          "vmax.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
-          "vmax.s32.s32.s32 %0.b2, %1.b2, %2.b2, %0;\n\t"
-          "vmax.s32.s32.s32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
-    else
-      asm("vmax.u32.u32.u32 %0,    %1.b0, %2.b0;    \n\t"
-          "vmax.u32.u32.u32 %0.b1, %1.b1, %2.b1, %0;\n\t"
-          "vmax.u32.u32.u32 %0.b2, %1.b2, %2.b2, %0;\n\t"
-          "vmax.u32.u32.u32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
+    asm("vmax.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
+        "vmax.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
+        "vmax.s32.s32.s32 %0.b2, %1.b2, %2.b2, %0;\n\t"
+        "vmax.s32.s32.s32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
     return rv;
 #else
     converter cx, cy, cr;
@@ -150,34 +188,55 @@ struct FuncMax<char> {
     return cr.storage;
 #endif
   }
-  __device__ char operator()(const char x, const char y) const {
+  __device__ int8_t operator()(const int8_t x, const int8_t y) const {
+    return (x>y) ? x : y;
+  }
+};
+template<>
+struct FuncMax<uint8_t> {
+  union converter { uint32_t storage; char4 a; };
+  __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
+#if (__CUDA_ARCH__ >= 300) && (__CUDA_ARCH__ < 500)
+    int32_t rv, z=0;
+    asm("vmax4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
+    return rv;
+#elif (__CUDA_ARCH__ >= 500)
+    int32_t rv;
+    asm("vmax.u32.u32.u32 %0,    %1.b0, %2.b0;    \n\t"
+        "vmax.u32.u32.u32 %0.b1, %1.b1, %2.b1, %0;\n\t"
+        "vmax.u32.u32.u32 %0.b2, %1.b2, %2.b2, %0;\n\t"
+        "vmax.u32.u32.u32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
+    return rv;
+#else
+    converter cx, cy, cr;
+    cx.storage = x;
+    cy.storage = y;
+    cr.a.x = max(cx.a.x, cy.a.x);
+    cr.a.y = max(cx.a.y, cy.a.y);
+    cr.a.z = max(cx.a.z, cy.a.z);
+    cr.a.w = max(cx.a.w, cy.a.w);
+    return cr.storage;
+#endif
+  }
+  __device__ uint8_t operator()(const uint8_t x, const uint8_t y) const {
     return (x>y) ? x : y;
   }
 };
 
 template<>
-struct FuncMin<char> {
+struct FuncMin<int8_t> {
   union converter { uint32_t storage; char4 a; };
   __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
 #if (__CUDA_ARCH__ >= 300) && (__CUDA_ARCH__ < 500)
     int32_t rv, z=0;
-    if (std::numeric_limits<char>::is_signed)
-      asm("vmin4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
-    else
-      asm("vmin4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
+    asm("vmin4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
     return rv;
 #elif (__CUDA_ARCH__ >= 500)
     int32_t rv;
-    if (std::numeric_limits<char>::is_signed)
-      asm("vmin.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
-          "vmin.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
-          "vmin.s32.s32.s32 %0.b2, %1.b2, %2.b2, %0;\n\t"
-          "vmin.s32.s32.s32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
-    else
-      asm("vmin.u32.u32.u32 %0,    %1.b0, %2.b0;    \n\t"
-          "vmin.u32.u32.u32 %0.b1, %1.b1, %2.b1, %0;\n\t"
-          "vmin.u32.u32.u32 %0.b2, %1.b2, %2.b2, %0;\n\t"
-          "vmin.u32.u32.u32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
+    asm("vmin.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
+        "vmin.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
+        "vmin.s32.s32.s32 %0.b2, %1.b2, %2.b2, %0;\n\t"
+        "vmin.s32.s32.s32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
     return rv;
 #else
     converter cx, cy, cr;
@@ -190,12 +249,41 @@ struct FuncMin<char> {
     return cr.storage;
 #endif
   }
-  __device__ char operator()(const char x, const char y) const {
+  __device__ int8_t operator()(const int8_t x, const int8_t y) const {
+    return (x<y) ? x : y;
+  }
+};
+template<>
+struct FuncMin<uint8_t> {
+  union converter { uint32_t storage; char4 a; };
+  __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
+#if (__CUDA_ARCH__ >= 300) && (__CUDA_ARCH__ < 500)
+    int32_t rv, z=0;
+    asm("vmin4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
+    return rv;
+#elif (__CUDA_ARCH__ >= 500)
+    int32_t rv;
+    asm("vmin.u32.u32.u32 %0,    %1.b0, %2.b0;    \n\t"
+        "vmin.u32.u32.u32 %0.b1, %1.b1, %2.b1, %0;\n\t"
+        "vmin.u32.u32.u32 %0.b2, %1.b2, %2.b2, %0;\n\t"
+        "vmin.u32.u32.u32 %0.b3, %1.b3, %2.b3, %0;" : "=r"(rv) : "r"(x), "r"(y));
+    return rv;
+#else
+    converter cx, cy, cr;
+    cx.storage = x;
+    cy.storage = y;
+    cr.a.x = min(cx.a.x, cy.a.x);
+    cr.a.y = min(cx.a.y, cy.a.y);
+    cr.a.z = min(cx.a.z, cy.a.z);
+    cr.a.w = min(cx.a.w, cy.a.w);
+    return cr.storage;
+#endif
+  }
+  __device__ uint8_t operator()(const uint8_t x, const uint8_t y) const {
     return (x<y) ? x : y;
   }
 };
 
-#ifdef CUDA_HAS_HALF
 template<>
 struct FuncSum<half> {
   __device__ half2 operator()(const half2 x, const half2 y) const {
@@ -279,7 +367,6 @@ struct FuncMin<half> {
     return __float2half(fm);
   }
 };
-#endif
 
 // Assumptions:
 // - there is exactly 1 block

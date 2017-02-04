@@ -37,9 +37,7 @@ public :: ncclResult,                 &
 public :: ncclDataType, &
           ncclChar,     &
           ncclInt,      &
-#ifdef CUDA_HAS_HALF
           ncclHalf,     &
-#endif
           ncclFloat,    &
           ncclDouble,   &
           ncclInt64,    &
@@ -108,9 +106,7 @@ end type ncclDataType
 
 type(ncclDataType), parameter :: ncclChar       = ncclDataType(0), &
                                  ncclInt        = ncclDataType(1), &
-#ifdef CUDA_HAS_HALF
                                  ncclHalf       = ncclDataType(2), &
-#endif
                                  ncclFloat      = ncclDataType(3), &
                                  ncclDouble     = ncclDataType(4), &
                                  ncclInt64      = ncclDataType(5), &

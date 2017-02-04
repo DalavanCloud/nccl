@@ -17,7 +17,6 @@ struct FuncPassA {
   }
 };
 
-#ifdef CUDA_HAS_HALF
 template <>
 struct FuncPassA<half> {
   __device__ half2 operator()(const half2 x, const half2 y) const {
@@ -29,7 +28,6 @@ struct FuncPassA<half> {
     return r;
   }
 };
-#endif
 
 // Assumptions:
 // - there is exactly 1 block
