@@ -1,4 +1,6 @@
 #pragma once
+extern const int MAX_GPU_COUNT;
+extern int gpuList[];
 class TEST_ENV : public ::testing::Environment {
   public:
     static int gpu_count;
