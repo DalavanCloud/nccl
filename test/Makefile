@@ -1,5 +1,8 @@
 .DEFAULT_GOAL: all
-DIRS := apitest mpi single
+DIRS := apitest single unit
+ifeq ($(MPI),1)
+DIRS += mpi
+endif
 all: ${DIRS:%=%.build}
 clean: ${DIRS:%=%.clean}
 
