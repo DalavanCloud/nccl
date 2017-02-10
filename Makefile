@@ -10,8 +10,7 @@ default : src.build
 TARGETS := src test fortran debian
 all:   ${TARGETS:%=%.build}
 clean: ${TARGETS:%=%.clean}
-debian.build:fortran.build src.build
-fortran.build test.build: src.build
+debian.build fortran.build test.build: src.build
 %.build:
 	${MAKE} -C $* all
 
