@@ -127,6 +127,7 @@ int ncclSocketIrecv(void* recvComm, void* data, int size, void** request) {
       NCCLCHECK(socketReceive(comm->fds[i].fd, &recvSize, sizeof(int)));
       if (recvSize > size) {
         WARN("Message truncated : received %d bytes instead of %d\n", recvSize, size);
+        return ncclInternalError;
       }
       NCCLCHECK(socketReceive(comm->fds[i].fd, data, min(recvSize, size)));
       int* recvReq = ncclSocketGetRequest();

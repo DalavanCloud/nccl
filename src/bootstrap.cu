@@ -170,15 +170,19 @@ ncclResult_t bootstrapRingExchange(void* commState, void* prevNextData, int prev
 
 ncclResult_t bootstrapClose(void* commState) {
   struct extState* state = (struct extState*)commState;
-  NCCLCHECK(ncclNetCloseRecv(state->extRecvComm));
   if (state->root) {
     for (int r=0; r<state->nranks; r++) {
       if (r == state->rank) continue;
+      int go = 1;
+      NCCLCHECK(ncclNetSend(state->extSendComm[r], &go, sizeof(int)));
       NCCLCHECK(ncclNetCloseSend(state->extSendComm[r]));
     }
   } else {
+    int go;
+    NCCLCHECK(ncclNetRecv(state->extRecvComm, &go, sizeof(int)));
     NCCLCHECK(ncclNetCloseSend(state->extSendComm[0]));
   }
+  NCCLCHECK(ncclNetCloseRecv(state->extRecvComm));
   free(state->extSendComm);
   free(state);
   return ncclSuccess;

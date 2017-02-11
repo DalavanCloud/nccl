@@ -123,7 +123,7 @@ static ncclResult_t socketReceive(int fd, void* ptr, int size) {
     int recvsize;
     SYSCHECKVAL(recv(fd, data, size-offset, 0), "recv", recvsize);
     if (recvsize == 0) {
-      WARN("Connection close by remote peer");
+      WARN("Connection closed by remote peer");
       return ncclSystemError;
     }
     if (recvsize == -1) {

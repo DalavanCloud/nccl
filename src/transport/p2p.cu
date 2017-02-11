@@ -295,7 +295,7 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
     info.direct = 0;
     // Map IPC and enable P2P access
     if (cudaIpcGetMemHandle(&info.devIpc, (void*)ring->devMem) != cudaSuccess) {
-      WARN("rank %d failed to get CUDA IPC handle to device %d", ring->rank, peerInfo->cudaDev);
+      WARN("rank %d failed to get CUDA IPC handle to device %d", myInfo->rank, peerInfo->cudaDev);
       return ncclInternalError;
     }
     INFO("%d -> %d via P2P/IPC", myInfo->rank, peerInfo->rank);

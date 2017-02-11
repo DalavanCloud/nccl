@@ -95,6 +95,7 @@ static ncclResult_t ncclCommInitRankAsync(ncclComm_t* newcomm, int ndev, ncclUni
 
 NCCL_API(ncclResult_t, ncclGetUniqueId, ncclUniqueId* out);
 ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
+  initDebug();
   NCCLCHECK(PtrCheck(out, "GetUniqueId", "out"));
   return bootstrapGetUniqueId(out);
 }
@@ -254,7 +255,6 @@ static ncclResult_t setupRing(struct ncclComm* comm, struct ncclRing* ring, int 
   int shift;
   for (shift = 0; shift<nranks; shift++) {
     if (ringRanks[shift] == rank) {
-      ring->rank = shift;
       break;
     }
   }
@@ -393,6 +393,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
   }
   free(allInfo);
+  // Barrier
   bootstrapClose(commState);
   return ncclSuccess;
 }
@@ -430,11 +431,7 @@ ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId co
     return res;
   }
 
-  res = initTransportsRank(*newcomm, &commId);
-  if (res != ncclSuccess) {
-    WARN("rank %d failed to init transports", myrank);
-    return res;
-  }
+  NCCLCHECK(initTransportsRank(*newcomm, &commId));
 
   res = devCommSetup(*newcomm);
   if (res != ncclSuccess) {

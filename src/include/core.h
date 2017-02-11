@@ -57,7 +57,6 @@ struct ncclSendRecvMem {
 };
 
 struct ncclRing {
-  int rank;
   int id;
   // Per ring resources
   struct ncclSendRecvMem* devMem;   // CUDA-size resources
@@ -111,7 +110,7 @@ struct ncclComm {
   while (ret == -1) { \
     SYSCHECKVAL(call, name, ret); \
     if (ret == -1) { \
-      INFO("Got retcode %d, retrying", errno); \
+      INFO("Got %s, retrying", strerror(errno)); \
     }\
   } \
 } while (0);
@@ -119,8 +118,7 @@ struct ncclComm {
 #define SYSCHECKVAL(call, name, retval) do { \
   retval = call; \
   if (retval == -1 && errno != EINTR && errno != EWOULDBLOCK && errno != EAGAIN) { \
-    WARN("call to " name " failed with ret %d", errno); \
-    perror(name); \
+    WARN("Call to " name " failed : %s", strerror(errno)); \
     return ncclSystemError; \
   } \
 } while (0);
@@ -130,6 +128,8 @@ struct ncclComm {
 #define NCCLCHECK(call) do { \
   ncclResult_t res = call; \
   if (res != ncclSuccess) { \
+    /* Print the back trace*/ \
+    WARN(""); \
     return res; \
   } \
 } while (0);

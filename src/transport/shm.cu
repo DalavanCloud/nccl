@@ -144,19 +144,19 @@ ncclResult_t shmSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
     info.direct = 0;
     // Map IPC
     if (cudaIpcGetMemHandle(&info.devIpc, (void*)ring->devMem) != cudaSuccess) {
-      WARN("rank %d failed to get CUDA IPC handle to device %d", ring->rank, peerInfo->cudaDev);
+      WARN("rank %d failed to get CUDA IPC handle to device %d", myInfo->rank, peerInfo->cudaDev);
       return ncclInternalError;
     }
   }
   INFO("%d -> %d via proxy shared memory", myInfo->rank, peerInfo->rank);
 #else
   char shmName[1024];
-  sprintf(shmName, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
+  sprintf(shmName, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, myInfo->rank);
   info.shmSize = resources->shmSize = sizeof(int);
   NCCLCHECK(shmOpen(shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
   INFO("%d -> %d via direct shared memory", myInfo->rank, peerInfo->rank);
-  info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid;
+  info.id = ring->id; info.rank = myInfo->rank; info.pid = myInfo->pid;
 #endif
   static_assert(sizeof(struct shmRecvConnectInfo) <= sizeof(struct ncclConnect), "shm Connect Recv Info is too big");
   memcpy(connectInfo, &info, sizeof(struct shmRecvConnectInfo));
@@ -184,11 +184,11 @@ ncclResult_t shmRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   struct shmSendConnectInfo info;
 
   char shmName[1024];
-  sprintf(shmName, "nccl-shm-recv-%d-%d-%d", myInfo->pid, ring->id, ring->rank);
+  sprintf(shmName, "nccl-shm-recv-%d-%d-%d", myInfo->pid, ring->id, myInfo->rank);
   info.shmSize = resources->shmSize = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
   NCCLCHECK(shmOpen(shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
-  info.id = ring->id; info.rank = ring->rank; info.pid = myInfo->pid;
+  info.id = ring->id; info.rank = myInfo->rank; info.pid = myInfo->pid;
   static_assert(sizeof(struct shmRecvConnectInfo) <= sizeof(struct ncclConnect), "shm Connect Send Info is too big");
   memcpy(connectInfo, &info, sizeof(struct shmSendConnectInfo));
   return ncclSuccess;
