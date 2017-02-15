@@ -4,6 +4,7 @@ class ncclAllGather_test : public ncclCommon_test<DT> {};
 TYPED_TEST_CASE(ncclAllGather_test, testDataTypes);
 // typical usage.
 TYPED_TEST(ncclAllGather_test, basic) {
+    ASSERT_EQ(ncclSuccess, ncclGroupStart());
     for (int i = 0; i < this->nVis; ++i) {
         ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "i" << i << ", "
                                                  << std::endl;
@@ -13,8 +14,10 @@ TYPED_TEST(ncclAllGather_test, basic) {
                                 this->DataType(), this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
     }
+    ASSERT_EQ(ncclSuccess, ncclGroupEnd());
 };
 TYPED_TEST(ncclAllGather_test, host_mem) {
+    ASSERT_EQ(ncclSuccess, ncclGroupStart());
     for (int i = 0; i < this->nVis; ++i) {
         ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "i" << i << ", "
                                                  << std::endl;
@@ -24,8 +27,10 @@ TYPED_TEST(ncclAllGather_test, host_mem) {
                                 this->DataType(), this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
     }
+    ASSERT_EQ(ncclSuccess, ncclGroupEnd());
 };
 TYPED_TEST(ncclAllGather_test, DISABLED_pinned_mem) {
+    ASSERT_EQ(ncclSuccess, ncclGroupStart());
     for (int i = 0; i < this->nVis; ++i) {
         ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "i" << i << ", "
                                                  << std::endl;
@@ -35,6 +40,7 @@ TYPED_TEST(ncclAllGather_test, DISABLED_pinned_mem) {
                                 this->DataType(), this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
     }
+    ASSERT_EQ(ncclSuccess, ncclGroupEnd());
 };
 // sendbuff
 TYPED_TEST(ncclAllGather_test, sendbuf_null) {
@@ -72,6 +78,7 @@ TYPED_TEST(ncclAllGather_test, sendbuff_recvbuff_diff_device) {
 };
 // N
 TYPED_TEST(ncclAllGather_test, DISABLED_N_zero) {
+    ASSERT_EQ(ncclSuccess, ncclGroupStart());
     for (int i = 0; i < this->nVis; ++i) {
         ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "i" << i << ", "
                                                  << std::endl;
@@ -80,6 +87,7 @@ TYPED_TEST(ncclAllGather_test, DISABLED_N_zero) {
                                 this->DataType(), this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
     }
+    ASSERT_EQ(ncclSuccess, ncclGroupEnd());
 };
 // data type
 TYPED_TEST(ncclAllGather_test, DataType_wrong) {

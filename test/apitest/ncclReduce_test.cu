@@ -6,6 +6,7 @@ TYPED_TEST_CASE(ncclReduce_test, testDataTypes);
 TYPED_TEST(ncclReduce_test, basic) {
     for (ncclRedOp_t op : this->RedOps) {
         for (int root = 0; root < this->nVis; ++root) {
+            ASSERT_EQ(ncclSuccess, ncclGroupStart());
             for (int i = 0; i < this->nVis; ++i) {
                 ASSERT_EQ(cudaSuccess, cudaSetDevice(i))
                     << "op: " << op << ", "
@@ -20,12 +21,14 @@ TYPED_TEST(ncclReduce_test, basic) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
+            ASSERT_EQ(ncclSuccess, ncclGroupEnd());
         }
     }
 };
 TYPED_TEST(ncclReduce_test, host_mem) {
     for (ncclRedOp_t op : this->RedOps) {
         for (int root = 0; root < this->nVis; ++root) {
+            ASSERT_EQ(ncclSuccess, ncclGroupStart());
             for (int i = 0; i < this->nVis; ++i) {
                 ASSERT_EQ(cudaSuccess, cudaSetDevice(i))
                     << "op: " << op << ", "
@@ -40,12 +43,14 @@ TYPED_TEST(ncclReduce_test, host_mem) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
+            ASSERT_EQ(ncclSuccess, ncclGroupEnd());
         }
     }
 };
 TYPED_TEST(ncclReduce_test, DISABLED_pinned_mem) {
     for (ncclRedOp_t op : this->RedOps) {
         for (int root = 0; root < this->nVis; ++root) {
+            ASSERT_EQ(ncclSuccess, ncclGroupStart());
             for (int i = 0; i < this->nVis; ++i) {
                 ASSERT_EQ(cudaSuccess, cudaSetDevice(i))
                     << "op: " << op << ", "
@@ -61,6 +66,7 @@ TYPED_TEST(ncclReduce_test, DISABLED_pinned_mem) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
+            ASSERT_EQ(ncclSuccess, ncclGroupEnd());
         }
     }
 };
@@ -79,6 +85,7 @@ TYPED_TEST(ncclReduce_test, sendbuf_null) {
 TYPED_TEST(ncclReduce_test, DISABLED_recvbuf_root_null) {
     for (ncclRedOp_t op : this->RedOps) {
         for (int root = 0; root < this->nVis; ++root) {
+            ASSERT_EQ(ncclSuccess, ncclGroupStart());
             for (int i = 0; i < this->nVis; ++i) {
                 ASSERT_EQ(cudaSuccess, cudaSetDevice(i))
                     << "op: " << op << ", "
@@ -93,12 +100,14 @@ TYPED_TEST(ncclReduce_test, DISABLED_recvbuf_root_null) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
+            ASSERT_EQ(ncclSuccess, ncclGroupEnd());
         }
     }
 };
 TYPED_TEST(ncclReduce_test, recvbuff_nonroot_null) {
     for (ncclRedOp_t op : this->RedOps) {
         for (int root = 0; root < this->nVis; ++root) {
+            ASSERT_EQ(ncclSuccess, ncclGroupStart());
             for (int i = 0; i < this->nVis; ++i) {
                 ASSERT_EQ(cudaSuccess, cudaSetDevice(i))
                     << "op: " << op << ", "
@@ -114,6 +123,7 @@ TYPED_TEST(ncclReduce_test, recvbuff_nonroot_null) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
+            ASSERT_EQ(ncclSuccess, ncclGroupEnd());
         }
     }
 };
@@ -130,6 +140,7 @@ TYPED_TEST(ncclReduce_test, root_sendbuff_recvbuff_diff_device) {
 TYPED_TEST(ncclReduce_test, N_zero) {
     for (ncclRedOp_t op : this->RedOps) {
         for (int root = 0; root < this->nVis; ++root) {
+            ASSERT_EQ(ncclSuccess, ncclGroupStart());
             for (int i = 0; i < this->nVis; ++i) {
                 ASSERT_EQ(cudaSuccess, cudaSetDevice(i))
                     << "op: " << op << ", "
@@ -143,6 +154,7 @@ TYPED_TEST(ncclReduce_test, N_zero) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
+            ASSERT_EQ(ncclSuccess, ncclGroupEnd());
         }
     }
 };

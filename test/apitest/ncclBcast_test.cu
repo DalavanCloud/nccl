@@ -5,6 +5,7 @@ TYPED_TEST_CASE(ncclBcast_test, testDataTypes);
 // typical usage.
 TYPED_TEST(ncclBcast_test, basic) {
     for (int root = 0; root < this->nVis; ++root) {
+        ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "root: " << root << ", "
                                                      << "i" << i << ", "
@@ -16,10 +17,12 @@ TYPED_TEST(ncclBcast_test, basic) {
                 << "root: " << root << ", "
                 << "i" << i << ", " << std::endl;
         }
+        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
 TYPED_TEST(ncclBcast_test, host_mem) {
     for (int root = 0; root < this->nVis; ++root) {
+        ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "root: " << root << ", "
                                                      << "i" << i << ", "
@@ -31,10 +34,12 @@ TYPED_TEST(ncclBcast_test, host_mem) {
                 << "root: " << root << ", "
                 << "i" << i << ", " << std::endl;
         }
+        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
 TYPED_TEST(ncclBcast_test, DISABLED_pinned_mem) {
     for (int root = 0; root < this->nVis; ++root) {
+        ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "root: " << root << ", "
                                                      << "i" << i << ", "
@@ -46,6 +51,7 @@ TYPED_TEST(ncclBcast_test, DISABLED_pinned_mem) {
                 << "root: " << root << ", "
                 << "i" << i << ", " << std::endl;
         }
+        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
 // sendbuff
@@ -66,20 +72,20 @@ TYPED_TEST(ncclBcast_test, sendbuf_wrong) {
 };
 // N
 TYPED_TEST(ncclBcast_test, N_zero) {
-    for (ncclRedOp_t op : this->RedOps) {
-        for (int root = 0; root < this->nVis; ++root) {
-            for (int i = 0; i < this->nVis; ++i) {
-                ASSERT_EQ(cudaSuccess, cudaSetDevice(i))
-                    << "root: " << root << ", "
-                    << "i" << i << ", " << std::endl;
-                ASSERT_EQ(ncclSuccess,
-                          ncclBcast(this->sendbuffs[i], 0, this->DataType(),
-                                    root, this->comms[i], this->streams[i]))
-                    << "root: " << root << ", "
-                    << "i" << i << ", " << std::endl;
-            }
-        }
-    }
+   for (int root = 0; root < this->nVis; ++root) {
+       ASSERT_EQ(ncclSuccess, ncclGroupStart());
+       for (int i = 0; i < this->nVis; ++i) {
+           ASSERT_EQ(cudaSuccess, cudaSetDevice(i))
+               << "root: " << root << ", "
+               << "i" << i << ", " << std::endl;
+           ASSERT_EQ(ncclSuccess,
+                     ncclBcast(this->sendbuffs[i], 0, this->DataType(),
+                               root, this->comms[i], this->streams[i]))
+               << "root: " << root << ", "
+               << "i" << i << ", " << std::endl;
+       }
+       ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+   }
 };
 // data type
 TYPED_TEST(ncclBcast_test, DataType_wrong) {

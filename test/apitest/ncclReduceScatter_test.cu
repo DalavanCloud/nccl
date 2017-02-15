@@ -5,6 +5,7 @@ TYPED_TEST_CASE(ncclReduceScatter_test, testDataTypes);
 // typical usage.
 TYPED_TEST(ncclReduceScatter_test, basic) {
     for (ncclRedOp_t op : this->RedOps) {
+        ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "op: " << op << ", "
                                                      << "i" << i << ", "
@@ -17,10 +18,12 @@ TYPED_TEST(ncclReduceScatter_test, basic) {
                 << "op: " << op << ", "
                 << "i" << i << ", " << std::endl;
         }
+        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
 TYPED_TEST(ncclReduceScatter_test, host_mem) {
     for (ncclRedOp_t op : this->RedOps) {
+        ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "op: " << op << ", "
                                                      << "i" << i << ", "
@@ -33,10 +36,12 @@ TYPED_TEST(ncclReduceScatter_test, host_mem) {
                 << "op: " << op << ", "
                 << "i" << i << ", " << std::endl;
         }
+        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
 TYPED_TEST(ncclReduceScatter_test, DISABLED_pinned_mem) {
     for (ncclRedOp_t op : this->RedOps) {
+        ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "op: " << op << ", "
                                                      << "i" << i << ", "
@@ -49,6 +54,7 @@ TYPED_TEST(ncclReduceScatter_test, DISABLED_pinned_mem) {
                 << "op: " << op << ", "
                 << "i" << i << ", " << std::endl;
         }
+        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
 // sendbuff
@@ -81,6 +87,7 @@ TYPED_TEST(ncclReduceScatter_test, sendbuff_recvbuff_diff_device) {
 // N
 TYPED_TEST(ncclReduceScatter_test, N_zero) {
     for (ncclRedOp_t op : this->RedOps) {
+        ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "op: " << op << ", "
                                                      << "i" << i << ", "
@@ -92,6 +99,7 @@ TYPED_TEST(ncclReduceScatter_test, N_zero) {
                 << "op: " << op << ", "
                 << "i" << i << ", " << std::endl;
         }
+        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
 // data type
