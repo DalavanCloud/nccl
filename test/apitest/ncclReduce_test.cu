@@ -12,7 +12,7 @@ TYPED_TEST(ncclReduce_test, basic) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
                 ASSERT_EQ(ncclSuccess,
-                          ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
+                          ncclReduce(this->sendbuffs[i], i == root ? this->recvbuffs[i] : NULL,
                                      std::min(this->N, 1024 * 1024),
                                      this->DataType(), op, root, this->comms[i],
                                      this->streams[i]))
