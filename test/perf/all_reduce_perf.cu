@@ -6,31 +6,6 @@
 
 #include "common.h"
 
-void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type, ncclRedOp_t op, int seed, int rank) {
-  Randomize(data, count, type, seed);
-  if (rank == 0) {
-    CUDACHECK(cudaMemcpy(accum, data, count*wordSize(type), cudaMemcpyDeviceToHost));
-  } else {
-    Accumulate(accum, data, count, type, op);
-  }
-}
-
-void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
-  int count = args->nbytes/wordSize(type);
-  for (int i=0; i<args->nGpus; i++) {
-    int device;
-    NCCLCHECK(ncclCommCuDevice(args->comms[i], &device));
-    CUDACHECK(cudaSetDevice(device));
-    if (in_place) {
-      RandomizeAccumulate(args->recvbuffs[i], args->expected, count, type, op, i+count, i);
-    } else {
-      RandomizeAccumulate(args->sendbuffs[i], args->expected, count, type, op, 1+i+count, i);
-      CUDACHECK(cudaMemset(args->recvbuffs[i], 0, args->nbytes));
-    }
-    cudaDeviceSynchronize();
-  }
-}
-
 double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root) {
   int count = args->nbytes/wordSize(type);
   double maxDelta = 0.0;

@@ -30,6 +30,10 @@
 struct threadArgs_t {
   size_t nbytes;
 
+  int nProcs;
+  int proc;
+  int nThreads;
+  int thread;
   int nGpus;
   void** sendbuffs;
   void** recvbuffs;
@@ -38,6 +42,9 @@ struct threadArgs_t {
 
   void* expectedHost;
   void* expected;
+  volatile int* sync;
+  int syncRank;
+  int syncNranks;
   double* deltaHost;
   double* delta;
   int* errors;
@@ -58,7 +65,7 @@ extern double DeltaMaxValue(ncclDataType_t type);
 extern void RunTests(struct threadArgs_t* args);
 extern void GetBw(double baseBw, double* algBw, double* busBw, int nranks);
 extern void RunColl(const void* sendbuf, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
-extern void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place);
+extern void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first);
 extern double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root);
 
 #include <unistd.h>
