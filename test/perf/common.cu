@@ -333,20 +333,33 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   size_t count = args->nbytes / wordSize(type);
   while (args->sync[0] != args->thread) pthread_yield();
   InitData(args, type, op, root, in_place, args->thread == 0 ? 1 : 0);
-  args->sync[0]++;
-  if (args->sync[0] == args->nThreads) args->sync[0] = 0;
-#ifdef MPI
-  void* remote = malloc(args->nbytes);
-  for (int i=0; i<args->nProcs; i++) {
-    if (i == args->proc) {
-      MPI_Bcast(args->expected, nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
-    } else {
-      MPI_Bcast(remote, nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
-      Accumulate(args->expected, remote, count, type, op);
+  args->sync[0] = args->thread + 1;
+  if (args->thread+1 == args->nThreads) {
+#if MPI == 1
+    // Last thread does the MPI reduction
+    void* remote, *remoteHost = malloc(args->nbytes);
+    void* myInitialData = malloc(args->nbytes);
+    memcpy(myInitialData, args->expectedHost, args->nbytes);
+    CUDACHECK(cudaHostRegister(remoteHost, args->nbytes, 0));
+    CUDACHECK(cudaHostGetDevicePointer(&remote, remoteHost, 0));
+    for (int i=0; i<args->nProcs; i++) {
+      if (i == args->proc) {
+        MPI_Bcast(myInitialData, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+        free(myInitialData);
+      } else {
+        MPI_Bcast(remoteHost, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+        Accumulate(args->expected, remote, count, type, op);
+        cudaDeviceSynchronize();
+      }
     }
-  }
-  free(remote);
+    CUDACHECK(cudaHostUnregister(remoteHost));
+    free(remoteHost);
 #endif
+    args->sync[0] = 0;
+  } else {
+    while (args->sync[0]) pthread_yield();
+  }
+  
 
   // Warmup / Sync
   NCCLCHECK(ncclGroupStart());
@@ -420,6 +433,7 @@ int main(int argc, char* argv[]) {
   int nProcs = 1, proc = 0;
   int localRank = 0;
 #if MPI == 1
+  MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
   MPI_Comm_rank(MPI_COMM_WORLD, &proc);
   char hostname[1024];
@@ -428,8 +442,8 @@ int main(int argc, char* argv[]) {
   hostHashs[proc] = getHostHash(hostname);
   MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, hostHashs, sizeof(uint64_t), MPI_BYTE, MPI_COMM_WORLD);
   for (int p=0; p<nProcs; p++) {
-    if (r == proc) break;
-    if (hostHashs[r] == hostHashs[proc]) localRank++;
+    if (p == proc) break;
+    if (hostHashs[p] == hostHashs[proc]) localRank++;
   }
 #endif
   is_main_thread = (proc == 0) ? 1 : 0;
@@ -472,8 +486,9 @@ int main(int argc, char* argv[]) {
         NCCLCHECK(ncclCommCuDevice(comms[i], &cudaDev));
         NCCLCHECK(ncclCommUserRank(comms[i], &rank));
         CUDACHECK(cudaGetDeviceProperties(&prop, cudaDev));
-        PRINT("#   Rank %2d uses device %2d [0x%02x] %s\n", rank, cudaDev,
+        printf("#   Rank %2d on %10s device %2d [0x%02x] %s\n", rank, hostname, cudaDev,
             prop.pciBusID, prop.name);
+        fflush(stdout);
       }
     }
 #if MPI == 1
@@ -548,6 +563,9 @@ int main(int argc, char* argv[]) {
   PRINT(" Out of bounds values : %d %s\n", errors[0], errors[0] ? "FAILED" : "OK");
   PRINT(" Avg bus bandwidth    : %g %s\n", bw[0], check_avg_bw == -1 ? "" : (bw[0] < check_avg_bw ? "FAILED" : "OK"));
   PRINT("\n");
+#if MPI == 1
+  MPI_Finalize();
+#endif
   if (errors[0] || bw[0] < check_avg_bw)
     exit(EXIT_FAILURE);
   else 

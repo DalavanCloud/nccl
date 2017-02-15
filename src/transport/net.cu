@@ -99,13 +99,7 @@ ncclResult_t netGetRings(int nranks, int ngroups, int* groups, int* values, int*
 
 static ncclResult_t netHostAlloc(struct ncclSendRecvMem** ptr, size_t size) {
   // Allocate memory close to the device we are using
-  int cudaDev;
-  CUDACHECK(cudaGetDevice(&cudaDev));
-  nvmlDevice_t nvmlDevice;
-  NCCLCHECK(wrapNvmlDeviceGetHandleByIndex(cudaDev, &nvmlDevice));
-  NCCLCHECK(wrapNvmlDeviceSetCpuAffinity(nvmlDevice));
   CUDACHECK(cudaHostAlloc(ptr, size, cudaHostAllocMapped));
-  NCCLCHECK(wrapNvmlDeviceClearCpuAffinity(nvmlDevice));
   return ncclSuccess;
 }
 

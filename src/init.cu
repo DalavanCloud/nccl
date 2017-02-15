@@ -370,6 +370,16 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
 }
 
 ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
+  NCCLCHECK(wrapNvmlSymbols());
+  NCCLCHECK(wrapNvmlInit());
+
+  // Make sure all host memory allocation are close to the GPU
+  int cudaDev;
+  CUDACHECK(cudaGetDevice(&cudaDev));
+  nvmlDevice_t nvmlDevice;
+  NCCLCHECK(wrapNvmlDeviceGetHandleByIndex(cudaDev, &nvmlDevice));
+  NCCLCHECK(wrapNvmlDeviceSetCpuAffinity(nvmlDevice));
+
   ncclResult_t res = commAlloc(newcomm, ndev, myrank);
   if (res != ncclSuccess) {
     WARN("rank %d failed to allocate communicator", myrank);
@@ -378,6 +388,7 @@ ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId co
   NCCLCHECK(initTransportsRank(*newcomm, &commId));
   NCCLCHECK(devCommSetup(*newcomm));
 
+  NCCLCHECK(wrapNvmlDeviceClearCpuAffinity(nvmlDevice));
   if (wrapNvmlShutdown() != ncclSuccess)
     INFO("rank %d did not shutdown nvml properly", myrank);
   return ncclSuccess;
@@ -386,8 +397,6 @@ ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId co
 NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank);
 ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   NCCLCHECK(ncclInit());
-  NCCLCHECK(wrapNvmlSymbols());
-  NCCLCHECK(wrapNvmlInit());
   if (myrank == 0) showVersion();
 
   NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));

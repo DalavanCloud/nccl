@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <algorithm>
 #include <curand.h>
+#if MPI == 1
+#include "mpi.h"
+#endif
 
 #define CUDACHECK(cmd) do {                         \
   cudaError_t e = cmd;                              \
