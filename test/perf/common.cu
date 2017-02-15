@@ -360,7 +360,6 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
     while (args->sync[0]) pthread_yield();
   }
   
-
   // Warmup / Sync
   NCCLCHECK(ncclGroupStart());
   for (int i = 0; i < args->nGpus; i++) {
