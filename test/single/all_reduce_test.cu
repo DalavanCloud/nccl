@@ -40,9 +40,8 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
 
   // warm up GPU
   ncclGroupStart();
-  for (int i = 0; i < nDev; ++i) {
+  for (int i = 0; i < nDev; ++i)
     NCCLCHECK(ncclAllReduce((const void*)sendbuff[i], (void*)recvbuff[i], std::min(N, 1024 * 1024), type, op, comms[i], s[i]));
-  }
   ncclGroupEnd();
 
   for (int i = 0; i < nDev; ++i) {
@@ -73,10 +72,9 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
       ncclGroupStart();
-      for (int i = 0; i < nDev; ++i) {
+      for (int i = 0; i < nDev; ++i)
         NCCLCHECK(ncclAllReduce((const void*)sendbuff[i], (void*)recvbuff[i], n, type, op,
             comms[i], s[i]));
-      }
       ncclGroupEnd();
     //}
 
@@ -132,10 +130,9 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
       ncclGroupStart();
-      for (int i = 0; i < nDev; ++i) {
+      for (int i = 0; i < nDev; ++i)
         NCCLCHECK(ncclAllReduce((const void*)sendbuff[i], (void*)sendbuff[i], n, type, op,
             comms[i], s[i]));
-      }
       ncclGroupEnd();
     //}
 

@@ -48,11 +48,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
   }
 
   // warm up GPU
-  for (int i = 0; i < nDev; ++i) {
-    CUDACHECK(cudaSetDevice(dList[i]));
+  ncclGroupStart();
+  for (int i = 0; i < nDev; ++i)
     NCCLCHECK(ncclReduce((const void*)sendbuff[i], (void*)recvbuff[i], std::min(N, 1024 * 1024),
         type, op, root, comms[i], s[i]));
-  }
+  ncclGroupEnd();
 
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
@@ -70,11 +70,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     nvtxRangePushA("out of place");
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
-      for (int i = 0; i < nDev; ++i) {
-        CUDACHECK(cudaSetDevice(dList[i]));
+      ncclGroupStart();
+      for (int i = 0; i < nDev; ++i)
         NCCLCHECK(ncclReduce((const void*)sendbuff[i], (void*)recvbuff[i], n, type, op,
             root, comms[i], s[i]));
-      }
+      ncclGroupEnd();
     //}
 
     for (int i = 0; i < nDev; ++i) {
@@ -113,11 +113,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     nvtxRangePushA("in place");
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
-      for (int i = 0; i < nDev; ++i) {
-        CUDACHECK(cudaSetDevice(dList[i]));
+      ncclGroupStart();
+      for (int i = 0; i < nDev; ++i)
         NCCLCHECK(ncclReduce((const void*)sendbuff[i], (void*)sendbuff[i], n, type, op,
             root, comms[i], s[i]));
-      }
+      ncclGroupEnd();
     //}
 
     for (int i = 0; i < nDev; ++i) {
