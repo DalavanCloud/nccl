@@ -234,10 +234,15 @@ class AllReduce {
   }
 };
 
+ncclResult_t ncclAllReduceFunc(const void* sendbuff, void* recvbuff, size_t count,
+    ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
+  return enqueue<AllReduce>(sendbuff, recvbuff, count, datatype, op, root, comm, stream);
+}
+
 NCCL_API(ncclResult_t, ncclAllReduce, const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclAllReduce(const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream) {
-  NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, datatype, op, 0, comm, "AllReduce"));
-  return enqueue<AllReduce>(sendbuff, recvbuff, count, datatype, op, 0, comm, stream);
+  return enqueueCheck(ncclAllReduceFunc, "AllReduce", sendbuff, recvbuff, count, datatype,
+      op, 0, comm, stream);
 }

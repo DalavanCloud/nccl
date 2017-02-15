@@ -92,6 +92,12 @@ struct ncclComm {
   
   // Device copy of the communicator
   struct ncclComm *devComm;
+
+  // Intra-process sync
+  int intraRank;
+  int intraRanks;
+  int* intraBarrier;
+  int intraPhase;
 };
 
 // Check CUDA calls
@@ -149,7 +155,6 @@ struct ncclComm {
     __attribute__ ((visibility("default"))) \
     ret func(args)
 #endif // end PROFAPI
-
 
 #endif // end include guard
 

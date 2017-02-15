@@ -10,6 +10,7 @@
 #include "core.h"
 #include "reduce_kernel.h"
 #include "crc32.h"
+#include "group.h"
 
 /* Syncronize previous collective (if in different stream) and enqueue
  * collective. Work is performed asynchronously with the host thread.
@@ -117,6 +118,47 @@ ncclResult_t enqueue(const void* sendbuff,
   default:
     WARN("Invalid ncclRedOp: %d", op);
     return ncclInvalidOperation;
+  }
+}
+
+typedef ncclResult_t(*ncclFunc_t)(const void* sendbuff, void* recvbuff, size_t count,
+    ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
+
+struct asyncThreadArgs {
+  // Ret must be the first argument
+  ncclResult_t ret;
+  ncclFunc_t func;
+  const void* sendbuff;
+  void* recvbuff;
+  size_t count;
+  ncclDataType_t type;
+  ncclRedOp_t op;
+  int root;
+  ncclComm_t comm;
+  cudaStream_t stream;
+};
+
+static ncclResult_t enqueueCheck(ncclFunc_t func, const char* primName, const void* sendbuff, 
+    void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root,
+    ncclComm_t comm, cudaStream_t stream) {
+  // Launch asynchronously if needed
+  if (ncclAsyncMode()) {
+    int savedDev;
+    CUDACHECK(cudaGetDevice(&savedDev));
+    int cudaDev;
+    NCCLCHECK(ncclCommCuDevice(comm, &cudaDev));
+    CUDACHECK(cudaSetDevice(cudaDev));
+    // Check arguments
+    NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName));
+    NCCLCHECK(ncclCpuBarrierCheckin(comm));
+    NCCLCHECK(ncclAsyncColl(func, sendbuff, recvbuff, count, type, op, root, comm, stream));
+    CUDACHECK(cudaSetDevice(savedDev));
+    return ncclSuccess;
+  } else {
+    NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName));
+    NCCLCHECK(ncclCpuBarrierCheckin(comm));
+    NCCLCHECK(ncclCpuBarrierWait(comm));
+    return func(sendbuff, recvbuff, count, type, op, root, comm, stream);
   }
 }
 

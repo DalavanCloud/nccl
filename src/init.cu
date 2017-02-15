@@ -10,6 +10,8 @@
 #include "bootstrap.h"
 #include "transport.h"
 #include "common_coll.h"
+#include "group.h"
+#include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -27,75 +29,14 @@ pthread_mutex_t ncclDebugOutputLock;
 
 int ncclPrintCRCs;
 
-#define MAX_ASYNC_THREADS 128
-thread_local pthread_t ncclThreads[MAX_ASYNC_THREADS];
-thread_local int ncclThreadIndex = 0;
-thread_local bool ncclThreadMode = 0;
-
-NCCL_API(ncclResult_t, ncclGroupStart);
-ncclResult_t ncclGroupStart() {
-  ncclThreadMode = 1;
-  return ncclSuccess;
-}
-
-struct ncclInitArgs {
-  int cudaDev;
-  ncclResult_t ret;
-  ncclComm_t* newcomm;
-  int ndev;
-  ncclUniqueId commId;
-  int myrank; 
-};
-
-NCCL_API(ncclResult_t, ncclGroupEnd);
-ncclResult_t ncclGroupEnd() {
-  int done = ncclThreadIndex;
-  int doneArray[ncclThreadIndex];
-  for (int i=0; i<ncclThreadIndex; i++) doneArray[i] = 0;
-  while (done) {
-    for (int i=0; i<ncclThreadIndex; i++) {
-      struct ncclInitArgs* args;
-      if (doneArray[i] == 1) continue;
-      int err = pthread_tryjoin_np(ncclThreads[i], (void**)&args);
-      if (err == EBUSY) continue;
-      if (err != 0) return ncclSystemError;
-      if (args->ret != ncclSuccess) return args->ret;
-      doneArray[i] = 1;
-      done--;
-      free(args);
-    }
-  }
-  ncclThreadIndex = 0;
-  ncclThreadMode = 0;
-  return ncclSuccess;
-}
-
-ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank);
-
-void* ncclCommInitRankThread(void* args_) {
-  struct ncclInitArgs* args = (struct ncclInitArgs*)args_;
-  cudaSetDevice(args->cudaDev);
-  args->ret = ncclCommInitRankSync(args->newcomm, args->ndev, args->commId, args->myrank);
-  return args;
-}
-
-static ncclResult_t ncclCommInitRankAsync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
-  struct ncclInitArgs* args = (struct ncclInitArgs*)malloc(sizeof(struct ncclInitArgs));
-  
-  CUDACHECK(cudaGetDevice(&args->cudaDev));
-  args->newcomm = newcomm;
-  args->ndev = ndev;
-  memcpy(&args->commId, &commId, sizeof(commId));
-  args->myrank = myrank;
-  
-  SYSCHECK(pthread_create(ncclThreads+ncclThreadIndex, NULL, ncclCommInitRankThread, args), "pthread_create");
-  ncclThreadIndex++;
+static ncclResult_t ncclInit() {
+  initDebug();
   return ncclSuccess;
 }
 
 NCCL_API(ncclResult_t, ncclGetUniqueId, ncclUniqueId* out);
 ncclResult_t ncclGetUniqueId(ncclUniqueId* out) {
-  initDebug();
+  NCCLCHECK(ncclInit());
   NCCLCHECK(PtrCheck(out, "GetUniqueId", "out"));
   return bootstrapGetUniqueId(out);
 }
@@ -393,55 +334,75 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
   }
   free(allInfo);
+
+  // Intra-process barrier setup
+  struct rankInfo {
+    uint64_t hostHash;
+    int pid;
+    int* bar;
+  } rankInfos[nranks];
+  rankInfos[rank].pid = getpid();
+  char hostname[1024];
+  getHostName(hostname, 1024);
+  rankInfos[rank].hostHash=getHostHash(hostname);
+  rankInfos[rank].bar = (int*)malloc(sizeof(int));
+  rankInfos[rank].bar[0] = 0;
+  NCCLCHECK(bootstrapAllGather(commState, rankInfos, sizeof(struct rankInfo)));
+  comm->intraPhase = 0;
+  comm->intraRanks = 0;
+  for (int r=0; r<nranks; r++) {
+    if ((rankInfos[r].hostHash == rankInfos[rank].hostHash) && 
+        (rankInfos[r].pid == rankInfos[rank].pid)) {
+      if (comm->intraRanks == 0)
+        comm->intraBarrier = rankInfos[r].bar;
+      if (r == rank)
+        comm->intraRank = comm->intraRanks;
+      comm->intraRanks++;
+    }
+  }
+  if (comm->intraRank != 0 || comm->intraRanks == 0) {
+    free(rankInfos[rank].bar);
+  }
+
   // Barrier
   bootstrapClose(commState);
   return ncclSuccess;
 }
 
-NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank);
-ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
-  return ncclThreadMode ? 
-    ncclCommInitRankAsync(newcomm, ndev, commId, myrank) :
-    ncclCommInitRankSync(newcomm, ndev, commId, myrank);
-}
-
 ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
-  if (myrank == 0) showVersion();
-
-  NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));
-
-  initDebug();
-  ncclResult_t res;
-
-  res = wrapNvmlSymbols();
-  if (res != ncclSuccess) {
-    WARN("NCCL failed to initialize NVML");
-    return res;
-  }
-
-  res = wrapNvmlInit();
-  if (res != ncclSuccess) {
-    WARN("rank %d failed to initialize nvml", myrank);
-    return res;
-  }
-
-  res = commAlloc(newcomm, ndev, myrank);
+  ncclResult_t res = commAlloc(newcomm, ndev, myrank);
   if (res != ncclSuccess) {
     WARN("rank %d failed to allocate communicator", myrank);
     return res;
   }
-
   NCCLCHECK(initTransportsRank(*newcomm, &commId));
-
-  res = devCommSetup(*newcomm);
-  if (res != ncclSuccess) {
-    WARN("rank %d failed to copy dcomm", myrank);
-    return res;
-  }
+  NCCLCHECK(devCommSetup(*newcomm));
 
   if (wrapNvmlShutdown() != ncclSuccess)
     INFO("rank %d did not shutdown nvml properly", myrank);
   return ncclSuccess;
+}
+
+NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank);
+ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
+  NCCLCHECK(ncclInit());
+  NCCLCHECK(wrapNvmlSymbols());
+  NCCLCHECK(wrapNvmlInit());
+  if (myrank == 0) showVersion();
+
+  NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));
+  if (ndev < 1) {
+    WARN("Invalid device count requested : %d", ndev);
+    return ncclUnsupportedDeviceCount;
+  }
+
+  if (ncclAsyncMode()) {
+    int cudaDev;
+    CUDACHECK(cudaGetDevice(&cudaDev));
+    return ncclAsyncInit(ncclCommInitRankSync, cudaDev, newcomm, ndev, commId, myrank);
+  } else {
+    return ncclCommInitRankSync(newcomm, ndev, commId, myrank);
+  }
 }
 
 static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, int nranks) {
@@ -509,12 +470,12 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
 
 NCCL_API(ncclResult_t, ncclCommInitAll, ncclComm_t* comms, int ndev, const int* devlist);
 ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
-  initDebug();
-
+  NCCLCHECK(ncclInit());
+  NCCLCHECK(wrapNvmlSymbols());
+  NCCLCHECK(wrapNvmlInit());
   showVersion();
 
   NCCLCHECK(PtrCheck(comms, "CommInitAll", "comms"));
-
   if (ndev < 1) {
     WARN("Invalid device count requested : %d", ndev);
     return ncclUnsupportedDeviceCount;
@@ -532,22 +493,12 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
     ncclDevList[i] = devlist ? devlist[i] : i;
   }
 
-  res = wrapNvmlSymbols();
-  if (res != ncclSuccess) {
-    WARN("NCCL failed to initialize NVML");
-    return res;
-  }
-
   cudaGetDevice(&savedDevice);
-
-  res = wrapNvmlInit();
-  if (res != ncclSuccess) {
-    WARN("nccl failed to initialize nvml");
-    return res;
-  }
 
   for(rank=0; rank<ndev; ++rank)
     comms[rank] = NULL;
+
+  int* intraBarrier = (int*)malloc(sizeof(int));
 
   for (rank=0; rank<ndev; ++rank) {
     cudaDev = ncclDevList[rank];
@@ -579,6 +530,11 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
       WARN("rank %d failed to allocate communicator", rank);
       goto cleanup;
     }
+    comm->intraRank = rank;
+    comm->intraRanks = ndev;
+    comm->intraBarrier = intraBarrier;
+    comm->intraPhase = 0;
+
     comms[rank] = comm;
 
     if (affinity_set && wrapNvmlDeviceClearCpuAffinity(nvmlHandle) != ncclSuccess) {
@@ -589,7 +545,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   res = initTransportsAll(comms, ncclDevList, ndev);
   if (res != ncclSuccess) {
     WARN("failed to init transports");
-    return res;
+    goto cleanup;
   }
 
   for(rank=0; rank<ndev; ++rank) {
@@ -633,6 +589,10 @@ ncclResult_t ncclCommDestroy(ncclComm_t comm) {
 
   if (savedDevice != commDevice) {
     CUDACHECK(cudaSetDevice(commDevice));
+  }
+
+  if (comm->intraRank == 0) {
+    free(comm->intraBarrier);
   }
 
   commFree(comm);

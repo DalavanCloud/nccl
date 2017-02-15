@@ -175,11 +175,16 @@ class Broadcast {
   }
 };
 
+ncclResult_t ncclBroadcastFunc(const void* sendbuff, void* recvbuff, size_t count,
+    ncclDataType_t datatype, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
+  return enqueue<Broadcast>(sendbuff, recvbuff, count, datatype, op, root, comm, stream);
+}
+
 NCCL_API(ncclResult_t, ncclBcast, void* buff, size_t count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclBcast(void* buff, size_t count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream) {
-  NCCLCHECK(ArgsCheck(buff, buff, count, datatype, ncclSum, root, comm, "Bcast"));
-  return enqueue<Broadcast, FuncNull>(buff, buff, count, datatype, root, comm, stream);
+  return enqueueCheck(ncclBroadcastFunc, "Bcast", buff, buff, count, datatype,
+     ncclSum, root, comm, stream);
 }
 

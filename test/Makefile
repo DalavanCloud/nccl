@@ -1,5 +1,5 @@
 .DEFAULT_GOAL: all
-DIRS := apitest single unit
+DIRS := apitest single unit perf
 ifeq ($(MPI),1)
 DIRS += mpi
 endif

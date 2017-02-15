@@ -138,11 +138,11 @@ void Randomize<half>(half* const dest, const int N, const int randomSeed) {
 void makeRandom(void* ptr, int n, ncclDataType_t type, int seed) {
   if (type == ncclInt8)
     Randomize<int8_t>((int8_t*)ptr, n, seed);
-  else if (type == ncclInt8)
+  else if (type == ncclUint8)
     Randomize<uint8_t>((uint8_t*)ptr, n, seed);
   else if (type == ncclInt32)
     Randomize<int32_t>((int32_t*)ptr, n, seed);
-  else if (type == ncclHalf)
+  else if (type == ncclUint32)
     Randomize<uint32_t>((uint32_t*)ptr, n, seed);
   else if (type == ncclInt64)
     Randomize<int64_t>((int64_t*)ptr, n, seed);
