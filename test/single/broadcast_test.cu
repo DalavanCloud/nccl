@@ -45,10 +45,10 @@ void RunTest(T** buff, const int N, const ncclDataType_t type, const int root,
   }
 
   // warm up GPU
-  ncclGroupStart();
+  NCCLCHECK(ncclGroupStart());
   for (int i = 0; i < nDev; ++i)
     NCCLCHECK(ncclBcast((void*)buff[i], std::min(32 * 1024, N), type, root, comms[i], s[i]));
-  ncclGroupEnd();
+  NCCLCHECK(ncclGroupEnd());
 
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
@@ -63,10 +63,10 @@ void RunTest(T** buff, const int N, const ncclDataType_t type, const int root,
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    ncclGroupStart();
+    NCCLCHECK(ncclGroupStart());
     for (int i = 0; i < nDev; ++i)
       NCCLCHECK(ncclBcast((void*)buff[i], n, type, root, comms[i], s[i]));
-    ncclGroupEnd();
+    NCCLCHECK(ncclGroupEnd());
 
     for (int i = 0; i < nDev; ++i) {
       CUDACHECK(cudaSetDevice(dList[i]));

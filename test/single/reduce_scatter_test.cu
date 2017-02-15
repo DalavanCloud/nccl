@@ -46,11 +46,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
   }
 
   // warm up GPU
-  ncclGroupStart();
+  NCCLCHECK(ncclGroupStart());
   for (int i = 0; i < nDev; ++i)
     NCCLCHECK(ncclReduceScatter((const void*)sendbuff[i], (void*)recvbuff[i],
         std::min(N, 1024 * 1024), type, op, comms[i], s[i]));
-  ncclGroupEnd();
+  NCCLCHECK(ncclGroupEnd());
 
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
@@ -66,11 +66,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     // do out-of-place reduction first
     auto start = std::chrono::high_resolution_clock::now();
 
-    ncclGroupStart();
+    NCCLCHECK(ncclGroupStart());
     for (int i = 0; i < nDev; ++i)
       NCCLCHECK(ncclReduceScatter((const void*)sendbuff[i], (void*)recvbuff[i], n, type,
           op, comms[i], s[i]));
-    ncclGroupEnd();
+    NCCLCHECK(ncclGroupEnd());
 
     for (int i = 0; i < nDev; ++i) {
       CUDACHECK(cudaSetDevice(dList[i]));
@@ -106,11 +106,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    ncclGroupStart();
+    NCCLCHECK(ncclGroupStart());
     for (int i = 0; i < nDev; ++i)
       NCCLCHECK(ncclReduceScatter((const void*)sendbuff[i], (void*)sendbuff[i], n, type,
           op, comms[i], s[i]));
-    ncclGroupEnd();
+    NCCLCHECK(ncclGroupEnd());
 
     for (int i = 0; i < nDev; ++i) {
       CUDACHECK(cudaSetDevice(dList[i]));
@@ -128,7 +128,7 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     double maxDelta = 0.0;
     for (int i = 0; i < nDev; ++i) {
       CUDACHECK(cudaSetDevice(dList[i]));
-      double tmpDelta = CheckDelta<T>(sendbuff[i], result+i*n, n);
+      double tmpDelta = CheckDelta<T>(sendbuff[i]+i*n, result+i*n, n);
       maxDelta = std::max(tmpDelta, maxDelta);
     }
 
