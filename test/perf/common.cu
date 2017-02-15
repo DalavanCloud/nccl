@@ -299,11 +299,54 @@ void Accumulate(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op)
   }
 }
 
+void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type, ncclRedOp_t op, int seed, int rank) {
+  Randomize(data, count, type, seed);
+  if (rank == 0) {
+    CUDACHECK(cudaMemcpy(accum, data, count*wordSize(type), cudaMemcpyDeviceToHost));
+  } else {
+    Accumulate(accum, data, count, type, op);
+  }
+}
 
+void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first) {
+  size_t count = args->nbytes / wordSize(type);
+  for (int i=0; i<args->nGpus; i++) {
+    int device;
+    NCCLCHECK(ncclCommCuDevice(args->comms[i], &device));
+    CUDACHECK(cudaSetDevice(device));
+    void* data = in_place ? args->recvbuffs[i] : args->sendbuffs[i];
+    int seed = i+count+in_place;
+    Randomize(data, count, type, seed);
+    if (is_first && i == 0) {
+      CUDACHECK(cudaMemcpy(args->expected, data, count*wordSize(type), cudaMemcpyDeviceToHost));
+    } else {
+      Accumulate(args->expected, data, count, type, op);
+    }
+    if (in_place == 0) {
+      CUDACHECK(cudaMemset(args->recvbuffs[i], 0, args->nbytes));
+    }
+    cudaDeviceSynchronize();
+  }
+}
 
 void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
   size_t count = args->nbytes / wordSize(type);
-  InitData(args, type, op, root, in_place);
+  while (args->sync[0] != args->thread) pthread_yield();
+  InitData(args, type, op, root, in_place, args->thread == 0 ? 1 : 0);
+  args->sync[0]++;
+  if (args->sync[0] == args->nThreads) args->sync[0] = 0;
+#ifdef MPI
+  void* remote = malloc(args->nbytes);
+  for (int i=0; i<args->nProcs; i++) {
+    if (i == args->proc) {
+      MPI_Bcast(args->expected, nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+    } else {
+      MPI_Bcast(remote, nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+      Accumulate(args->expected, remote, count, type, op);
+    }
+  }
+  free(remote);
+#endif
 
   // Warmup / Sync
   NCCLCHECK(ncclGroupStart());
@@ -374,22 +417,22 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  int nProcs = 1, rank = 0;
+  int nProcs = 1, proc = 0;
   int localRank = 0;
 #if MPI == 1
   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_rank(MPI_COMM_WORLD, &proc);
   char hostname[1024];
   getHostName(hostname, 1024);
   uint64_t hostHashs[nProcs];
-  hostHashs[rank] = getHostHash(hostname);
+  hostHashs[proc] = getHostHash(hostname);
   MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, hostHashs, sizeof(uint64_t), MPI_BYTE, MPI_COMM_WORLD);
-  for (int r=0; r<nProcs; r++) {
-    if (r == rank) break;
-    if (hostHashs[r] == hostHashs[rank]) localRank++;
+  for (int p=0; p<nProcs; p++) {
+    if (r == proc) break;
+    if (hostHashs[r] == hostHashs[proc]) localRank++;
   }
 #endif
-  is_main_thread = (rank == 0) ? 1 : 0;
+  is_main_thread = (proc == 0) ? 1 : 0;
 
   int nThreads = 1;
   char* strenv = getenv("NCCL_TESTS_NTHREADS");
@@ -399,7 +442,7 @@ int main(int argc, char* argv[]) {
   if (strenv) nGpus = atoi(strenv);
 
   ncclUniqueId ncclId;
-  if (rank == 0) {
+  if (proc == 0) {
     NCCLCHECK(ncclGetUniqueId(&ncclId));
   }
 #if MPI == 1
@@ -416,12 +459,12 @@ int main(int argc, char* argv[]) {
     CUDACHECK(cudaMalloc(sendbuffs+i, nbytes));
     CUDACHECK(cudaMalloc(recvbuffs+i, nbytes));
     CUDACHECK(cudaStreamCreate(streams+i));
-    NCCLCHECK(ncclCommInitRank(comms+i, nProcs*nThreads*nGpus, ncclId, rank*nThreads*nGpus+i));
+    NCCLCHECK(ncclCommInitRank(comms+i, nProcs*nThreads*nGpus, ncclId, proc*nThreads*nGpus+i));
   }
   NCCLCHECK(ncclGroupEnd());
   PRINT("# Using devices\n");
   for (int p=0; p<nProcs; p++) {
-    if (p == rank) {
+    if (p == proc) {
       for (int i=0; i<nThreads*nGpus; i++) {
         int cudaDev;
         int rank;
@@ -451,20 +494,30 @@ int main(int argc, char* argv[]) {
   PRINT("# %10s  %12s  %6s  %6s  %7s  %5s  %5s  %7s  %7s  %5s  %5s  %7s\n", "bytes", "N", "type", "op",
       "time", "algbw", "busbw", "res", "time", "algbw", "busbw", "res");
 
+  void* expected, *expectedHost = malloc(nbytes);
+  CUDACHECK(cudaHostRegister(expectedHost, nbytes, 0));
+  CUDACHECK(cudaHostGetDevicePointer(&expected, expectedHost, 0));
+  int* sync = (int*)malloc(sizeof(int));
+  sync[0] = 0;
+
   pthread_t threads[nThreads-1];
   struct threadArgs_t args[nThreads];
   for (int t=nThreads-1; t>=0; t--) {
     args[t].nbytes=nbytes;
 
+    args[t].nProcs=nProcs;
+    args[t].proc=proc;
+    args[t].nThreads=nThreads;
+    args[t].thread=t;
     args[t].nGpus=nGpus;
     args[t].sendbuffs = sendbuffs+t*nGpus;
     args[t].recvbuffs = recvbuffs+t*nGpus;
     args[t].comms=comms+t*nGpus;
     args[t].streams=streams+t*nGpus;
 
-    args[t].expectedHost = malloc(nbytes);
-    CUDACHECK(cudaHostRegister(args[t].expectedHost, nbytes, 0));
-    CUDACHECK(cudaHostGetDevicePointer(&args[t].expected, args[t].expectedHost, 0));
+    args[t].expectedHost = expectedHost;
+    args[t].expected = expected;
+    args[t].sync = (volatile int*)sync;
     args[t].deltaHost = (double*)malloc(sizeof(double));
     CUDACHECK(cudaHostRegister(args[t].deltaHost, sizeof(double), 0));
     CUDACHECK(cudaHostGetDevicePointer(&args[t].delta, args[t].deltaHost, 0));
