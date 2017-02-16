@@ -16,8 +16,9 @@
 
 typedef enum {
   GETIP_ENV = 1,
-  GETIP_NO_LO = 2,
-  GETIP_WITH_LO = 3
+  GETIP_IB = 2,
+  GETIP_NO_LO = 3,
+  GETIP_WITH_LO = 4
 }getIpMode_t;
 
 static int getIpMode(getIpMode_t mode, struct in_addr* addr, char* ifname) {
@@ -34,12 +35,10 @@ static int getIpMode(getIpMode_t mode, struct in_addr* addr, char* ifname) {
   struct ifaddrs *interfaces, *interface;
   getifaddrs(&interfaces);
   for (interface = interfaces; interface; interface = interface->ifa_next) {
-    if (mode == GETIP_ENV && strcmp(interface->ifa_name, if_env_name) != 0)
-      continue;
-    if (mode == GETIP_NO_LO && strncmp(interface->ifa_name, "lo", 2) == 0)
-      continue;
-    if (interface->ifa_addr == NULL || interface->ifa_addr->sa_family != AF_INET)
-      continue;
+    if (mode == GETIP_ENV && strcmp(interface->ifa_name, if_env_name) != 0) continue;
+    if (mode == GETIP_IB && strncmp(interface->ifa_name, "ib", 2) != 0) continue;
+    if (mode == GETIP_NO_LO && strncmp(interface->ifa_name, "lo", 2) == 0) continue;
+    if (interface->ifa_addr == NULL || interface->ifa_addr->sa_family != AF_INET) continue;
     struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
     *addr = sa->sin_addr;
     found = 1; 
@@ -63,7 +62,8 @@ static int getIpMode(getIpMode_t mode, struct in_addr* addr, char* ifname) {
 static ncclResult_t getIpAddr(struct in_addr* addr, char* ifname) {
   int ret = getIpMode(GETIP_ENV, addr, ifname);
   if (ret == 0) { // No env
-    ret = getIpMode(GETIP_NO_LO, addr, ifname)
+    ret = getIpMode(GETIP_IB, addr, ifname)
+      || getIpMode(GETIP_NO_LO, addr, ifname)
       || getIpMode(GETIP_WITH_LO, addr, ifname);
   }
   return (ret == 1) ? ncclSuccess : ncclInternalError;
