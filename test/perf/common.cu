@@ -299,6 +299,11 @@ void Accumulate(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op)
   }
 }
 
+#ifdef MPI_TRANSPORT
+extern "C"
+void ncclMpiHook(MPI_Comm comm);
+#endif
+
 void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type, ncclRedOp_t op, int seed, int rank) {
   Randomize(data, count, type, seed);
   if (rank == 0) {
@@ -335,7 +340,7 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   InitData(args, type, op, root, in_place, args->thread == 0 ? 1 : 0);
   args->sync[0] = args->thread + 1;
   if (args->thread+1 == args->nThreads) {
-#if MPI == 1
+#ifdef MPI
     // Last thread does the MPI reduction
     void* remote, *remoteHost = malloc(args->nbytes);
     void* myInitialData = malloc(args->nbytes);
@@ -431,12 +436,12 @@ int main(int argc, char* argv[]) {
 
   int nProcs = 1, proc = 0;
   int localRank = 0;
-#if MPI == 1
+  char hostname[1024];
+  getHostName(hostname, 1024);
+#ifdef MPI
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
   MPI_Comm_rank(MPI_COMM_WORLD, &proc);
-  char hostname[1024];
-  getHostName(hostname, 1024);
   uint64_t hostHashs[nProcs];
   hostHashs[proc] = getHostHash(hostname);
   MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, hostHashs, sizeof(uint64_t), MPI_BYTE, MPI_COMM_WORLD);
@@ -444,6 +449,9 @@ int main(int argc, char* argv[]) {
     if (p == proc) break;
     if (hostHashs[p] == hostHashs[proc]) localRank++;
   }
+#endif
+#ifdef MPI_TRANSPORT
+  ncclMpiHook(MPI_COMM_WORLD);
 #endif
   is_main_thread = (proc == 0) ? 1 : 0;
 
@@ -458,7 +466,7 @@ int main(int argc, char* argv[]) {
   if (proc == 0) {
     NCCLCHECK(ncclGetUniqueId(&ncclId));
   }
-#if MPI == 1
+#ifdef MPI
   MPI_Bcast(&ncclId, sizeof(ncclId), MPI_BYTE, 0, MPI_COMM_WORLD);
 #endif
   cudaStream_t streams[nGpus*nThreads];
@@ -490,7 +498,7 @@ int main(int argc, char* argv[]) {
         fflush(stdout);
       }
     }
-#if MPI == 1
+#ifdef MPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
   }
@@ -562,7 +570,7 @@ int main(int argc, char* argv[]) {
   PRINT(" Out of bounds values : %d %s\n", errors[0], errors[0] ? "FAILED" : "OK");
   PRINT(" Avg bus bandwidth    : %g %s\n", bw[0], check_avg_bw == -1 ? "" : (bw[0] < check_avg_bw ? "FAILED" : "OK"));
   PRINT("\n");
-#if MPI == 1
+#ifdef MPI
   MPI_Finalize();
 #endif
   if (errors[0] || bw[0] < check_avg_bw)

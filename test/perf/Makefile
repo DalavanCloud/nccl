@@ -1,9 +1,9 @@
 include ../../makefiles/common.mk
 ##
 BUILDDIR := $(abspath ../../build)
-NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -DMPI=$(MPI)
+NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include
 ifeq ($(MPI), 1)
-NVCUFLAGS += -DMPI=1 -I$(MPI_HOME)/include
+NVCUFLAGS += -DMPI -I$(MPI_HOME)/include
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 endif
 LIBRARIES += cuda curand nvToolsExt nccl
@@ -14,6 +14,9 @@ CU_FILES := $(wildcard *.cu)
 OBJ_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.o)
 EXE_FILES_LIST := all_reduce #all_gather broadcast reduce reduce_scatter
 EXE_FILES:= $(EXE_FILES_LIST:%=${DST_DIR}/%_perf)
+ifeq ($(MPI), 1)
+EXE_FILES+=$(EXE_FILES_LIST:%=${DST_DIR}/%_perf_mpi)
+endif
 DEP_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.dep)
 #
 all:${EXE_FILES}
@@ -34,7 +37,20 @@ ${DST_DIR}/%.o:%.cu
 	@mkdir -p ${DST_DIR}
 	$(NVCC) --compile -o $@ $(NVCUFLAGS) $<
 #
-${DST_DIR}/%:${DST_DIR}/%.o ${DST_DIR}/common.o
+${DST_DIR}/common_mpi.o:common.cu
+	@printf "Compiling  %-35s > %s\n" $< $@
+	@mkdir -p ${DST_DIR}
+	$(NVCC) -DMPI_TRANSPORT --compile -o $@ $(NVCUFLAGS) $<
+#
+${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
+	mpicc -std=c99 -I$(BUILDDIR)/include/ -o $@ -c $<
+#
+${DST_DIR}/%_perf:${DST_DIR}/%.o ${DST_DIR}/common.o
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
-	$(NVCC) -o $@ $(NVCUFLAGS) $< ${DST_DIR}/common.o ${NVLDFLAGS}
+	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
+#
+${DST_DIR}/%_perf_mpi: ${DST_DIR}/%.o ${DST_DIR}/common_mpi.o ${DST_DIR}/nccl_mpi.o
+	@printf "Linking  %-35s > %s\n" $< $@
+	@mkdir -p ${DST_DIR}
+	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}

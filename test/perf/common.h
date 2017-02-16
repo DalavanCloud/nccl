@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <algorithm>
 #include <curand.h>
-#if MPI == 1
+#ifdef MPI
 #include "mpi.h"
 #endif
 

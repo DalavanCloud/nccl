@@ -69,7 +69,7 @@ $(OBJDIR)/%.o : %.cu
 	@rm -f $(@:%.o=%.d.tmp)
 
 clean :
-	rm -rf ${INCDIR} ${LIBDIR} ${OBJDIR}
+	rm -rf ${INCDIR} ${LIBDIR} ${OBJDIR} nccl.h
 
 install : lib
 	mkdir -p $(PREFIX)/lib
