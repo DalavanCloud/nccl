@@ -70,15 +70,19 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
-  for (int chunkOffset = bid*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*sliceSize) {
+  for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
+    int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
+    int chunkOffset = gridOffset + bid*chunkSize;
+
     /////////////// begin AllGather steps ///////////////
     int offset;
-    int maxOffset = size-chunkOffset;
+    int maxOffset;
     int rankDest;
 
     // step 0: push data to next GPU
     rankDest = ring->devUserRanks[0];
     offset = chunkOffset + rankDest * size;
+    maxOffset = min(chunkSize, size-chunkOffset);
 
     if (thisInput == thisOutput) {
       Prims::Copy(
@@ -106,6 +110,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
       for (int j=1; j<nranks-1; ++j) {
         rankDest = ring->devUserRanks[nranks-j];
         offset = chunkOffset + rankDest * size;
+        maxOffset = min(chunkSize, size-chunkOffset);
 
         Prims::Copy(
             thisOutput + offset,
@@ -128,6 +133,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
       for (int j=1; j<nranks-1; ++j) {
         rankDest = ring->devUserRanks[nranks-j];
         offset = chunkOffset + rankDest * size;
+        maxOffset = min(chunkSize, size-chunkOffset);
 
         Prims::DoubleCopy(
             prevInput + poffset,
@@ -144,6 +150,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
       // Make final copy from buffer to dest.
       rankDest = ring->devUserRanks[1];
       offset = chunkOffset + rankDest * size;
+      maxOffset = min(chunkSize, size-chunkOffset);
 
       // Here we need to copy from buffer to this output.
       Prims::Copy(

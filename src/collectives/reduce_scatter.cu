@@ -59,15 +59,19 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
-  for (int chunkOffset = bid*sliceSize; chunkOffset < size; chunkOffset += gridDim.x*sliceSize) {
+  for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
+    int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
+    int chunkOffset = gridOffset + bid*chunkSize;
+
     /////////////// begin ReduceScatter steps ///////////////
     int offset;
-    int maxOffset = size-chunkOffset;
+    int maxOffset;
     int rankDest;
 
     // step 0: push data to next GPU
     rankDest = ring->devUserRanks[nranks-1];
     offset = chunkOffset + rankDest * size;
+    maxOffset = min(chunkSize, size-chunkOffset);
 
     Prims::Copy(
         thisInput  + offset,
@@ -83,6 +87,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
     for (int j=2; j<nranks; ++j) {
       rankDest = ring->devUserRanks[nranks-j];
       offset = chunkOffset + rankDest * size;
+      maxOffset = min(chunkSize, size-chunkOffset);
 
       Prims::Reduce(
           prevInput  + poffset,
@@ -100,6 +105,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
     // result that we store in this data and push to the next GPU
     rankDest = ring->devUserRanks[0];
     offset = chunkOffset + rankDest * size;
+    maxOffset = min(chunkSize, size-chunkOffset);
 
     Prims::Reduce(
         prevInput  + poffset,
