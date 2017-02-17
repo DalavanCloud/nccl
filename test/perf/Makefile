@@ -43,7 +43,7 @@ ${DST_DIR}/common_mpi.o:common.cu
 	$(NVCC) -DMPI_TRANSPORT --compile -o $@ $(NVCUFLAGS) $<
 #
 ${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
-	mpicc -std=c99 -I$(BUILDDIR)/include/ -o $@ -c $<
+	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
 #
 ${DST_DIR}/%_perf:${DST_DIR}/%.o ${DST_DIR}/common.o
 	@printf "Linking  %-35s > %s\n" $< $@
