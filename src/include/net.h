@@ -17,7 +17,8 @@ typedef char ncclNetHandle_t[NCCL_NET_HANDLE_MAXSIZE];
 } while (false)
 
 static const char* ncclNetName() { return ncclNet->name; }
-static ncclResult_t ncclNetGetHandle(void* handle, void** recvComm) { NETCHECK(ncclNet->getHandle(handle, recvComm)); return ncclSuccess; }
+static ncclResult_t ncclNetDevices(int* ndev, int** distances) { NETCHECK(ncclNet->devices(ndev, distances)); return ncclSuccess; }
+static ncclResult_t ncclNetGetHandle(int dev, void* handle, void** recvComm) { NETCHECK(ncclNet->getHandle(dev, handle, recvComm)); return ncclSuccess; }
 static ncclResult_t ncclNetConnectHandle(void* handle, void** sendComm) { NETCHECK(ncclNet->connectHandle(handle, sendComm)); return ncclSuccess; }
 static ncclResult_t ncclNetIsend(void* sendComm, void* data, int size, void** request) { NETCHECK(ncclNet->iSend(sendComm, data, size, request)); return ncclSuccess; }
 static ncclResult_t ncclNetIrecv(void* recvComm, void* data, int size, void** request) { NETCHECK(ncclNet->iRecv(recvComm, data, size, request)); return ncclSuccess; }

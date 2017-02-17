@@ -24,7 +24,7 @@ ncclResult_t ncclOp(int collective, int rank, int nranks, int *buff, int size, n
     case 2 : // Allreduce
       return ncclAllReduce((const void*)buff, (void*)(buff+MAXSIZE), size, ncclInt, ncclSum, comm, stream);
     case 3 : // Allgather
-      return ncclAllGather((const void*)buff, size/nranks, ncclInt, (void*)(buff+MAXSIZE), comm, stream);
+      return ncclAllGather((const void*)buff, (void*)(buff+MAXSIZE), size/nranks, ncclInt, comm, stream);
     case 4 : // ReduceScatter
       return ncclReduceScatter((const void*)buff, (void*)(buff+MAXSIZE), size/nranks, ncclInt, ncclSum, comm, stream);
   }
@@ -144,8 +144,10 @@ int benchCollective(int collective, int rank, int nranks, int* ddata, int* hdata
   return failed;
 }
 
-//extern "C"
-//void ncclMpiHook(MPI_Comm comm);
+#ifdef MPI_TRANSPORT
+extern "C"
+void ncclMpiHook(MPI_Comm comm);
+#endif
 
 int main(int argc, char *argv[]) {
   ncclUniqueId commId;
@@ -157,7 +159,9 @@ int main(int argc, char *argv[]) {
   printf("provided : %d\n", threadProvided);
   MPI_Comm_size(MPI_COMM_WORLD, &nranks);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  //ncclMpiHook(MPI_COMM_WORLD);
+#ifdef MPI_TRANSPORT
+  ncclMpiHook(MPI_COMM_WORLD);
+#endif
 
   if (argc < nranks) {
     if (rank == 0)

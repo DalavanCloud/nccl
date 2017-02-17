@@ -27,7 +27,7 @@ ncclResult_t bootstrapGetUniqueId(ncclUniqueId* out) {
 
   char hostname[1024];
   getHostName(hostname, 1024);
-  NCCLCHECK(ncclNetGetHandle(&id->extHandle, &id->extRecvComm));
+  NCCLCHECK(ncclNetGetHandle(0, &id->extHandle, &id->extRecvComm));
   id->hostHash = getHostHash(hostname);
   id->pid = getpid();
   id->lock = (int*)malloc(sizeof(int));
@@ -87,7 +87,7 @@ ncclResult_t bootstrapInit(ncclUniqueId* commId, int rank, int nranks, void** co
     state->extSendComm = (void**)malloc(sizeof(void*));
     struct extInfo info;
     info.rank = rank;
-    NCCLCHECK(ncclNetGetHandle(&info.extHandle, &state->extRecvComm));
+    NCCLCHECK(ncclNetGetHandle(0, &info.extHandle, &state->extRecvComm));
     NCCLCHECK(ncclNetConnectHandle(id->extHandle, state->extSendComm));
     NCCLCHECK(ncclNetSend(state->extSendComm[0], &info, sizeof(info)));
     int dummy;

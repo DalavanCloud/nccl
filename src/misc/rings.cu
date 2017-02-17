@@ -55,6 +55,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
       int idxToRank[nranks];
       int rankToIdx[nranks];
       int groups[nranks];
+      for (int i=0; i<nranks; i++) idxToRank[i] = rankToIdx[i] = -1;
       
       int nidx = 0;
       for (int i=0; i<nranks; i++) {
@@ -121,8 +122,9 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
         next[i] = nextTmp[i];
       }
     }
-  } while (nringsTmp != 0);
+  } while (nringsTmp != 0 && pattern < 2);
 
+  if (*nrings == 0) return ncclInternalError;
   return ncclSuccess;
 }
 

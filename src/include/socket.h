@@ -21,62 +21,14 @@ typedef enum {
   GETIP_WITH_LO = 4
 }getIpMode_t;
 
-static int getIpMode(getIpMode_t mode, struct in_addr* addr, char* ifname) {
-  /* Get IP address */
-  char* if_env_name = NULL;
-  if (mode == GETIP_ENV) {
-    if_env_name = getenv("NCCL_SOCKET_IFNAME"); // Force a specific interface
-    if (if_env_name == NULL || strlen(if_env_name) == 0)
-      // Env not set, skip this call
-      return 0;
-  }
-
-  int found = 0;
-  struct ifaddrs *interfaces, *interface;
-  getifaddrs(&interfaces);
-  for (interface = interfaces; interface; interface = interface->ifa_next) {
-    if (mode == GETIP_ENV && strcmp(interface->ifa_name, if_env_name) != 0) continue;
-    if (mode == GETIP_IB && strncmp(interface->ifa_name, "ib", 2) != 0) continue;
-    if (mode == GETIP_NO_LO && strncmp(interface->ifa_name, "lo", 2) == 0) continue;
-    if (interface->ifa_addr == NULL || interface->ifa_addr->sa_family != AF_INET) continue;
-    struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
-    *addr = sa->sin_addr;
-    found = 1; 
-    if (ifname != NULL)
-      strcpy(ifname, interface->ifa_name);
-    //INFO("using interface %s, IP %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
-    break;
-  }
-  freeifaddrs(interfaces);
-  if (!found)
-    if (mode == GETIP_ENV) {
-    // Env was set but we didn't find the interface ; fail.
-    WARN("interface %s not found.", if_env_name);
-    return -1;
-  } else if (mode == GETIP_WITH_LO) {
-    WARN("no usable interface found.");
-  }
-  return found;
-}
-
-static ncclResult_t getIpAddr(struct in_addr* addr, char* ifname) {
-  int ret = getIpMode(GETIP_ENV, addr, ifname);
-  if (ret == 0) { // No env
-    ret = getIpMode(GETIP_IB, addr, ifname)
-      || getIpMode(GETIP_NO_LO, addr, ifname)
-      || getIpMode(GETIP_WITH_LO, addr, ifname);
-  }
-  return (ret == 1) ? ncclSuccess : ncclInternalError;
-}
-
-static ncclResult_t createListenSocket(int *fd, uint16_t *port) {
+static ncclResult_t createListenSocket(int *fd, struct in_addr addr, uint16_t *port) {
   /* Create socket and bind it to a port */
   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd == -1) {
     WARN("Socket creation failed");
     return ncclSystemError;
   }
-  struct sockaddr_in sa_in = { AF_INET, INADDR_ANY, 0 /* Any port */ };
+  struct sockaddr_in sa_in = { AF_INET, 0 /* Any port */, addr };
   SYSCHECK(bind(sockfd, (struct sockaddr*)&sa_in, sizeof(sa_in)), "bind");
 
   /* Get Port */

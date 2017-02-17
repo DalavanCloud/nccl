@@ -185,6 +185,13 @@ int p2pComputeRings(int* matrix, int nranks, int *rings, int nringsMax, int conn
   return nrings;
 }
 
+static inline int findConnect(int nranks, int* ranks) {
+  for (int i = 0; i<nranks; i++) {
+    if (ranks[i] != -1) return i;
+  }
+  return -1;
+}
+
 int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int oversubscribe) {
   // Find existing constraints / connections
   int connect = 0;
@@ -244,8 +251,15 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
   int pcie = (nrings == 0) ? 1 : 0;
   if (pcie) {
     // PCIe or QPI
-    for (int i=0; i<nranks; i++) rings[i] = i;
-    nrings = 1;
+    nrings = *nringsRet == MAXRINGS ? 1 : *nringsRet;
+    for (int r=0; r<nrings; r++) {
+      for (int i=0; i<nranks; i++) {
+        if (r % 2 == 0)
+          rings[r*nranks+i] = i;
+        else
+          rings[r*nranks+i] = nranks-1-i;
+      }
+    }
   } else {
     // Double the rings for NVLink
     nrings *= 2;

@@ -97,46 +97,4 @@ inline void transportProxyWait(const FUNC& func) {
 inline void transportProxyIdle(int idle) {
   sched_yield();
 }
-
-static inline int groupFirst(int nranks, int* groups, int group) {
-  for (int rank = 0; rank<nranks; rank++) {
-    if (groups[rank] == group) return rank;
-  }
-  return -1;
-}
-
-static inline int groupLast(int nranks, int* groups, int group) {
-  for (int rank = nranks-1; rank>=0; rank--) {
-    if (groups[rank] == group) return rank;
-  }
-  return -1;
-}
-
-static inline int groupPos(int nranks, int* groups, int group, int pos) {
-  int skip = pos;
-  int rank = 0;
-  while (1) {
-    if (groups[rank] == group) {
-      if (skip == 0) {
-       return rank;
-      }
-      skip--;
-    }
-    rank++;
-    if (rank == nranks) {
-      if (skip == pos) {
-        // There seems to be no rank of this group. Stop.
-        return -1;
-      }
-      rank = 0;
-    }
-  }
-}
-
-static inline int findConnect(int nranks, int* ranks) {
-  for (int i = 0; i<nranks; i++) {
-    if (ranks[i] != -1) return i;
-  }
-  return -1;
-}
 #endif

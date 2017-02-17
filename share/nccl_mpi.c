@@ -39,7 +39,8 @@
 #include "mpi.h"
 #include "nccl.h"
 
-int ncclMpiGetHandle(void* handle, void** recvComm);
+int ncclMpiDevices(int* ndev, int** distances);
+int ncclMpiGetHandle(int dev, void* handle, void** recvComm);
 int ncclMpiConnectHandle(void* handle, void** sendComm);
 int ncclMpiIsend(void* sendComm, void* data, int size, void** request);
 int ncclMpiIrecv(void* recvComm, void* data, int size, void** request);
@@ -49,6 +50,7 @@ int ncclMpiCloseRecv(void* recvComm);
 
 ncclNet_t ncclMpi = {
   "MPI",
+  ncclMpiDevices,
   ncclMpiGetHandle,
   ncclMpiConnectHandle,
   ncclMpiIsend,
@@ -161,7 +163,14 @@ static void getTag(int *tag) {
   *tag = val;
 }
 
-int ncclMpiGetHandle(void* opaqueHandle, void** recvComm) {
+int ncclMpiDevices(int* ndev, int** distances) {
+  *ndev = 1;
+  *distances = (int*)malloc(sizeof(int));
+  distances[0][0] = 0;
+  return 0;
+}
+
+int ncclMpiGetHandle(int dev, void* opaqueHandle, void** recvComm) {
   struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)malloc(sizeof(struct ncclMpiRecvComm));
   struct ncclMpiHandle* handle = (struct ncclMpiHandle*) opaqueHandle;
   assert(sizeof(struct ncclMpiHandle) < NCCL_NET_HANDLE_MAXSIZE);

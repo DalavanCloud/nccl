@@ -12,8 +12,11 @@
 #include <cuda_runtime.h>
 #include <assert.h>
 
+#define NET_MAX_IFS 8
 struct netInfo {
   int rank;
+  int ndev;
+  int dists[NET_MAX_IFS];
 };
 
 struct netConnectInfo {
@@ -40,28 +43,52 @@ ncclResult_t netFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   struct netInfo* info = (struct netInfo*)opaqueInfo;
   static_assert(sizeof(struct netInfo) <= sizeof(ncclTinfo_t), "NET Info too large");
   info->rank = rank;
+  int *distances;
+  NCCLCHECK(ncclNetDevices(&info->ndev, &distances));
+  if (info->ndev > NET_MAX_IFS) info->ndev = NET_MAX_IFS;
+  for (int d=0; d<info->ndev; d++) info->dists[d] = distances[d];
+  free(distances);
   return ncclSuccess;
 }
 
 /* Determine if we can communicate with the peer */
 ncclResult_t netCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
-  *ret = 1;
+  ret[0] = 0;
+  struct netInfo* myInfo = (struct netInfo*)myOpaqueInfo;
+  for (int d=0; d<myInfo->ndev; d++) {
+    // For now, ignore interfaces with non-zero distances
+    if (myInfo->dists[d] == 0) ret[0] |= (1<<d);
+  }
   return ncclSuccess;
 }
 
-/* Create and return connect structures for this peer to connect to me */
-
-void connectScattered(int nranks, int* groups, int group, int nextGroup, int* src, int* dst, int steps) {
-  *src = groupPos(nranks, groups, group, steps+1);
-  *dst = groupPos(nranks, groups, nextGroup, steps);
+static inline void groupLastFirst(int nranks, int* groups, int group1, int group2, int* values, int ring, int* rank1, int* rank2) {
+  // Find last of group1
+  for (int r1 = nranks-1; r1>=0; r1--) {
+    if (groups[r1] == group1) {
+      // Find first of group2
+      for (int r2 = 0; r2<nranks; r2++) {
+        if (groups[r2] == group2) {
+          // Check both can talk through that device = ring
+          if ((values[r1*nranks+r2] & (1<<ring)) &&
+              (values[r2*nranks+r1] & (1<<ring))) {
+            *rank1 = r1;
+            *rank2 = r2;
+            return;
+          }
+        }
+      }
+    }
+  }
+  *rank1 = -1;
+  *rank2 = -1;
 }
 
 ncclResult_t netGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
-  if (pattern >= 2) {
+  if (pattern >= 1) {
     *nringsRet = 0;
     return ncclSuccess;
   }
-  *nringsRet = 1;
   for (int ring = 0; ring<*nringsRet; ring++) {
     for (int group = 0; group<ngroups; group++) {
       // Check if this group is already connected
@@ -71,22 +98,15 @@ ncclResult_t netGetRings(int nranks, int ngroups, int* groups, int* values, int*
       }
       if (skip) continue;
 
-      int nextGroup = (group+1)%ngroups;
       int source = -1, destination = -1;
-      if (pattern == 0) {
-        if (ring % 2 == 0) {
-          source = groupLast(nranks, groups, group);
-          destination = groupFirst(nranks, groups, nextGroup);
-        } else {
-          source = groupFirst(nranks, groups, group);
-          destination = groupLast(nranks, groups, nextGroup);
-        }
-      } else if (pattern == 1) {
-        source = groupPos(nranks, groups, group, ring*2+1);
-        destination = groupPos(nranks, groups, nextGroup, ring*2);
+      if (ring % 2 == 0) {
+        int nextGroup = (group+1)%ngroups;
+        groupLastFirst(nranks, groups, group, nextGroup, values, ring, &source, &destination);
+      } else {
+        int prevGroup = (group-1+ngroups)%ngroups;
+        groupLastFirst(nranks, groups, prevGroup, group, values, ring, &destination, &source);
       }
       if (source == -1 || destination == -1) {
-        WARN("source %d dest %d, stopping\n", source, destination);
         *nringsRet = ring;
         return ncclSuccess;
       }
@@ -128,9 +148,22 @@ ncclResult_t netRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   
   struct netInfo* myInfo = (struct netInfo*)myOpaqueInfo;
   struct netInfo* peerInfo = (struct netInfo*)peerOpaqueInfo;
-  INFO("%d -> %d via NET/%s%s", peerInfo->rank, myInfo->rank, ncclNetName(), (resources->hostDevMem != NULL) ? "/GDCopy" : "");
+  int dev = 0;
+  int skip = ring->id;
+  while (skip) {
+    for (int d=0; d<myInfo->ndev; d++) {
+      if (myInfo->dists[d] == 0) {
+        if (skip == 0) {
+          dev = d;
+          break;
+        }
+        skip--;
+      }
+    }
+  }
+  INFO("%d -> %d via NET/%s/%d%s", peerInfo->rank, myInfo->rank, ncclNetName(), dev, (resources->hostDevMem != NULL) ? "/GDCopy" : "");
   struct netConnectInfo* info = (struct netConnectInfo*) connectInfo;
-  NCCLCHECK(ncclNetGetHandle(&info->netHandle, &resources->netRecvComm));
+  NCCLCHECK(ncclNetGetHandle(dev, &info->netHandle, &resources->netRecvComm));
   return ncclSuccess;
 }
 

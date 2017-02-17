@@ -95,12 +95,26 @@ ncclResult_t shmCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
   return ncclSuccess;
 }
 
+static inline int groupFirst(int nranks, int* groups, int group) {
+  for (int rank = 0; rank<nranks; rank++) {
+    if (groups[rank] == group) return rank;
+  }
+  return -1;
+}
+
+static inline int groupLast(int nranks, int* groups, int group) {
+  for (int rank = nranks-1; rank>=0; rank--) {
+    if (groups[rank] == group) return rank;
+  }
+  return -1;
+}
+
 ncclResult_t shmGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
-  if (pattern >= 2) {
+  if (pattern >= 1) {
     *nringsRet = 0;
     return ncclSuccess;
   }
-  *nringsRet = 1;
+  if (*nringsRet == MAXRINGS) *nringsRet = 1;
   for (int ring = 0; ring<*nringsRet; ring++) {
     for (int group = 0; group<ngroups; group++) {
       // Check if this group is already connected
@@ -110,11 +124,17 @@ ncclResult_t shmGetRings(int nranks, int ngroups, int* groups, int* values, int*
       }
       if (skip) continue;
 
-      int nextGroup = (group+1)%ngroups;
-      int source = groupLast(nranks, groups, group);
-      int destination = groupFirst(nranks, groups, nextGroup);
+      int source = -1, destination = -1;
+      if (ring % 2 == 0) {
+        int nextGroup = (group+1)%ngroups;
+        source = groupLast(nranks, groups, group);
+        destination = groupFirst(nranks, groups, nextGroup);
+      } else {
+        int prevGroup = (group-1+ngroups)%ngroups;
+        destination = groupLast(nranks, groups, prevGroup);
+        source = groupFirst(nranks, groups, group);
+      }
       if (source == -1 || destination == -1) {
-        WARN("source %d dest %d, stopping\n", source, destination);
         *nringsRet = ring;
         return ncclSuccess;
       }

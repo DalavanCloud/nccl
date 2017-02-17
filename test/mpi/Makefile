@@ -21,6 +21,8 @@ OBJ_FILES := ${SRC_FILES:%.cpp=${DST_DIR}/%.o}
 OBJ_FILES := ${OBJ_FILES:%.cu=${DST_DIR}/%.o}
 DEP_FILES := ${OBJ_FILES:%.o=%.dep}
 BIN    := ${DST_DIR}/mpi_test
+PBIN   := ${DST_DIR}/mpi_perf
+PBIN2  := ${DST_DIR}/mpi_perf2
 ###
 ifneq (clean,${MAKECMDGOALS})
 -include $(DEP_FILES)
@@ -37,13 +39,22 @@ ${DST_DIR}/%.dep: %.cu
 endif
 #
 .PHONY: all clean
-all : ${BIN}
+all : ${BIN} ${PBIN} ${PBIN2}
 #
 clean:
 	rm -rf ${DST_DIR}
 #
 ${BIN} : ${OBJ_FILES}
 	${NVCC} -o $@ ${NVLDFLAGS} $^
+#
+${PBIN} : mpi_perf.cu
+	${NVCC} -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
+#
+${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
+	mpicc -std=c99 -I$(BUILDDIR)/include/ -o $@ -c $<
+#
+${PBIN2} : mpi_perf.cu ${DST_DIR}/nccl_mpi.o
+	${NVCC} -o $@ $(NVCUFLAGS) -DMPI_TRANSPORT ${NVLDFLAGS} $^
 #
 ${DST_DIR}/%.o: %.cpp
 	${NVCC} -o $@ --compile $(NVCUFLAGS) $<
