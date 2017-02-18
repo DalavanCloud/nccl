@@ -61,10 +61,7 @@ ${DST_DIR}/%.o: %.cpp
 ${DST_DIR}/%.o: %.cu
 	${NVCC} -o $@ --compile $(NVCUFLAGS) $<
 #
-NVIDIASMI := $(or \
-	$(realpath /usr/bin/nvidia-smi),\
-	$(realpath /usr/local/nvidia/bin/nvidia-smi))
-GPU_COUNT := $(shell ${NVIDIASMI} -L|wc -l)
+GPU_COUNT ?= 2
 test: ${BIN}
 	cd ${BUILDDIR} && \
 	export LD_LIBRARY_PATH=$$LD_LIBRARY_PATH:./lib NCCL_DEBUG=WARN && \
