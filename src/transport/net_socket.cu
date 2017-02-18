@@ -86,7 +86,6 @@ static struct in_addr ncclNetIfAddrs[MAX_IFS];
 static int ncclNetIfs = -1;
 
 static int searchDevices(const char* ifNamePrefix) {
-  printf("Search devices %s\n", ifNamePrefix);
   bool searchNot = (strlen(ifNamePrefix) > 0 && ifNamePrefix[0] == '^');
   if (searchNot) /* Skip the '^' */ ifNamePrefix++;
   int found = 0;
