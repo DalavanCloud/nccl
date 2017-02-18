@@ -197,7 +197,7 @@ ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkState(device, link, isActive);
   if (ret != NVML_SUCCESS) {
-    WARN("nvmlDeviceGetNvLinkState() failed: %s ",
+    INFO("nvmlDeviceGetNvLinkState() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
   }
@@ -211,7 +211,7 @@ ncclResult_t wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDevice_t device, unsigned 
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkRemotePciInfo(device, link, pci);
   if (ret != NVML_SUCCESS) {
-    WARN("nvmlDeviceGetNvLinkRemotePciInfo() failed: %s ",
+    INFO("nvmlDeviceGetNvLinkRemotePciInfo() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
   }
@@ -226,7 +226,7 @@ ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkCapability(device, link, capability, capResult);
   if (ret != NVML_SUCCESS) {
-    WARN("nvmlDeviceGetNvLinkCapability() failed: %s ",
+    INFO("nvmlDeviceGetNvLinkCapability() failed: %s ",
       nvmlInternalErrorString(ret));
     return ncclSystemError;
   }
