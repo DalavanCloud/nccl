@@ -205,8 +205,12 @@ int ncclSocketIrecv(void* recvComm, void* data, int size, void** request) {
 }
 
 int ncclSocketTest(void* request, int* done, int* size) {
+  int *r = (int*)request;
   *done = 1;
-  if (size && request) *size = *(int*)request;
+  if (r) {
+    if (size) *size = *r;
+    ncclSocketFreeRequest(r);
+  }
   return 0;
 }
 
