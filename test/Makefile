@@ -1,9 +1,9 @@
-.DEFAULT_GOAL: all
+.DEFAULT_GOAL: build
 DIRS := apitest single unit perf
 ifeq ($(MPI),1)
 DIRS += mpi
 endif
-all: ${DIRS:%=%.build}
+build: ${DIRS:%=%.build}
 clean: ${DIRS:%=%.clean}
 
 %.build:gtest

@@ -13,7 +13,9 @@ DEB_REVISION   ?= 1
 DEB_TIMESTAMP  := $(shell date -R)
 DEB_ARCH       ?= amd64
 
-all: $(DEBTARGETS)
+build : $(DEBTARGETS)
+
+package : build
 	@printf "Building Debian package\n"
 	(cd $(BUILDDIR); debuild -eLD_LIBRARY_PATH -uc -us -d -b)
 	mkdir -p $(BUILDDIR)/deb/
@@ -35,6 +37,6 @@ $(DEBIANDIR)/% : %.in
 	    $< > $@
 
 $(DEBIANDIR)/% : %
-	@printf "Grabbing  %-35s > %s\n" n$< $@
+	@printf "Grabbing  %-35s > %s\n" $< $@
 	mkdir -p $(DEBIANDIR)
 	cp -f $< $@

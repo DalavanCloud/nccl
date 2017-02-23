@@ -12,7 +12,10 @@ all:   ${TARGETS:%=%.build}
 clean: ${TARGETS:%=%.clean}
 debian.build fortran.build test.build: src.build
 %.build:
-	${MAKE} -C $* all
+	${MAKE} -C $* build
 
 %.clean:
 	${MAKE} -C $* clean
+
+deb: debian.build
+	${MAKE} -C debian package

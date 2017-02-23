@@ -25,7 +25,7 @@ LIBOBJ     := $(LIBSRCFILES:%.cu=$(OBJDIR)/%.o)
 DEPFILES   := $(LIBOBJ:%.o=%.d)
 
 ##### rules
-all : lib staticlib
+build : lib staticlib
 
 lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET)
 
