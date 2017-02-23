@@ -34,7 +34,7 @@ test: ${DST_DIR}/apitest
 	/bin/bash -c "LD_LIBRARY_PATH+=:$(LIBDIR) $^"
 
 ${DST_DIR}/apitest:${OBJ_FILES}
-	${NVCC} -o $@ ${NVLDFLAGS} $^
+	${NVCC} -o $@ ${NVCUFLAGS} ${NVLDFLAGS} $^
 
 ${DST_DIR}/%.o: %.cu
 	@mkdir -p ${DST_DIR}
