@@ -135,7 +135,7 @@ struct ncclComm {
   ncclResult_t res = call; \
   if (res != ncclSuccess) { \
     /* Print the back trace*/ \
-    WARN(""); \
+    WARN("< ... >"); \
     return res; \
   } \
 } while (0);

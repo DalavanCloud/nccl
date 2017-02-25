@@ -261,7 +261,18 @@ int main(int argc, char* argv[]) {
   }
 
   ncclComm_t* comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nDev);
+#if 1
+  ncclUniqueId id;
+  NCCLCHECK(ncclGetUniqueId(&id));
+  NCCLCHECK(ncclGroupStart());
+  for (int i=0; i<nDev; i++) {
+    CUDACHECK(cudaSetDevice(dList[i]));
+    NCCLCHECK(ncclCommInitRank(comms+i, nDev, id, i));
+  }
+  NCCLCHECK(ncclGroupEnd());
+#else
   NCCLCHECK(ncclCommInitAll(comms, nDev, dList.data()));
+#endif
 
   if (!csv) {
     printf("# Using devices\n");

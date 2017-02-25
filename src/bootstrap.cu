@@ -74,8 +74,9 @@ ncclResult_t bootstrapInit(ncclUniqueId* commId, int rank, int nranks, void** co
 
     /* Receive addresses from all ranks */
     for (int c=0; c<nranks-1; c++) {
+      NCCLCHECK(ncclNetAccept(state->extRecvComm));
       NCCLCHECK(ncclNetRecv(state->extRecvComm, &info, sizeof(info)));
-      NCCLCHECK(ncclNetConnectHandle(info.extHandle, state->extSendComm+info.rank));
+      NCCLCHECK(ncclNetConnectHandle(0, info.extHandle, state->extSendComm+info.rank));
     }
     for (int r=0; r<nranks; r++) {
       if (r == rank) continue;
@@ -88,8 +89,9 @@ ncclResult_t bootstrapInit(ncclUniqueId* commId, int rank, int nranks, void** co
     struct extInfo info;
     info.rank = rank;
     NCCLCHECK(ncclNetGetHandle(0, &info.extHandle, &state->extRecvComm));
-    NCCLCHECK(ncclNetConnectHandle(id->extHandle, state->extSendComm));
+    NCCLCHECK(ncclNetConnectHandle(0, id->extHandle, state->extSendComm));
     NCCLCHECK(ncclNetSend(state->extSendComm[0], &info, sizeof(info)));
+    NCCLCHECK(ncclNetAccept(state->extRecvComm));
     int dummy;
     NCCLCHECK(ncclNetRecv(state->extRecvComm, &dummy, sizeof(int)));
   }

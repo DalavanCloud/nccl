@@ -5,10 +5,12 @@
  ************************************************************************/
 
 #include "nvmlwrap.h"
+
+#ifndef NVML_DIRECT
 #include <dlfcn.h>
 #include "core.h"
 
-int nvmlSymbolsLoaded = 0;
+static enum { nvmlUninitialized, nvmlInitializing, nvmlInitialized, nvmlError } nvmlState = nvmlUninitialized;
 
 static nvmlReturn_t (*nvmlInternalInit)(void);
 static nvmlReturn_t (*nvmlInternalShutdown)(void);
@@ -24,9 +26,16 @@ static nvmlReturn_t (*nvmlInternalDeviceGetNvLinkCapability)(nvmlDevice_t device
                                                    nvmlNvLinkCapability_t capability, unsigned int *capResult);
 
 ncclResult_t wrapNvmlSymbols(void) {
-
-  if (nvmlSymbolsLoaded)
+  if (nvmlState == nvmlInitialized)
     return ncclSuccess;
+  if (nvmlState == nvmlError)
+    return ncclSystemError;
+
+  if (__sync_bool_compare_and_swap(&nvmlState, nvmlUninitialized, nvmlInitializing) == false) {
+    // Another thread raced in front of us. Wait for it to be done.
+    while (nvmlState == nvmlInitializing) pthread_yield();
+    return (nvmlState == nvmlInitialized) ? ncclSuccess : ncclSystemError;
+  }
 
   static void* nvmlhandle = NULL;
   void* tmp;
@@ -72,7 +81,7 @@ ncclResult_t wrapNvmlSymbols(void) {
   LOAD_SYM_OPTIONAL(nvmlhandle, "nvmlDeviceGetNvLinkRemotePciInfo", nvmlInternalDeviceGetNvLinkRemotePciInfo);
   LOAD_SYM_OPTIONAL(nvmlhandle, "nvmlDeviceGetNvLinkCapability", nvmlInternalDeviceGetNvLinkCapability);
 
-  nvmlSymbolsLoaded = 1;
+  nvmlState = nvmlInitialized;
   return ncclSuccess;
 
   teardown:
@@ -88,6 +97,7 @@ ncclResult_t wrapNvmlSymbols(void) {
   nvmlInternalDeviceGetNvLinkCapability = NULL;
 
   if (nvmlhandle != NULL) dlclose(nvmlhandle);
+  nvmlState = nvmlError;
   return ncclSystemError;
 }
 
@@ -232,4 +242,4 @@ ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int
   }
   return ncclSuccess;
 }
-
+#endif

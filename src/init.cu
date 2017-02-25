@@ -12,6 +12,7 @@
 #include "common_coll.h"
 #include "group.h"
 #include "utils.h"
+#include "net.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -29,8 +30,29 @@ pthread_mutex_t ncclDebugOutputLock;
 
 int ncclPrintCRCs;
 
+extern "C" __attribute__ ((visibility("default")))
+ncclNet_t* ncclNet = NULL;
+
+void initNet() {
+  if (ncclNet != NULL) {
+    INFO("Using external Network %s", ncclNetName());
+  } else {
+    ncclNet = ncclIbSupport() ? &ncclNetIb : &ncclNetSocket;
+    INFO("Using internal Network %s", ncclNetName());
+  }
+}
+
+pthread_mutex_t initLock = PTHREAD_MUTEX_INITIALIZER;
+static bool initialized = false;
 static ncclResult_t ncclInit() {
-  initDebug();
+  if (initialized) return ncclSuccess;
+  pthread_mutex_lock(&initLock);
+  if (!initialized) {
+    initDebug();
+    initNet();
+    initialized = true;
+  }
+  pthread_mutex_unlock(&initLock);
   return ncclSuccess;
 }
 
@@ -291,7 +313,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   NCCLCHECK(bootstrapInit(commId, rank, nranks, &commState));
   
   struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
-  fillInfo(allInfo+rank, rank);
+  NCCLCHECK(fillInfo(allInfo+rank, rank));
   NCCLCHECK(bootstrapAllGather(commState, allInfo, sizeof(struct ncclInfo)));
   int connectTransport[nranks*nranks];
   int connectValue[nranks*nranks];
@@ -330,8 +352,8 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     struct ncclConnect connect[2];
     NCCLCHECK(setupRing(comm, ring, r, rank, nranks, ringRanks, allInfo, connect));
     NCCLCHECK(bootstrapRingExchange(commState, connect, ring->userRanks[nranks-1], ring->userRanks[1], sizeof(struct ncclConnect)));
-    NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
     NCCLCHECK(ring->send.transport->send.connect(connect+1, &ring->send));
+    NCCLCHECK(ring->recv.transport->recv.connect(connect+0, &ring->recv));
   }
   free(allInfo);
 
@@ -369,6 +391,8 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   return ncclSuccess;
 }
 
+//#include "nvml.h"
+
 ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   NCCLCHECK(wrapNvmlSymbols());
   NCCLCHECK(wrapNvmlInit());
@@ -380,17 +404,12 @@ ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId co
   NCCLCHECK(wrapNvmlDeviceGetHandleByIndex(cudaDev, &nvmlDevice));
   NCCLCHECK(wrapNvmlDeviceSetCpuAffinity(nvmlDevice));
 
-  ncclResult_t res = commAlloc(newcomm, ndev, myrank);
-  if (res != ncclSuccess) {
-    WARN("rank %d failed to allocate communicator", myrank);
-    return res;
-  }
+  NCCLCHECK(commAlloc(newcomm, ndev, myrank));
   NCCLCHECK(initTransportsRank(*newcomm, &commId));
   NCCLCHECK(devCommSetup(*newcomm));
 
   NCCLCHECK(wrapNvmlDeviceClearCpuAffinity(nvmlDevice));
-  if (wrapNvmlShutdown() != ncclSuccess)
-    INFO("rank %d did not shutdown nvml properly", myrank);
+  NCCLCHECK(wrapNvmlShutdown());
   return ncclSuccess;
 }
 
@@ -398,6 +417,10 @@ NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniq
 ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   NCCLCHECK(ncclInit());
   if (myrank == 0) showVersion();
+
+  // It seems we need to call this so that NVML doesn't crash later with error
+  // 999.
+  CUDACHECK(cudaFree(NULL));
 
   NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));
   if (ndev < 1) {
@@ -418,7 +441,7 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   struct ncclInfo* allInfo = (struct ncclInfo*)malloc(sizeof(struct ncclInfo)*nranks);
   for (int rank=0; rank<nranks; rank++) {
     cudaSetDevice(devs[rank]);
-    fillInfo(allInfo+rank, rank);
+    NCCLCHECK(fillInfo(allInfo+rank, rank));
   }
 
   int connectTransport[nranks*nranks];
@@ -468,8 +491,8 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
     for (int rank=0; rank<nranks; rank++) {
       CUDACHECK(cudaSetDevice(devs[rank]));
       struct ncclRing *ring = comms[rank]->rings+r;
-      NCCLCHECK(ring->recv.transport->recv.connect(connect+2*rank+0, &ring->recv));
       NCCLCHECK(ring->send.transport->send.connect(connect+2*rank+1, &ring->send));
+      NCCLCHECK(ring->recv.transport->recv.connect(connect+2*rank+0, &ring->recv));
     }
   }
   free(allInfo);

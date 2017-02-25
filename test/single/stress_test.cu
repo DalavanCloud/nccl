@@ -38,7 +38,7 @@
 
 #define MAX_POW2 27 // 128 MB
 #define NREPS 4
-//#define CHECK 1
+#define CHECK 1
 
 int nDev;
 int* devList;
@@ -109,10 +109,10 @@ int testBcast(int count, ncclDataType_t type, int op, int root, int nranks, nccl
 #endif
 
   for (int rep=0; rep<NREPS; ++rep) {
-    for (int i=0; i<nranks; ++i) {
-      CUDACHECK(cudaSetDevice(devList[i]));
+    ncclGroupStart();
+    for (int i=0; i<nranks; ++i)
       ncclBcast((i == root) ? sendbuff[i] : recvbuff[i], count, (ncclDataType_t)type, root, comms[i], streams[i]);
-    }
+    ncclGroupEnd();
   }
 #ifdef CHECK
   for (int i=0; i<nranks; ++i) {
@@ -129,6 +129,7 @@ int testBcast(int count, ncclDataType_t type, int op, int root, int nranks, nccl
 int testAllGather(int count, ncclDataType_t type, int op, int root, int nranks, ncclComm_t *comms) {
   int errors = 0;
   int sendcount = (count + nranks - 1) / nranks;
+  if (sendcount == 0) sendcount = 1;
   int recvcount = sendcount * nranks;
   int sendnbytes = sendcount*wordSize(type);
   int recvnbytes = recvcount*wordSize(type);
@@ -142,10 +143,10 @@ int testAllGather(int count, ncclDataType_t type, int op, int root, int nranks, 
 #endif
 
   for (int rep=0; rep<NREPS; ++rep) {
-    for (int i=0; i<nranks; ++i) {
-      CUDACHECK(cudaSetDevice(devList[i]));
+    ncclGroupStart();
+    for (int i=0; i<nranks; ++i)
       ncclAllGather(sendbuff[i], recvbuff[i], sendcount, (ncclDataType_t)type, comms[i], streams[i]);
-    }
+    ncclGroupEnd();
   }
 #ifdef CHECK
   for (int i=0; i<nranks; ++i) {
@@ -191,10 +192,10 @@ int testAllReduce(int count, ncclDataType_t type, int op, int root, int nranks, 
 #endif
 
   for (int rep=0; rep<NREPS; ++rep) {
-    for (int i=0; i<nranks; ++i) {
-      CUDACHECK(cudaSetDevice(devList[i]));
+    ncclGroupStart();
+    for (int i=0; i<nranks; ++i)
       ncclAllReduce(sendbuff[i], recvbuff[i], count, (ncclDataType_t)type, (ncclRedOp_t)op, comms[i], streams[i]);
-    }
+    ncclGroupEnd();
   }
 #ifdef CHECK
   for (int i=0; i<nranks; ++i) {
@@ -244,10 +245,10 @@ int testReduce(int count, ncclDataType_t type, int op, int root, int nranks, ncc
 #endif
 
   for (int rep=0; rep<NREPS; ++rep) {
-    for (int i=0; i<nranks; ++i) {
-      CUDACHECK(cudaSetDevice(devList[i]));
+    ncclGroupStart();
+    for (int i=0; i<nranks; ++i)
       ncclReduce(sendbuff[i], recvbuff[i], count, (ncclDataType_t)type, (ncclRedOp_t)op, root, comms[i], streams[i]);
-    }
+    ncclGroupEnd();
   }
 #ifdef CHECK
   for (int i=0; i<nranks; i++) {
@@ -266,6 +267,60 @@ int testReduce(int count, ncclDataType_t type, int op, int root, int nranks, ncc
   return errors;
 }
 
+int testReduceScatter(int count, ncclDataType_t type, int op, int root, int nranks, ncclComm_t *comms) {
+  int errors = 0;
+  int recvcount = (count+nranks-1)/nranks;
+  if (recvcount == 0) recvcount = 1;
+  int sendcount = recvcount * nranks;
+  int nbytes = sendcount*wordSize(type);
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
+    CUDACHECK(cudaSetDevice(devList[i]));
+    RandomizeType(type, sendbuff[i], sendcount, i);
+    if(i == 0) {
+      CUDACHECK(cudaMemcpy(reference, sendbuff[i], nbytes, cudaMemcpyDeviceToHost));
+    } else {
+      AccumulateType(type, reference, sendbuff[i], sendcount, (ncclRedOp_t)op);
+    }
+    CUDACHECK(cudaMemset(recvbuff[i], 0, nbytes));
+  }
+#endif
+  for (int rep=0; rep<NREPS; ++rep) {
+    ncclGroupStart();
+    for (int i=0; i<nranks; ++i)
+      ncclReduceScatter(sendbuff[i], recvbuff[i], recvcount, (ncclDataType_t)type, (ncclRedOp_t)op, comms[i], streams[i]);
+    ncclGroupEnd();
+  }
+#ifdef CHECK
+  for (int i=0; i<nranks; ++i) {
+    CUDACHECK(cudaSetDevice(devList[i]));
+    CUDACHECK(cudaStreamSynchronize(streams[i]));
+    double delta = CheckTypeDelta(type, recvbuff[i], reference+recvcount*i*wordSize(type), recvcount);
+    if (delta > deltaMaxValue(type, 1)*nranks) {
+      errors++;
+      printf("ReduceScatter size %d, type %d, op %d : delta %g\n", count, type, op, delta);
+#ifdef DEBUG_DETAILS
+      CUDACHECK(cudaMemcpy(results, recvbuff[i], recvcount*wordSize(type), cudaMemcpyDeviceToHost));
+      for (int c=1; c<recvcount; c++) {
+	if (type == ncclFloat) {
+          float res = *((float*)results+c), ref = *((float*)reference+c);
+          if (fabs(res-ref) > deltaMaxValue(type, 1)*nranks) printf("[%d/%3d] %f != %f (+%f)\n", i, c, res, ref, (ref-res)/ref);
+        } else if (type == ncclDouble) {
+          double res = *((double*)results+c), ref = *((double*)reference+c);
+          if (fabs(ref-res) > deltaMaxValue(type, 1)*nranks) printf("[%d/%3d] %g != %g (+%g)\n", i, c, res, ref, (ref-res)/ref);
+        } else if (c*8 < count*wordSize(type)) {
+          uint64_t res = *((uint64_t*)results+c), ref = *((uint64_t*)reference+c);
+          if (res != ref) printf("[%d/%3d] %16lX != %16lX\n", i, c, res, ref);
+        }
+      }
+#endif
+    }
+  }
+#endif
+  return errors;
+}
+
+
 #define NCCL_PRIMS 5
 
 test_func_t ncclPrims[NCCL_PRIMS] = {
@@ -273,23 +328,25 @@ test_func_t ncclPrims[NCCL_PRIMS] = {
   testReduce,
   testAllReduce,
   testAllGather,
-  NULL,//testReduceScatter
+  testReduceScatter
 };
 
 int ncclTest(ncclComm_t ** comms) {
   int errors = 0;
   int nccl_prim = rand() % NCCL_PRIMS;
   // Use MAX_POW2-3 because datatypes are up to 8-bytes wide
-  int size_pow2 = rand() % (MAX_POW2-3); 
+  int size_pow2 = rand() % (MAX_POW2);
   int size = (1<<size_pow2) + rand() % (1<<size_pow2);
   ncclDataType_t type = (ncclDataType_t)( rand() % ncclNumTypes );
+  size /= wordSize(type);
+  if (size == 0) size = 1;
   int op = rand() % ncclNumOps;
   int commidx = rand() % nDev;
   int nranks = commidx + 1;
   int root = rand() % nranks;
   if (type == 2) return 0; // ncclHalf not supported
   if (ncclPrims[nccl_prim]) {
-    printf("Prim %d size %d type %d op %d nranks %d root %d\n", nccl_prim, size, type, op, commidx+1, root);
+    //printf("Prim %d size %d type %d op %d nranks %d root %d\n", nccl_prim, size, type, op, commidx+1, root);
     errors += ncclPrims[nccl_prim](size, type, op, root, nranks, comms[commidx]);
   }
   return errors;
@@ -314,9 +371,7 @@ int main(int argc, char* argv[]) {
       exit(EXIT_FAILURE);
     }
   } else {
-    printf("Error: must specify at least time in seconds!\n\n");
-    usage();
-    exit(EXIT_FAILURE);
+    T = -1;
   }
 
   nDev = nVis;
@@ -372,16 +427,32 @@ int main(int argc, char* argv[]) {
   gettimeofday(&tv, NULL);
   int sec_now = tv.tv_sec;
   int sec_start = sec_now;
+  int sec_reset = sec_start;
   srand(sec_start);
   int testcount = 0;
   int errors = 0;
 
-  printf("==== Test starting ====\n");
-  while (sec_now <= sec_start + T) {
+  if (T == -1)
+    printf("==== Test starting, time : unlimited ====\n");
+  else
+    printf("==== Test starting, time : %d seconds ====\n", T);
+
+  while (T == -1 || sec_now <= sec_start + T) {
     errors += ncclTest(comms);
+    if (T == -1 && errors) break;
     gettimeofday(&tv, NULL);
     sec_now = tv.tv_sec;
     testcount++;
+    if (sec_now > sec_reset + 2) {
+#ifndef CHECK
+      for(int i=0; i<nDev; ++i) {
+        CUDACHECK(cudaSetDevice(devList[i]));
+        CUDACHECK(cudaStreamSynchronize(streams[i]));
+      }
+#endif
+      printf("%d tests done, %d errors\n", testcount, errors);
+      sec_reset = sec_now;
+    }
   }
 
 #ifndef CHECK
@@ -391,9 +462,8 @@ int main(int argc, char* argv[]) {
   }
 #endif
 
-  printf("==== Test done ====\n");
-  printf("%d tests done\n", testcount);
-  printf("%d errors\n", errors);
+  printf("==== End of test ====\n");
+  printf("%d tests done, %d errors\n", testcount, errors);
   for (int i=0; i<nDev; i++) {
     for(int j=0; j<i; j++) {
       ncclCommDestroy(comms[i][j]);

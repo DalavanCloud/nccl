@@ -8,6 +8,22 @@
 #include <pthread.h>
 #include <cstdio>
 
+#ifdef MPI_TRANSPORT
+extern "C" {
+void ncclMpiHook(MPI_Comm comm);
+void ncclMpiLock();
+void ncclMpiUnlock();
+}
+
+#define MPI_PROTECT(mpicall) do { \
+  ncclMpiLock(); \
+  mpicall; \
+  ncclMpiUnlock(); \
+} while(0)
+#else
+#define MPI_PROTECT(mpicall) mpicall
+#endif
+
 thread_local int is_main_thread = 0;
 
 double DeltaMaxValue(ncclDataType_t type) {
@@ -299,11 +315,6 @@ void Accumulate(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op)
   }
 }
 
-#ifdef MPI_TRANSPORT
-extern "C"
-void ncclMpiHook(MPI_Comm comm);
-#endif
-
 void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type, ncclRedOp_t op, int seed, int rank) {
   Randomize(data, count, type, seed);
   if (rank == 0) {
@@ -349,10 +360,10 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
     CUDACHECK(cudaHostGetDevicePointer(&remote, remoteHost, 0));
     for (int i=0; i<args->nProcs; i++) {
       if (i == args->proc) {
-        MPI_Bcast(myInitialData, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+        MPI_PROTECT(MPI_Bcast(myInitialData, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD));
         free(myInitialData);
       } else {
-        MPI_Bcast(remoteHost, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+        MPI_PROTECT(MPI_Bcast(remoteHost, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD));
         Accumulate(args->expected, remote, count, type, op);
         cudaDeviceSynchronize();
       }

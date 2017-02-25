@@ -16,8 +16,11 @@ double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op,
     CheckDelta(args->recvbuffs[i], args->expected, count, type, args->delta);
     cudaDeviceSynchronize();
     maxDelta = std::max(*(args->deltaHost), maxDelta);
+    if (maxDelta > DeltaMaxValue(type)) {
+      printf("Error rank%d/thread%d/gpu%d Delta = %g > %g\n", args->proc, args->thread, i, maxDelta, DeltaMaxValue(type));
+      args->errors[0]++;
+    }
   }
-  if (maxDelta > DeltaMaxValue(type)) args->errors[0]++;
   return maxDelta;
 }
 

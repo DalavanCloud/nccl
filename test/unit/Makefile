@@ -3,7 +3,7 @@ include ../../makefiles/common.mk
 BUILDDIR := $(abspath ../../build)
 # We need private functions. Include and link with src
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
-LIBRARIES += cuda
+LIBRARIES += cuda ibverbs
 NVLDFLAGS += $(BUILDDIR)/obj/*.o $(BUILDDIR)/obj/*/*.o -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 ##
 DST_DIR := $(abspath ${BUILDDIR}/test/unit)
