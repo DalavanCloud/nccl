@@ -32,6 +32,7 @@ struct netSendResources {
 };
 
 struct netRecvResources {
+  void* netListenComm;
   void* netRecvComm;
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
@@ -180,7 +181,7 @@ ncclResult_t netRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
       resources->cudaSupport ? "/GDRDMA" : "", 
       (resources->hostDevMem != NULL) ? "/GDCopy" : "");
   struct netConnectInfo* info = (struct netConnectInfo*) connectInfo;
-  NCCLCHECK(ncclNetGetHandle(dev, &info->netHandle, &resources->netRecvComm));
+  NCCLCHECK(ncclNetListen(dev, &info->netHandle, &resources->netListenComm));
   info->dev = dev;
   return ncclSuccess;
 }
@@ -198,7 +199,7 @@ ncclResult_t netSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
 
   // Connect to remote peer
   struct netConnectInfo* info = (struct netConnectInfo*)connectInfo;
-  NCCLCHECK(ncclNetConnectHandle(info->dev, info->netHandle, &resources->netSendComm));
+  NCCLCHECK(ncclNetConnect(info->dev, info->netHandle, &resources->netSendComm));
   return ncclSuccess;
 }
 
@@ -218,7 +219,8 @@ ncclResult_t netRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   }
 
   // Finish connection establishment
-  NCCLCHECK(ncclNetAccept(resources->netRecvComm));
+  NCCLCHECK(ncclNetAccept(resources->netListenComm, &resources->netRecvComm));
+  NCCLCHECK(ncclNetCloseListen(resources->netListenComm));
 
   // Setup remote MPI rank / tag
   return ncclSuccess;

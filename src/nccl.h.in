@@ -164,13 +164,13 @@ ncclResult_t ncclGroupEnd();
 
 // Inter-node transport to replace the default socket-based transport.
 // An example using MPI can be found in share/nccl_mpi.c.
-#define NCCL_NET_HANDLE_MAXSIZE 32
+#define NCCL_NET_HANDLE_MAXSIZE 64
 
 #define NCCL_PTR_HOST 0x1
 #define NCCL_PTR_CUDA 0x2
 
 typedef struct {
-  // Return the name of the network
+  // Name of the network (mainly for logs)
   const char* name;
   // Return whether this transport supports host pointers and/or CUDA pointers
   // as data. Supported types should be composed with NCCL_PTR_HOST and 
@@ -183,22 +183,21 @@ typedef struct {
   // Create a receiving object and provide a handle to connect to it. The 
   // handle can be up to NCCL_NET_HANDLE_MAXSIZE bytes and will be exchanged 
   // between ranks to create a connection.
-  int (*getHandle)(int dev, void* handle, void** recvComm);
+  int (*listen)(int dev, void* handle, void** listenComm);
   // Connect to a handle and return a sending comm object for that peer.
-  int (*connectHandle)(int dev, void* handle, void** sendComm);
+  int (*connect)(int dev, void* handle, void** sendComm);
   // Finalize connection establishment after remote peer has called connectHandle
-  int (*accept)(void* recvComm);
-  // Asynchronous send to a peer. Type is composed using NCCL_PTR_HOST and 
-  // NCCL_PTR_CUDA.
-  int (*iSend)(void* sendComm, void* data, int size, int type, void** request);
-  // Asynchronous recv from a peer. Type is composed using NCCL_PTR_HOST and 
-  // NCCL_PTR_CUDA.
-  int (*iRecv)(void* recvComm, void* data, int size, int type, void** request);
+  int (*accept)(void* listenComm, void** recvComm);
+  // Asynchronous send to a peer. Type is either NCCL_PTR_HOST or NCCL_PTR_CUDA.
+  int (*isend)(void* sendComm, void* data, int size, int type, void** request);
+  // Asynchronous recv from a peer. Type is either NCCL_PTR_HOST or NCCL_PTR_CUDA.
+  int (*irecv)(void* recvComm, void* data, int size, int type, void** request);
   // Test whether a request is complete and return the size received (can be less than requested).
   int (*test)(void* request, int* done, int* size);
   // Close and free send/recv comm objects
   int (*closeSend)(void* sendComm);
   int (*closeRecv)(void* recvComm);
+  int (*closeListen)(void* listenComm);
 } ncclNet_t;
 
 extern ncclNet_t* ncclNet;

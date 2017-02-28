@@ -14,7 +14,7 @@
 
 struct extId {
   ncclNetHandle_t extHandle;
-  void* extRecvComm;
+  void* extListenComm;
   uint64_t hostHash;
   pid_t pid;
   int* lock;
@@ -27,7 +27,7 @@ ncclResult_t bootstrapGetUniqueId(ncclUniqueId* out) {
 
   char hostname[1024];
   getHostName(hostname, 1024);
-  NCCLCHECK(ncclNetGetHandle(0, &id->extHandle, &id->extRecvComm));
+  NCCLCHECK(ncclNetListen(0, &id->extHandle, &id->extListenComm));
   id->hostHash = getHostHash(hostname);
   id->pid = getpid();
   id->lock = (int*)malloc(sizeof(int));
@@ -41,7 +41,7 @@ struct extInfo {
 };
 
 struct extState {
-  void* extRecvComm;
+  void** extRecvComm;
   void** extSendComm;
   int root;
   int rank;
@@ -68,32 +68,31 @@ ncclResult_t bootstrapInit(ncclUniqueId* commId, int rank, int nranks, void** co
 
   if (state->root) {
     state->extSendComm = (void**)malloc(nranks*sizeof(void*));
-    state->extRecvComm = id->extRecvComm;
+    state->extRecvComm = (void**)malloc(nranks*sizeof(void*));
     /* Fill my info */
     struct extInfo info;
 
     /* Receive addresses from all ranks */
     for (int c=0; c<nranks-1; c++) {
-      NCCLCHECK(ncclNetAccept(state->extRecvComm));
-      NCCLCHECK(ncclNetRecv(state->extRecvComm, &info, sizeof(info)));
-      NCCLCHECK(ncclNetConnectHandle(0, info.extHandle, state->extSendComm+info.rank));
+      void* tmpRecvComm;
+      NCCLCHECK(ncclNetAccept(id->extListenComm, &tmpRecvComm));
+      NCCLCHECK(ncclNetRecv(tmpRecvComm, &info, sizeof(info)));
+      state->extRecvComm[info.rank] = tmpRecvComm;
+      NCCLCHECK(ncclNetConnect(0, info.extHandle, state->extSendComm+info.rank));
     }
-    for (int r=0; r<nranks; r++) {
-      if (r == rank) continue;
-      // Just for sync
-      NCCLCHECK(ncclNetSend(state->extSendComm[r], &rank, sizeof(int)));
-    }
+    NCCLCHECK(ncclNetCloseListen(id->extListenComm));
     free(id->lock);
   } else {
     state->extSendComm = (void**)malloc(sizeof(void*));
+    state->extRecvComm = (void**)malloc(sizeof(void*));
     struct extInfo info;
     info.rank = rank;
-    NCCLCHECK(ncclNetGetHandle(0, &info.extHandle, &state->extRecvComm));
-    NCCLCHECK(ncclNetConnectHandle(0, id->extHandle, state->extSendComm));
+    void* tmpListenComm;
+    NCCLCHECK(ncclNetListen(0, &info.extHandle, &tmpListenComm));
+    NCCLCHECK(ncclNetConnect(0, id->extHandle, state->extSendComm));
     NCCLCHECK(ncclNetSend(state->extSendComm[0], &info, sizeof(info)));
-    NCCLCHECK(ncclNetAccept(state->extRecvComm));
-    int dummy;
-    NCCLCHECK(ncclNetRecv(state->extRecvComm, &dummy, sizeof(int)));
+    NCCLCHECK(ncclNetAccept(tmpListenComm, state->extRecvComm));
+    NCCLCHECK(ncclNetCloseListen(tmpListenComm));
   }
   return ncclSuccess;
 }
@@ -103,21 +102,16 @@ ncclResult_t bootstrapAllGather(void* commState, void* allData, int size) {
   char* data = (char*)allData;
   if (state->root) {
     for (int r=0; r<state->nranks; r++) {
-      if (r != state->rank) { 
-        int go = 1;
-        NCCLCHECK(ncclNetSend(state->extSendComm[r], &go, sizeof(int)));
-	NCCLCHECK(ncclNetRecv(state->extRecvComm, data+r*size, size));
-      }
+      if (r == state->rank) continue; 
+      NCCLCHECK(ncclNetRecv(state->extRecvComm[r], data+r*size, size));
     }
     for (int r=0; r<state->nranks; r++) {
       if (r == state->rank) continue;
       NCCLCHECK(ncclNetSend(state->extSendComm[r], data, size*state->nranks));
     }
   } else {
-    int go;
-    NCCLCHECK(ncclNetRecv(state->extRecvComm, &go, sizeof(int)));
     NCCLCHECK(ncclNetSend(state->extSendComm[0], data+state->rank*size, size));
-    NCCLCHECK(ncclNetRecv(state->extRecvComm, data, size*state->nranks));
+    NCCLCHECK(ncclNetRecv(state->extRecvComm[0], data, size*state->nranks));
   }
   return ncclSuccess;
 }
@@ -127,15 +121,13 @@ ncclResult_t bootstrapRingExchange(void* commState, void* prevNextData, int prev
   char* mydata = (char*)prevNextData;
   int prev_offset = prev*2*size+size, next_offset = next*2*size;
   if (state->root) {
-    int go = 1;
     char* data = (char*)malloc(size*2*state->nranks);
     // Receive from all and build total table
     for (int r=0; r<state->nranks; r++) {
       if (r == state->rank) {
         memcpy(data+r*2*size, mydata, 2*size);
       } else {
-        NCCLCHECK(ncclNetSend(state->extSendComm[r], &go, sizeof(int)));
-	NCCLCHECK(ncclNetRecv(state->extRecvComm, data+r*2*size, 2*size));
+	NCCLCHECK(ncclNetRecv(state->extRecvComm[r], data+r*2*size, 2*size));
       }
     }
 
@@ -146,26 +138,22 @@ ncclResult_t bootstrapRingExchange(void* commState, void* prevNextData, int prev
         memcpy(mydata+size, data+next_offset, size);
       } else {
 	int offset;
-        NCCLCHECK(ncclNetSend(state->extSendComm[r], &go, sizeof(int)));
-	NCCLCHECK(ncclNetRecv(state->extRecvComm, &offset, sizeof(int)));
+	NCCLCHECK(ncclNetRecv(state->extRecvComm[r], &offset, sizeof(int)));
 	NCCLCHECK(ncclNetSend(state->extSendComm[r], data+offset, size));
-	NCCLCHECK(ncclNetRecv(state->extRecvComm, &offset, sizeof(int)));
+	NCCLCHECK(ncclNetRecv(state->extRecvComm[r], &offset, sizeof(int)));
 	NCCLCHECK(ncclNetSend(state->extSendComm[r], data+offset, size));
       }
     }
     free(data);
   } else {
-    int go;
-    NCCLCHECK(ncclNetRecv(state->extRecvComm, &go, sizeof(int)));
     // Send data to root
     NCCLCHECK(ncclNetSend(state->extSendComm[0], mydata, 2*size));
 
     // Receive prev and next data
-    NCCLCHECK(ncclNetRecv(state->extRecvComm, &go, sizeof(int)));
     NCCLCHECK(ncclNetSend(state->extSendComm[0], &prev_offset, sizeof(int)));
-    NCCLCHECK(ncclNetRecv(state->extRecvComm, mydata, size));
+    NCCLCHECK(ncclNetRecv(state->extRecvComm[0], mydata, size));
     NCCLCHECK(ncclNetSend(state->extSendComm[0], &next_offset, sizeof(int)));
-    NCCLCHECK(ncclNetRecv(state->extRecvComm, mydata+size, size));
+    NCCLCHECK(ncclNetRecv(state->extRecvComm[0], mydata+size, size));
   }
   return ncclSuccess;
 }
@@ -175,17 +163,15 @@ ncclResult_t bootstrapClose(void* commState) {
   if (state->root) {
     for (int r=0; r<state->nranks; r++) {
       if (r == state->rank) continue;
-      int go = 1;
-      NCCLCHECK(ncclNetSend(state->extSendComm[r], &go, sizeof(int)));
       NCCLCHECK(ncclNetCloseSend(state->extSendComm[r]));
+      NCCLCHECK(ncclNetCloseRecv(state->extRecvComm[r]));
     }
   } else {
-    int go;
-    NCCLCHECK(ncclNetRecv(state->extRecvComm, &go, sizeof(int)));
     NCCLCHECK(ncclNetCloseSend(state->extSendComm[0]));
+    NCCLCHECK(ncclNetCloseRecv(state->extRecvComm[0]));
   }
-  NCCLCHECK(ncclNetCloseRecv(state->extRecvComm));
   free(state->extSendComm);
+  free(state->extRecvComm);
   free(state);
   return ncclSuccess;
 }

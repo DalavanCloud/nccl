@@ -37,7 +37,9 @@ void initNet() {
   if (ncclNet != NULL) {
     INFO("Using external Network %s", ncclNetName());
   } else {
-    ncclNet = ncclIbSupport() ? &ncclNetIb : &ncclNetSocket;
+    char* str = getenv("NCCL_IB_DISABLE");
+    int ibEnabled = (str && (atoi(str) == 1)) ? 0 : 1;
+    ncclNet = ibEnabled && ncclIbSupport() ? &ncclNetIb : &ncclNetSocket;
     INFO("Using internal Network %s", ncclNetName());
   }
 }

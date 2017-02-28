@@ -89,9 +89,14 @@ ncclResult_t shmFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
 
 /* Determine if we can communicate with the peer */
 ncclResult_t shmCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
+  static int shmDisabled = -1;
+  if (shmDisabled == -1) {
+    char* str = getenv("NCCL_SHM_DISABLE");
+    shmDisabled = str ? atoi(str) : 0;
+  }
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
   struct shmInfo* peerInfo = (struct shmInfo*)peerOpaqueInfo;
-  *ret = myInfo->hostHash != peerInfo->hostHash ? 0 : 1;
+  *ret = ((shmDisabled == 1) || (myInfo->hostHash != peerInfo->hostHash)) ? 0 : 1;
   return ncclSuccess;
 }
 

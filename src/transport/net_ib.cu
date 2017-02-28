@@ -19,106 +19,9 @@
 
 int ncclIbPtrSupport(int* supportedTypes) {
   *supportedTypes = NCCL_PTR_HOST;
+  char* str = getenv("NCCL_IB_CUDA_SUPPORT");
+  if (str && atoi(str) == 1) *supportedTypes |= NCCL_PTR_CUDA;
   return 0;
-}
-
-struct ibRequest {
-  void* comm;
-  struct ibv_mr* mr;
-  struct ibv_cq* cq;
-  int done;
-  int size;
-};
-
-static int numRequests = 0;
-struct ibRequest* ncclIbRequests = NULL;
-int* ncclIbRequestUsed = NULL;
-pthread_mutex_t ncclIbLock = PTHREAD_MUTEX_INITIALIZER;
-
-struct ibRequest* ncclIbGetRequest() {
-  pthread_mutex_lock(&ncclIbLock);
-  for (int i=0; i<numRequests; i++) {
-    if (ncclIbRequestUsed[i] == 0) {
-      ncclIbRequestUsed[i] = 1; 
-      pthread_mutex_unlock(&ncclIbLock);
-      return ncclIbRequests + i;
-    }
-  }
-  // No free request found, grow the pool
-  int newNumRequests = numRequests + 32;
-  struct ibRequest* newRequests = (struct ibRequest*)malloc(newNumRequests*sizeof(struct ibRequest));
-  int* newUsed = (int*)malloc(newNumRequests*sizeof(int));
-  for (int i=0; i<numRequests; i++) {
-    newRequests[i] = ncclIbRequests[i];
-    newUsed[i] = ncclIbRequestUsed[i];
-  } 
-  for (int i=numRequests; i<newNumRequests; i++)
-    newUsed[i] = 0;
-  free(ncclIbRequests);
-  ncclIbRequests = newRequests;
-  free(ncclIbRequestUsed);
-  ncclIbRequestUsed = newUsed;
-  numRequests = newNumRequests;
-  pthread_mutex_unlock(&ncclIbLock);
-  return ncclIbGetRequest();
-}
-
-void ncclIbFreeRequest(struct ibRequest* request) {
-  pthread_mutex_lock(&ncclIbLock);
-  ncclIbRequestUsed[request-ncclIbRequests] = 0;
-  pthread_mutex_unlock(&ncclIbLock);
-}
-
-struct ncclIbQpInfo {
-  int lid;
-  uint8_t ib_port;
-  int qpn;
-};
-
-struct ncclIbHandle {
-  struct socketAddress connectAddr;
-  struct ncclIbQpInfo qpInfo;
-};
-
-struct ncclIbCommPeer {
-  struct ibv_qp* qp;
-};
-
-struct ncclIbComm {
-  struct ibv_pd* pd;
-  struct ibv_comp_channel* cc;
-  struct ibv_cq* cq;
-  struct ibv_srq* srq;
-  int npeers;
-  struct ncclIbCommPeer* peers;
-};
-
-struct ncclIbRecvComm {
-  int listenFd;
-  int npeers;
-  int npeersActive;
-  struct pollfd* fds;
-  int dev;
-  struct ncclIbComm ibComm;
-  int numRecvRequests;
-};
-
-struct ncclIbSendComm {
-  int fd;
-  int ready;
-  struct ncclIbComm ibComm;
-  int numSendRequests;
-};
-
-void ncclIbAddFd(struct ncclIbRecvComm* comm, int fd) {
-  if (comm->npeersActive >= comm->npeers) {
-    // Grow the number of fds
-    comm->npeers += 32;
-    comm->fds = (struct pollfd*)realloc(comm->fds, (comm->npeers)*sizeof(struct pollfd));
-  }
-  comm->fds[comm->npeersActive].fd = fd;
-  comm->fds[comm->npeersActive].events = POLLIN;
-  comm->npeersActive++;
 }
 
 #define MAX_IF_NAME_SIZE 16
@@ -133,8 +36,22 @@ struct ncclIbDev {
 
 #define MAX_IB_DEVS 16
 struct ncclIbDev ncclIbDevs[MAX_IB_DEVS];
-
 int ncclIbTimeout = 14;
+pthread_mutex_t ncclIbLock = PTHREAD_MUTEX_INITIALIZER;
+
+pthread_t ncclIbAsyncThread;
+static void* ncclIbAsyncThreadMain(void* args) {
+  struct ibv_context* context = (struct ibv_context*)args;
+  while (1) {
+    struct ibv_async_event event;
+    int ret = ibv_get_async_event(context, &event);
+    if (ret != 0) break;
+    if (event.event_type != IBV_EVENT_COMM_EST)
+      WARN("IB Got async event : %s", ibv_event_type_str(event.event_type));
+    ibv_ack_async_event(&event);
+  }
+  return NULL;
+}
 
 static void initDevices() {
   if (ncclNIbDevs == -1) {
@@ -177,6 +94,7 @@ static void initDevices() {
               ncclIbDevs[ncclNIbDevs].context = context;
               ncclNIbDevs++;
               found++;
+              pthread_create(&ncclIbAsyncThread, NULL, ncclIbAsyncThreadMain, context);
             } 
           }
           if (found == 0) ibv_close_device(context);
@@ -195,6 +113,7 @@ static void initDevices() {
 int ncclIbDevices(int* ndev, int** distances) {
   initDevices();
   *ndev = ncclNIbDevs;
+//  *ndev = 1;
   int* dists = (int*)malloc(ncclNIbDevs*sizeof(int));
   for (int i=0; i<ncclNIbDevs; i++) dists[i] = 0;
   *distances = dists;
@@ -207,56 +126,105 @@ static ncclResult_t GetIpAddr(struct in_addr* addr) {
   return ncclSuccess;
 }
 
-#define MAX_SEND_WR 128
-#define MAX_RECV_WR 1024
+#define MAX_REQUESTS 64
+
+struct ncclIbQpInfo {
+  int lid;
+  uint8_t ib_port;
+  int qpn;
+  uint32_t fifoRkey;
+  uint64_t fifoAddr;
+};
+
+struct ncclIbHandle {
+  struct socketAddress connectAddr;
+  struct ncclIbQpInfo qpInfo;
+};
+
+struct ncclIbVerbs {
+  struct ibv_pd* pd;
+  struct ibv_comp_channel* cc;
+  struct ibv_cq* cq;
+  struct ibv_qp* qp;
+  int numRequests;
+  struct ibv_mr* mrPool[MAX_REQUESTS];
+  int mrRotation;
+};
+
+struct ncclIbRequest {
+  int used;
+  struct ncclIbVerbs* verbs;
+  struct ibv_mr* mr;
+  int done;
+  int size;
+};
+
+struct ncclIbListenComm {
+  int dev;
+  int fd;
+};
+
+struct ncclIbReqs {
+  int nreqs;
+  struct ncclIbRequest* requests;
+};
+
+struct ncclIbSendFifo {
+  void* ptr;
+  int size;
+  int ready;
+};
+
+struct ncclIbSendComm {
+  int fd;
+  int ready;
+  struct ncclIbVerbs verbs;
+  struct ncclIbReqs reqs;
+  struct ncclIbSendFifo fifo[MAX_REQUESTS];
+  struct ibv_mr* fifoMr;
+  int fifoHead;
+};
+
+struct ncclIbRecvComm {
+  int fd;
+  struct ncclIbVerbs verbs;
+  struct ncclIbReqs reqs;
+  uint32_t remFifoRkey;
+  uint64_t remFifoAddr;
+  int remFifoTail;
+  struct ncclIbSendFifo fifoElem;
+  struct ibv_mr* fifoElemMr;
+  struct ibv_sge fifoSge;
+};
 
 #define NULLCHECK(cmd) \
   if ((cmd) == NULL) { \
     WARN("IBV call return NULL\n"); \
   }
 
-ncclResult_t ncclIbCreateQp(ibv_context* ctx, uint8_t ib_port, struct ncclIbComm* comm, int* peerIdx) {
-  if (comm->npeers == 0) {
-    NULLCHECK(comm->pd = ibv_alloc_pd(ctx));
-    NULLCHECK(comm->cc = ibv_create_comp_channel(ctx));
-    NULLCHECK(comm->cq = ibv_create_cq(ctx, 2048, NULL, comm->cc, 0));
-  }
-
-  struct ibv_srq_init_attr srqAttr;
-  memset(&srqAttr, 0, sizeof(srqAttr));
-  srqAttr.srq_context = ctx;
-  srqAttr.attr.max_wr = MAX_RECV_WR;
-  srqAttr.attr.max_sge = 1;
-  srqAttr.attr.srq_limit = 0;
-  if (comm->srq == NULL) NULLCHECK(comm->srq = ibv_create_srq(comm->pd, &srqAttr));
-
-  comm->peers = (struct ncclIbCommPeer*)realloc(comm->peers, (comm->npeers+1)*sizeof(struct ncclIbCommPeer));
-
-  int peer = comm->npeers;
-  struct ncclIbCommPeer* commPeer = comm->peers+peer;
+ncclResult_t ncclIbCreateQp(ibv_context* ctx, uint8_t ib_port, struct ncclIbVerbs* verbs) {
+  NULLCHECK(verbs->pd = ibv_alloc_pd(ctx));
+  NULLCHECK(verbs->cc = ibv_create_comp_channel(ctx));
+  NULLCHECK(verbs->cq = ibv_create_cq(ctx, MAX_REQUESTS, NULL, verbs->cc, 0));
 
   struct ibv_qp_init_attr qpInitAttr;
   memset(&qpInitAttr, 0, sizeof(struct ibv_qp_init_attr));
-  qpInitAttr.send_cq = comm->cq;
-  qpInitAttr.recv_cq = comm->cq;
-  qpInitAttr.srq = comm->srq;
+  qpInitAttr.send_cq = verbs->cq;
+  qpInitAttr.recv_cq = verbs->cq;
   qpInitAttr.qp_type = IBV_QPT_RC;
-  qpInitAttr.cap.max_send_wr = MAX_SEND_WR;
-  qpInitAttr.cap.max_recv_wr = 1;
+  qpInitAttr.cap.max_send_wr = MAX_REQUESTS;
+  qpInitAttr.cap.max_recv_wr = MAX_REQUESTS;
   qpInitAttr.cap.max_send_sge = 1;
   qpInitAttr.cap.max_recv_sge = 1;
   qpInitAttr.cap.max_inline_data = 0;
-  qpInitAttr.sq_sig_all = 1;
-  NULLCHECK(commPeer->qp = ibv_create_qp(comm->pd, &qpInitAttr));
+  NULLCHECK(verbs->qp = ibv_create_qp(verbs->pd, &qpInitAttr));
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(struct ibv_qp_attr));
   qpAttr.qp_state = IBV_QPS_INIT;
   qpAttr.pkey_index = 0;
   qpAttr.port_num = ib_port;
   qpAttr.qp_access_flags = IBV_ACCESS_REMOTE_WRITE;
-  SYSCHECK(ibv_modify_qp(commPeer->qp, &qpAttr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS), "ibv_modify_qp");
-  *peerIdx = peer;
-  comm->npeers = peer + 1;
+  SYSCHECK(ibv_modify_qp(verbs->qp, &qpAttr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS), "ibv_modify_qp");
   return ncclSuccess;
 }
 
@@ -268,7 +236,8 @@ ncclResult_t ncclIbRtrQp(ibv_qp* qp, int qpn, int lid, uint8_t ib_port) {
   qpAttr.dest_qp_num = qpn;
   qpAttr.rq_psn = 0;
   qpAttr.max_dest_rd_atomic = 1;
-  qpAttr.min_rnr_timer = 12;
+  //qpAttr.min_rnr_timer = 12;
+  qpAttr.min_rnr_timer = 1;
   qpAttr.ah_attr.is_global = 0;
   qpAttr.ah_attr.dlid = lid;
   qpAttr.ah_attr.sl = 1;
@@ -284,42 +253,37 @@ ncclResult_t ncclIbRtsQp(ibv_qp* qp) {
   qpAttr.qp_state = IBV_QPS_RTS;
   qpAttr.timeout = ncclIbTimeout;
   qpAttr.retry_cnt = 7;
-  qpAttr.rnr_retry = 7;
+  //qpAttr.rnr_retry = 7;
+  qpAttr.rnr_retry = 1;
   qpAttr.sq_psn = 0;
   qpAttr.max_rd_atomic = 1;
   SYSCHECK(ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC), "ibv_modify_qp");
   return ncclSuccess;
 }
 
-int ncclIbGetHandle(int dev, void* opaqueHandle, void** recvComm) {
-  struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)malloc(sizeof(struct ncclIbRecvComm));
-  memset(comm, 0, sizeof(struct ncclIbRecvComm));
+
+int ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {
+  struct ncclIbListenComm* comm = (struct ncclIbListenComm*)malloc(sizeof(struct ncclIbListenComm));
   struct ncclIbHandle* handle = (struct ncclIbHandle*) opaqueHandle;
-  assert(sizeof(struct ncclIbHandle) < NCCL_NET_HANDLE_MAXSIZE);
-  comm->npeers = comm->npeersActive = 0;
-  comm->fds = NULL;
+  static_assert(sizeof(struct ncclIbHandle) < NCCL_NET_HANDLE_MAXSIZE, "ncclIbHandle size too large");
   comm->dev = dev;
   NCCLCHECK(GetIpAddr(&(handle->connectAddr.ip_addr)));
-  NCCLCHECK(createListenSocket(&comm->listenFd, handle->connectAddr.ip_addr, &handle->connectAddr.port));
-
-  *recvComm = comm;
+  NCCLCHECK(createListenSocket(&comm->fd, handle->connectAddr.ip_addr, &handle->connectAddr.port));
+  *listenComm = comm;
   return 0;
 }
 
-int ncclIbConnectHandle(int dev, void* opaqueHandle, void** sendComm) {
+int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)malloc(sizeof(struct ncclIbSendComm));
   memset(comm, 0, sizeof(struct ncclIbSendComm));
   struct ncclIbHandle* handle = (struct ncclIbHandle*) opaqueHandle;
   NCCLCHECK(connectAddress(&handle->connectAddr, ncclIbIfAddr, &comm->fd));
   *sendComm = comm;
-  comm->ready = 0;
   
   // IB Setup
   ibv_context* ctx = ncclIbDevs[dev].context;
   uint8_t ib_port = ncclIbDevs[dev].port;
-  int peer;
-  NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &comm->ibComm, &peer));
-  assert(peer == 0);
+  NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &comm->verbs));
 
   // Send my QP Info to receiver through the socket. Hope this won't block.
   struct ibv_port_attr portAttr;
@@ -327,30 +291,54 @@ int ncclIbConnectHandle(int dev, void* opaqueHandle, void** sendComm) {
   struct ncclIbQpInfo qpInfo;
   qpInfo.lid = portAttr.lid;
   qpInfo.ib_port = ib_port;
-  qpInfo.qpn = comm->ibComm.peers[peer].qp->qp_num;
+  qpInfo.qpn = comm->verbs.qp->qp_num;
+
+  // Prepare my fifo
+  NULLCHECK(comm->fifoMr = ibv_reg_mr(comm->verbs.pd, comm->fifo, sizeof(struct ncclIbSendFifo)*MAX_REQUESTS, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ));
+  qpInfo.fifoRkey = comm->fifoMr->rkey;
+  qpInfo.fifoAddr = (uint64_t)comm->fifo;
+   
+  struct ibv_recv_wr wr;
+  memset(&wr, 0, sizeof(wr));
+  wr.wr_id = 0;
+  struct ibv_sge sge;
+  sge.addr=(uintptr_t)comm->fifo; sge.length=(unsigned int)(sizeof(struct ncclIbSendFifo)*MAX_REQUESTS); sge.lkey=comm->fifoMr->lkey;
+  wr.sg_list = &sge;
+  wr.num_sge = 1;
+  struct ibv_recv_wr* bad_wr;
+  SYSCHECK(ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");
+
   NCCLCHECK(socketSend(comm->fd, &qpInfo, sizeof(qpInfo)));
   return 0;
 }
 
-int ncclIbAccept(void* recvComm) {
-  struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
+int ncclIbAccept(void* listenComm, void** recvComm) {
+  struct ncclIbListenComm* lComm = (struct ncclIbListenComm*)listenComm;
+  struct ncclIbRecvComm* rComm = (struct ncclIbRecvComm*)malloc(sizeof(struct ncclIbRecvComm));
+  memset(rComm, 0, sizeof(struct ncclIbRecvComm));
+  
   struct sockaddr_in sockaddr;
   socklen_t socklen = sizeof(struct sockaddr_in);
-  int peerfd;
-  SYSCHECKVAL(accept(comm->listenFd, (struct sockaddr*)&sockaddr, &socklen), "accept", peerfd);
-  ncclIbAddFd(comm, peerfd);
+  SYSCHECKVAL(accept(lComm->fd, (struct sockaddr*)&sockaddr, &socklen), "accept", rComm->fd);
   struct ncclIbQpInfo remQpInfo;
-  NCCLCHECK(socketReceive(peerfd, &remQpInfo, sizeof(remQpInfo)));
+  NCCLCHECK(socketReceive(rComm->fd, &remQpInfo, sizeof(remQpInfo)));
 
   // IB setup
-  ibv_context* ctx = ncclIbDevs[comm->dev].context;
-  uint8_t ib_port = ncclIbDevs[comm->dev].port;
-  int peer;
-  NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &comm->ibComm, &peer));
+  ibv_context* ctx = ncclIbDevs[lComm->dev].context;
+  uint8_t ib_port = ncclIbDevs[lComm->dev].port;
+  NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &rComm->verbs));
 
-  struct ibv_qp* qp = comm->ibComm.peers[peer].qp;
+  struct ibv_qp* qp = rComm->verbs.qp;
   NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn, remQpInfo.lid, remQpInfo.ib_port));
   NCCLCHECK(ncclIbRtsQp(qp));
+
+  // Retain remote fifo info and prepare my RDMA ops
+  rComm->remFifoRkey = remQpInfo.fifoRkey;
+  rComm->remFifoAddr = remQpInfo.fifoAddr;
+  NULLCHECK(rComm->fifoElemMr = ibv_reg_mr(rComm->verbs.pd, &rComm->fifoElem, sizeof(struct ncclIbSendFifo), IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ));
+  rComm->fifoSge.addr = (uint64_t)&rComm->fifoElem;
+  rComm->fifoSge.length = sizeof(struct ncclIbSendFifo);
+  rComm->fifoSge.lkey = rComm->fifoElemMr->lkey;
 
   // Fill Handle
   struct ibv_port_attr portAttr;
@@ -360,14 +348,36 @@ int ncclIbAccept(void* recvComm) {
   qpInfo.ib_port = ib_port;
   qpInfo.qpn = qp->qp_num;
 
-  NCCLCHECK(socketSend(peerfd, &qpInfo, sizeof(qpInfo)));
+  NCCLCHECK(socketSend(rComm->fd, &qpInfo, sizeof(qpInfo)));
+  *recvComm = rComm;
   return 0;
+}
+
+struct ncclIbRequest* ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbVerbs* verbs) {
+  for (int i=0; i<reqs->nreqs; i++) {
+    struct ncclIbRequest* req = reqs->requests+i;
+    if (req->used == 0) {
+      req->used = 1;
+      req->mr = NULL;
+      req->done = 0;
+      req->size = 0;
+      req->verbs = verbs;
+      return req;
+    }
+  }
+  // No free request found, grow the pool
+  int newNumRequests = reqs->nreqs + 32;
+  reqs->requests = (struct ncclIbRequest*)realloc(reqs->requests, newNumRequests*sizeof(struct ncclIbRequest));
+  for (int i=reqs->nreqs; i<newNumRequests; i++)
+    reqs->requests[i].used = 0;
+  reqs->nreqs = newNumRequests;
+  return ncclIbGetRequest(reqs, verbs);
 }
 
 ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
   if (comm->ready == 0) {
     struct ncclIbQpInfo remQpInfo;
-    struct ibv_qp* qp = comm->ibComm.peers[0].qp;
+    struct ibv_qp* qp = comm->verbs.qp;
     NCCLCHECK(socketReceive(comm->fd, &remQpInfo, sizeof(remQpInfo)));
     NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn, remQpInfo.lid, remQpInfo.ib_port));
     NCCLCHECK(ncclIbRtsQp(qp));
@@ -377,28 +387,25 @@ ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
 }
 
 int ncclIbTest(void* request, int* done, int* size) {
-  struct ibRequest *r = (struct ibRequest*)request;
+  struct ncclIbRequest *r = (struct ncclIbRequest*)request;
 
   for (int wrDone = 1; wrDone;) {
     struct ibv_wc wc;
-    SYSCHECKVAL(ibv_poll_cq(r->cq, 1, &wc), "ibv_poll_cq", wrDone);
+    SYSCHECKVAL(ibv_poll_cq(r->verbs->cq, 1, &wc), "ibv_poll_cq", wrDone);
     if (wrDone == 1) {
-      struct ibRequest* doneReq = ncclIbRequests+wc.wr_id;
-      //printf("Completion %d, status %d, opcode %d, err %d, len %d, qp_num %d\n", wc.wr_id, wc.status, wc.opcode, wc.vendor_err, wc.byte_len, wc.qp_num); 
-
-      if (wc.opcode == IBV_WC_SEND) {
-        struct ncclIbSendComm* sendComm = (struct ncclIbSendComm*)doneReq->comm;
-        sendComm->numSendRequests--;
+//      printf("Got completion opcode %d, status %d, wr_id %p, size %d\n", wc.opcode, wc.status, wc.wr_id, wc.byte_len);
+      if (wc.status != IBV_WC_SUCCESS) {
+        WARN("NET/IB : Got completion with error %d, opcode %d, vendor err %d", wc.status, wc.opcode, wc.vendor_err);
+        return 1;
       }
-      if (wc.opcode == IBV_WC_RECV) {
-        struct ncclIbRecvComm* sendComm = (struct ncclIbRecvComm*)doneReq->comm;
-        sendComm->numRecvRequests--;
-      }
-      if (wc.status != IBV_WC_SUCCESS) return 1;
+      // Don't count fifo RDMA as requests
+      if (wc.opcode != IBV_WC_RDMA_WRITE) r->verbs->numRequests--;
 
-      if (doneReq->mr != NULL) SYSCHECK(ibv_dereg_mr(doneReq->mr), "ibv_dereg_mr");
-      doneReq->size = wc.byte_len;
-      doneReq->done = 1;
+      struct ncclIbRequest* doneReq = (struct ncclIbRequest*)wc.wr_id;
+      if (doneReq) {
+        doneReq->size = wc.byte_len;
+        doneReq->done = 1;
+      }  
     }
   }
 
@@ -406,111 +413,180 @@ int ncclIbTest(void* request, int* done, int* size) {
   if (r->done == 1) {
     *done = 1;
     if (size) *size = r->size;
-    ncclIbFreeRequest(r);
+    r->used = 0;
   }
   return 0;
 }
 
+// Cache previous MRs to avoid registering/unregistering for each Isend/Irecv
+ncclResult_t ncclIbGetMr(struct ncclIbVerbs* verbs, void* data, int size, struct ibv_mr** mrRet) {
+  for (int i=0; i<MAX_REQUESTS;i++) {
+    if (verbs->mrPool[i] && verbs->mrPool[i]->addr == data && verbs->mrPool[i]->length == size) { 
+      *mrRet = verbs->mrPool[i];
+      return ncclSuccess;
+    }
+  }
+  int elem = (verbs->mrRotation++)%MAX_REQUESTS;
+  if (verbs->mrPool[elem]) SYSCHECK(ibv_dereg_mr(verbs->mrPool[elem]), "ibv_dereg_mr");
+  NULLCHECK(verbs->mrPool[elem] = ibv_reg_mr(verbs->pd, data, size, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE));
+  *mrRet = verbs->mrPool[elem];
+  return ncclSuccess;
+}
 
 int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) {
-  if (type != NCCL_PTR_HOST) return 1;
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)sendComm;
   NCCLCHECK(ncclSendCheck(comm));
 
-  struct ibRequest* req = ncclIbGetRequest();
+  struct ncclIbRequest* req = ncclIbGetRequest(&comm->reqs, &comm->verbs);
   req->done = 0;
-  req->cq = comm->ibComm.cq;
   req->size = size;
-  req->comm = sendComm;
+  req->verbs = &comm->verbs;
 
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
-  wr.wr_id = req-ncclIbRequests;
+  wr.wr_id = (uint64_t)req;
 
+  struct ibv_sge sge;
   if (size == 0) {
     wr.sg_list = NULL;
     wr.num_sge = 0;
     req->mr = NULL;
   } else {
     struct ibv_mr* mr;
-    NULLCHECK(mr = ibv_reg_mr(comm->ibComm.pd, data, size, 0));
-    struct ibv_sge sge = { .addr=(uintptr_t)data, .length=(unsigned int)size, .lkey=mr->lkey };
+    NCCLCHECK(ncclIbGetMr(&comm->verbs, data, size, &mr));
+    sge.addr=(uintptr_t)data; sge.length=(unsigned int)size; sge.lkey=mr->lkey;
     wr.sg_list = &sge;
     wr.num_sge = 1;
     req->mr = mr;
   }
   wr.opcode = IBV_WR_SEND;
+  wr.send_flags = IBV_SEND_SIGNALED;
 
   // Wait for WR to be available in the Send Queue
-  while (comm->numSendRequests == MAX_SEND_WR) { 
+  while (comm->verbs.numRequests == MAX_REQUESTS) { 
      int done = 0;
      /* This request is not even posted, but that should make the CQ progress */
      NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
-     if (comm->numSendRequests == MAX_SEND_WR) sched_yield();
+     if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
   }
 
+  // Wait for receiver to have posted the recv
+  volatile struct ncclIbSendFifo* slot = comm->fifo + (comm->fifoHead%MAX_REQUESTS);
+  while (slot->ready == 0) sched_yield();
+  slot->ready = 0;
+  comm->fifoHead++;
+
   struct ibv_send_wr* bad_wr;
-  SYSCHECK(ibv_post_send(comm->ibComm.peers[0].qp, &wr, &bad_wr), "ibv_post_send");
-  comm->numSendRequests++;
+  SYSCHECK(ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
+  comm->verbs.numRequests++;
   *request = req;
   return 0;
 }
 
+ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, int size, void* ptr, struct ncclIbRequest* req) {
+  struct ibv_send_wr wr;
+  memset(&wr, 0, sizeof(wr));
+  wr.wr_id = (uint64_t)req;
+
+  comm->fifoElem.ptr = ptr;
+  comm->fifoElem.size = size;
+  comm->fifoElem.ready = 1;
+  wr.wr.rdma.remote_addr = comm->remFifoAddr + (comm->remFifoTail % MAX_REQUESTS) * sizeof(struct ncclIbSendFifo);
+  wr.wr.rdma.rkey = comm->remFifoRkey;
+  wr.sg_list = &comm->fifoSge;
+  wr.num_sge = 1;
+  wr.opcode = IBV_WR_RDMA_WRITE;
+  wr.send_flags = IBV_SEND_SIGNALED;
+
+  struct ibv_send_wr* bad_wr;
+  SYSCHECK(ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
+  comm->remFifoTail++;
+  
+  return ncclSuccess;
+}
+
 int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) {
-  if (type != NCCL_PTR_HOST) return 1;
   struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
-  struct ibRequest* req = ncclIbGetRequest();
+  struct ncclIbRequest* req = ncclIbGetRequest(&comm->reqs, &comm->verbs);
   req->done = 0;
-  req->cq = comm->ibComm.cq;
   req->size = size;
-  req->comm = recvComm;
+  req->verbs = &comm->verbs;
 
   struct ibv_recv_wr wr;
   memset(&wr, 0, sizeof(wr));
-  wr.wr_id = req-ncclIbRequests;
+  wr.wr_id = (uint64_t)req;
 
+  struct ibv_sge sge;
   if (size == 0) {
     wr.sg_list = NULL;
     wr.num_sge = 0;
     req->mr = NULL;
   } else {
     struct ibv_mr* mr;
-    NULLCHECK(mr = ibv_reg_mr(comm->ibComm.pd, data, size, IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE));
-    struct ibv_sge sge = { .addr=(uintptr_t)data, .length=(unsigned int)size, .lkey=mr->lkey };
+    NCCLCHECK(ncclIbGetMr(&comm->verbs, data, size, &mr));
+    sge.addr=(uintptr_t)data; sge.length=(unsigned int)size; sge.lkey=mr->lkey;
     wr.sg_list = &sge;
     wr.num_sge = 1;
     req->mr = mr;
   }
 
-  // Wait for WR to be available in the SRQ
-  while (comm->numRecvRequests == MAX_RECV_WR) { 
+  // Wait for WR to be available in the RQ
+  while (comm->verbs.numRequests == MAX_REQUESTS) { 
      int done = 0;
      /* This request is not even posted, but that should make the CQ progress */
      NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
-     if (comm->numRecvRequests == MAX_RECV_WR) sched_yield();
+     if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
   }
 
+  struct ncclIbRequest* fifoReq = ncclIbGetRequest(&comm->reqs, &comm->verbs);
+  NCCLCHECK(ncclIbPostFifo(comm, size, data, fifoReq));
+
   struct ibv_recv_wr* bad_wr;
-  SYSCHECK(ibv_post_srq_recv(comm->ibComm.srq, &wr, &bad_wr), "ibv_post_srq_recv");
-  comm->numRecvRequests++;
+  SYSCHECK(ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");
+  comm->verbs.numRequests++;
   *request = req;
+  // Wait for FIFO write to be complete
+  while (fifoReq->done == 0) {
+    int done;
+    NCCLCHECK((ncclResult_t)ncclIbTest(fifoReq, &done, NULL));
+  }
+  fifoReq->used = 0;
+
   return ncclSuccess;
 }
 
 int ncclIbCloseSend(void* sendComm) {
-  if (sendComm) {
-    struct ncclIbSendComm* comm = (struct ncclIbSendComm*)sendComm;
+  struct ncclIbSendComm* comm = (struct ncclIbSendComm*)sendComm;
+  if (comm) {
+    free(comm->reqs.requests);
     close(comm->fd);
+    if (comm->fifoMr != NULL) SYSCHECK(ibv_dereg_mr(comm->fifoMr), "ibv_dereg_mr");
+    for (int i=0; i<MAX_REQUESTS; i++) {
+      if (comm->verbs.mrPool[i] != NULL) SYSCHECK(ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
+    }
     free(comm);
   }
   return 0;
 }
 
 int ncclIbCloseRecv(void* recvComm) {
-  if (recvComm) {
-    struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
-    for (int i=0; i<comm->npeersActive; i++) close(comm->fds[i].fd);
-    free(comm->fds);
+  struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
+  if (comm) {
+    free(comm->reqs.requests);
+    close(comm->fd);
+    if (comm->fifoElemMr != NULL) SYSCHECK(ibv_dereg_mr(comm->fifoElemMr), "ibv_dereg_mr");
+    for (int i=0; i<MAX_REQUESTS; i++) {
+      if (comm->verbs.mrPool[i] != NULL) SYSCHECK(ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
+    }
+    free(comm);
+  }
+  return 0;
+}
+
+int ncclIbCloseListen(void* listenComm) {
+  struct ncclIbListenComm* comm = (struct ncclIbListenComm*)listenComm;
+  if (comm) {
+    close(comm->fd);
     free(comm);
   }
   return 0;
@@ -520,14 +596,15 @@ ncclNet_t ncclNetIb = {
   "IB",
   ncclIbPtrSupport,
   ncclIbDevices,
-  ncclIbGetHandle,
-  ncclIbConnectHandle,
+  ncclIbListen,
+  ncclIbConnect,
   ncclIbAccept,
   ncclIbIsend,
   ncclIbIrecv,
   ncclIbTest,
   ncclIbCloseSend,
-  ncclIbCloseRecv
+  ncclIbCloseRecv,
+  ncclIbCloseListen
 };
 
 bool ncclIbSupport() {

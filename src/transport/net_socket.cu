@@ -15,75 +15,11 @@
 #include <stdlib.h>
 #include <poll.h>
 
+/* Init functions */
+
 int ncclSocketPtrSupport(int* supportedTypes) {
   *supportedTypes = NCCL_PTR_HOST;
   return 0;
-}
-
-static int numRequests = 0;
-int* ncclSocketRequests = NULL;
-int* ncclSocketRequestUsed = NULL;
-pthread_mutex_t ncclSocketLock = PTHREAD_MUTEX_INITIALIZER;
-
-int* ncclSocketGetRequest() {
-  pthread_mutex_lock(&ncclSocketLock);
-  for (int i=0; i<numRequests; i++) {
-    if (ncclSocketRequestUsed[i] == 0) {
-      ncclSocketRequestUsed[i] = 1; 
-      pthread_mutex_unlock(&ncclSocketLock);
-      return ncclSocketRequests + i;
-    }
-  }
-  // No free request found, grow the pool
-  int newNumRequests = numRequests + 32;
-  int* newRequests = (int*)malloc(newNumRequests*sizeof(int));
-  int* newUsed = (int*)malloc(newNumRequests*sizeof(int));
-  for (int i=0; i<numRequests; i++) {
-    newRequests[i] = ncclSocketRequests[i];
-    newUsed[i] = ncclSocketRequestUsed[i];
-  } 
-  for (int i=numRequests; i<newNumRequests; i++)
-    newUsed[i] = 0;
-  free(ncclSocketRequests);
-  ncclSocketRequests = newRequests;
-  free(ncclSocketRequestUsed);
-  ncclSocketRequestUsed = newUsed;
-  numRequests = newNumRequests;
-  pthread_mutex_unlock(&ncclSocketLock);
-  return ncclSocketGetRequest();
-}
-
-void ncclSocketFreeRequest(int* request) {
-  pthread_mutex_lock(&ncclSocketLock);
-  ncclSocketRequestUsed[request-ncclSocketRequests] = 0;
-  pthread_mutex_unlock(&ncclSocketLock);
-}
-
-struct ncclSocketHandle {
-  struct socketAddress connectAddr;
-};
-
-struct ncclSocketRecvComm {
-  char ifName[128];
-  int listenFd;
-  int nfds;
-  int nfdsActive;
-  struct pollfd* fds;
-};
-
-struct ncclSocketSendComm {
-  int fd;
-};
-
-void ncclSocketAddFd(struct ncclSocketRecvComm* comm, int fd) {
-  if (comm->nfdsActive >= comm->nfds) {
-    // Grow the number of fds
-    comm->nfds += 32;
-    comm->fds = (struct pollfd*)realloc(comm->fds, (comm->nfds)*sizeof(struct pollfd));
-  }
-  comm->fds[comm->nfdsActive].fd = fd;
-  comm->fds[comm->nfdsActive].events = POLLIN;
-  comm->nfdsActive++;
 }
 
 #define MAX_IF_NAME_SIZE 16
@@ -91,6 +27,7 @@ void ncclSocketAddFd(struct ncclSocketRecvComm* comm, int fd) {
 static char ncclNetIfNames[MAX_IF_NAME_SIZE*MAX_IFS];
 static struct in_addr ncclNetIfAddrs[MAX_IFS];
 static int ncclNetIfs = -1;
+pthread_mutex_t ncclSocketLock = PTHREAD_MUTEX_INITIALIZER;
 
 static void initDevices() {
   if (ncclNetIfs == -1) {
@@ -133,39 +70,82 @@ static ncclResult_t GetIpAddr(int dev, struct in_addr* addr) {
   return ncclSuccess;
 }
 
-int ncclSocketGetHandle(int dev, void* opaqueHandle, void** recvComm) {
-  struct ncclSocketRecvComm* comm = (struct ncclSocketRecvComm*)malloc(sizeof(struct ncclSocketRecvComm));
+/* Communication functions */
+
+struct ncclSocketHandle {
+  struct socketAddress connectAddr;
+};
+
+struct ncclSocketRequest {
+  int used;
+  int size;
+};
+
+struct ncclSocketReqs {
+  int nreqs;
+  struct ncclSocketRequest* requests;
+};
+
+struct ncclSocketComm {
+  int fd;
+  struct ncclSocketReqs reqs;
+};
+
+struct ncclSocketComm* ncclSocketNewComm() {
+  struct ncclSocketComm* comm = (struct ncclSocketComm*)malloc(sizeof(struct ncclSocketComm));
+  comm->reqs.nreqs = 0;
+  comm->reqs.requests = NULL;
+  comm->fd = -1;
+  return comm;
+}
+
+int ncclSocketListen(int dev, void* opaqueHandle, void** listenComm) {
+  struct ncclSocketComm* comm = ncclSocketNewComm();
   struct ncclSocketHandle* handle = (struct ncclSocketHandle*) opaqueHandle;
-  assert(sizeof(struct ncclSocketHandle) < NCCL_NET_HANDLE_MAXSIZE);
-  comm->nfds = comm->nfdsActive = 0;
-  comm->fds = NULL;
+  static_assert(sizeof(struct ncclSocketHandle) < NCCL_NET_HANDLE_MAXSIZE, "ncclSocketHandle size too large");
   NCCLCHECK(GetIpAddr(dev, &(handle->connectAddr.ip_addr)));
-  NCCLCHECK(createListenSocket(&comm->listenFd, handle->connectAddr.ip_addr, &handle->connectAddr.port));
-  *recvComm = comm;
+  NCCLCHECK(createListenSocket(&comm->fd, handle->connectAddr.ip_addr, &handle->connectAddr.port));
+  *listenComm = comm;
   return 0;
 }
 
-int ncclSocketConnectHandle(int dev, void* opaqueHandle, void** sendComm) {
-  struct ncclSocketSendComm* comm = (struct ncclSocketSendComm*)malloc(sizeof(struct ncclSocketSendComm));
+int ncclSocketConnect(int dev, void* opaqueHandle, void** sendComm) {
+  struct ncclSocketComm* comm = ncclSocketNewComm();
   struct ncclSocketHandle* handle = (struct ncclSocketHandle*) opaqueHandle;
   NCCLCHECK(connectAddress(&handle->connectAddr, ncclNetIfAddrs[dev], &comm->fd));
   *sendComm = comm;
   return 0;
 }
 
-int ncclSocketAccept(void* recvComm) {
-  struct ncclSocketRecvComm* comm = (struct ncclSocketRecvComm*)recvComm;
+int ncclSocketAccept(void* listenComm, void** recvComm) {
+  struct ncclSocketComm* lComm = (struct ncclSocketComm*)listenComm;
+  struct ncclSocketComm* rComm = ncclSocketNewComm();
   struct sockaddr_in sockaddr;
   socklen_t socklen = sizeof(struct sockaddr_in);
-  int peerfd;
-  SYSCHECKVAL(accept(comm->listenFd, (struct sockaddr*)&sockaddr, &socklen), "accept", peerfd);
-  ncclSocketAddFd(comm, peerfd);
+  SYSCHECKVAL(accept(lComm->fd, (struct sockaddr*)&sockaddr, &socklen), "accept", rComm->fd);
+  *recvComm = rComm;
   return 0;
+}
+
+struct ncclSocketRequest* ncclSocketGetRequest(struct ncclSocketReqs* reqs) {
+  for (int i=0; i<reqs->nreqs; i++) {
+    if (reqs->requests[i].used == 0) {
+      reqs->requests[i].used = 1; 
+      return reqs->requests + i;
+    }
+  }
+  // No free request found, grow the pool
+  int newNumRequests = reqs->nreqs + 32;
+  reqs->requests = (struct ncclSocketRequest*)realloc(reqs->requests, newNumRequests*sizeof(struct ncclSocketRequest));
+  for (int i=reqs->nreqs; i<newNumRequests; i++)
+    reqs->requests[i].used = 0;
+  reqs->nreqs = newNumRequests;
+  return ncclSocketGetRequest(reqs);
 }
 
 int ncclSocketIsend(void* sendComm, void* data, int size, int type, void** request) {
   if (type != NCCL_PTR_HOST) return 1;
-  struct ncclSocketSendComm* comm = (struct ncclSocketSendComm*)sendComm;
+  struct ncclSocketComm* comm = (struct ncclSocketComm*)sendComm;
   *request = NULL;
   NCCLCHECK(socketSend(comm->fd, &size, sizeof(int)));
   NCCLCHECK(socketSend(comm->fd, data, size));
@@ -174,51 +154,35 @@ int ncclSocketIsend(void* sendComm, void* data, int size, int type, void** reque
 
 int ncclSocketIrecv(void* recvComm, void* data, int size, int type, void** request) {
   if (type != NCCL_PTR_HOST) return 1;
-  struct ncclSocketRecvComm* comm = (struct ncclSocketRecvComm*)recvComm;
-  while (1) {
-    poll(comm->fds, comm->nfdsActive, -1);
-    for (int i=0; i<comm->nfdsActive; i++) {
-      if (comm->fds[i].revents) {
-        int recvSize;
-        NCCLCHECK(socketReceive(comm->fds[i].fd, &recvSize, sizeof(int)));
-        if (recvSize > size) {
-          WARN("Message truncated : received %d bytes instead of %d\n", recvSize, size);
-          return ncclInternalError;
-        }
-        NCCLCHECK(socketReceive(comm->fds[i].fd, data, min(recvSize, size)));
-        int* recvReq = ncclSocketGetRequest();
-        *recvReq = recvSize;
-        *request = recvReq;
-        return 0;
-      }
-    }
+  struct ncclSocketComm* comm = (struct ncclSocketComm*)recvComm;
+  int recvSize;
+  NCCLCHECK(socketReceive(comm->fd, &recvSize, sizeof(int)));
+  if (recvSize > size) {
+    WARN("Message truncated : received %d bytes instead of %d\n", recvSize, size);
+    return ncclInternalError;
   }
+  NCCLCHECK(socketReceive(comm->fd, data, min(recvSize, size)));
+  struct ncclSocketRequest* recvReq = ncclSocketGetRequest(&comm->reqs);
+  recvReq->size = recvSize;
+  *request = recvReq;
+  return 0;
 }
 
 int ncclSocketTest(void* request, int* done, int* size) {
-  int *r = (int*)request;
   *done = 1;
+  struct ncclSocketRequest *r = (struct ncclSocketRequest*)request;
   if (r) {
-    if (size) *size = *r;
-    ncclSocketFreeRequest(r);
+    if (size) *size = r->size;
+    r->used = 0;
   }
   return 0;
 }
 
-int ncclSocketCloseSend(void* sendComm) {
-  if (sendComm) {
-    struct ncclSocketSendComm* comm = (struct ncclSocketSendComm*)sendComm;
+int ncclSocketClose(void* opaqueComm) {
+  struct ncclSocketComm* comm = (struct ncclSocketComm*)opaqueComm;
+  if (comm) {
+    free(comm->reqs.requests);
     close(comm->fd);
-    free(comm);
-  }
-  return 0;
-}
-
-int ncclSocketCloseRecv(void* recvComm) {
-  if (recvComm) {
-    struct ncclSocketRecvComm* comm = (struct ncclSocketRecvComm*)recvComm;
-    for (int i=0; i<comm->nfdsActive; i++) close(comm->fds[i].fd);
-    free(comm->fds);
     free(comm);
   }
   return 0;
@@ -228,12 +192,13 @@ ncclNet_t ncclNetSocket = {
   "Socket",
   ncclSocketPtrSupport,
   ncclSocketDevices,
-  ncclSocketGetHandle,
-  ncclSocketConnectHandle,
+  ncclSocketListen,
+  ncclSocketConnect,
   ncclSocketAccept,
   ncclSocketIsend,
   ncclSocketIrecv,
   ncclSocketTest,
-  ncclSocketCloseSend,
-  ncclSocketCloseRecv
+  ncclSocketClose,
+  ncclSocketClose,
+  ncclSocketClose
 };
