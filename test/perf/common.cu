@@ -8,6 +8,8 @@
 #include <pthread.h>
 #include <cstdio>
 
+#define CHECK 1
+
 #ifdef MPI_TRANSPORT
 extern "C" {
 void ncclMpiHook(MPI_Comm comm);
@@ -347,34 +349,29 @@ void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, in
 
 void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
   size_t count = args->nbytes / wordSize(type);
+#ifdef CHECK
   while (args->sync[0] != args->thread) pthread_yield();
   InitData(args, type, op, root, in_place, args->thread == 0 ? 1 : 0);
   args->sync[0] = args->thread + 1;
   if (args->thread+1 == args->nThreads) {
 #ifdef MPI
     // Last thread does the MPI reduction
-    void* remote, *remoteHost = malloc(args->nbytes);
-    void* myInitialData = malloc(args->nbytes);
-    memcpy(myInitialData, args->expectedHost, args->nbytes);
-    CUDACHECK(cudaHostRegister(remoteHost, args->nbytes, 0));
-    CUDACHECK(cudaHostGetDevicePointer(&remote, remoteHost, 0));
+    memcpy(args->myInitialData, args->expectedHost, args->nbytes);
     for (int i=0; i<args->nProcs; i++) {
       if (i == args->proc) {
-        MPI_PROTECT(MPI_Bcast(myInitialData, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD));
-        free(myInitialData);
+        MPI_PROTECT(MPI_Bcast(args->myInitialData, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD));
       } else {
-        MPI_PROTECT(MPI_Bcast(remoteHost, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD));
-        Accumulate(args->expected, remote, count, type, op);
+        MPI_PROTECT(MPI_Bcast(args->remoteHost, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD));
+        Accumulate(args->expected, args->remote, count, type, op);
         cudaDeviceSynchronize();
       }
     }
-    CUDACHECK(cudaHostUnregister(remoteHost));
-    free(remoteHost);
 #endif
     args->sync[0] = 0;
   } else {
     while (args->sync[0]) pthread_yield();
   }
+#endif
   
   // Warmup / Sync
   NCCLCHECK(ncclGroupStart());
@@ -409,7 +406,11 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   NCCLCHECK(ncclCommCount(args->comms[0], &nranks));
   GetBw(baseBw, &algBw, &busBw, nranks);
 
+#ifdef CHECK
   double maxDelta = CheckData(args, type, op, root);
+#else
+  double maxDelta = -1.0;
+#endif
 
   PRINT("  %7.3f  %5.2f  %5.2f  %7.0le", deltaSec * 1.0E3, algBw, busBw,
       maxDelta);
@@ -530,6 +531,12 @@ int main(int argc, char* argv[]) {
   void* expected, *expectedHost = malloc(nbytes);
   CUDACHECK(cudaHostRegister(expectedHost, nbytes, 0));
   CUDACHECK(cudaHostGetDevicePointer(&expected, expectedHost, 0));
+#ifdef MPI
+  void* remote, *remoteHost = malloc(nbytes);
+  void* myInitialData = malloc(nbytes);
+  CUDACHECK(cudaHostRegister(remoteHost, nbytes, 0));
+  CUDACHECK(cudaHostGetDevicePointer(&remote, remoteHost, 0));
+#endif
   int* sync = (int*)malloc(sizeof(int));
   sync[0] = 0;
 
@@ -550,6 +557,11 @@ int main(int argc, char* argv[]) {
 
     args[t].expectedHost = expectedHost;
     args[t].expected = expected;
+#ifdef MPI
+    args[t].remoteHost = remoteHost;
+    args[t].remote = remote;
+    args[t].myInitialData = myInitialData;
+#endif
     args[t].sync = (volatile int*)sync;
     args[t].deltaHost = (double*)malloc(sizeof(double));
     CUDACHECK(cudaHostRegister(args[t].deltaHost, sizeof(double), 0));

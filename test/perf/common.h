@@ -45,6 +45,11 @@ struct threadArgs_t {
 
   void* expectedHost;
   void* expected;
+#ifdef MPI
+  void* remoteHost;
+  void* remote;
+  void* myInitialData;
+#endif
   volatile int* sync;
   int syncRank;
   int syncNranks;

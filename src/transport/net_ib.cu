@@ -17,6 +17,8 @@
 
 #include "infiniband/verbs.h"
 
+#define USE_RDMA_WRITE 1
+
 int ncclIbPtrSupport(int* supportedTypes) {
   *supportedTypes = NCCL_PTR_HOST;
   char* str = getenv("NCCL_IB_CUDA_SUPPORT");
@@ -113,7 +115,6 @@ static void initDevices() {
 int ncclIbDevices(int* ndev, int** distances) {
   initDevices();
   *ndev = ncclNIbDevs;
-//  *ndev = 1;
   int* dists = (int*)malloc(ncclNIbDevs*sizeof(int));
   for (int i=0; i<ncclNIbDevs; i++) dists[i] = 0;
   *distances = dists;
@@ -170,8 +171,8 @@ struct ncclIbReqs {
 };
 
 struct ncclIbSendFifo {
-  void* ptr;
-  int size;
+  uint64_t addr;
+  uint32_t rkey;
   int ready;
 };
 
@@ -298,16 +299,6 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   qpInfo.fifoRkey = comm->fifoMr->rkey;
   qpInfo.fifoAddr = (uint64_t)comm->fifo;
    
-  struct ibv_recv_wr wr;
-  memset(&wr, 0, sizeof(wr));
-  wr.wr_id = 0;
-  struct ibv_sge sge;
-  sge.addr=(uintptr_t)comm->fifo; sge.length=(unsigned int)(sizeof(struct ncclIbSendFifo)*MAX_REQUESTS); sge.lkey=comm->fifoMr->lkey;
-  wr.sg_list = &sge;
-  wr.num_sge = 1;
-  struct ibv_recv_wr* bad_wr;
-  SYSCHECK(ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");
-
   NCCLCHECK(socketSend(comm->fd, &qpInfo, sizeof(qpInfo)));
   return 0;
 }
@@ -393,17 +384,22 @@ int ncclIbTest(void* request, int* done, int* size) {
     struct ibv_wc wc;
     SYSCHECKVAL(ibv_poll_cq(r->verbs->cq, 1, &wc), "ibv_poll_cq", wrDone);
     if (wrDone == 1) {
-//      printf("Got completion opcode %d, status %d, wr_id %p, size %d\n", wc.opcode, wc.status, wc.wr_id, wc.byte_len);
+      //printf("Got completion opcode %d, status %d, wr_id %p, size %d\n", wc.opcode, wc.status, wc.wr_id, wc.byte_len);
       if (wc.status != IBV_WC_SUCCESS) {
         WARN("NET/IB : Got completion with error %d, opcode %d, vendor err %d", wc.status, wc.opcode, wc.vendor_err);
         return 1;
       }
-      // Don't count fifo RDMA as requests
-      if (wc.opcode != IBV_WC_RDMA_WRITE) r->verbs->numRequests--;
+      r->verbs->numRequests--;
 
       struct ncclIbRequest* doneReq = (struct ncclIbRequest*)wc.wr_id;
       if (doneReq) {
-        doneReq->size = wc.byte_len;
+        if (wc.opcode == IBV_WC_RECV) {
+          doneReq->size = wc.byte_len;
+#ifdef USE_RDMA_WRITE
+        } else if (wc.opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
+          doneReq->size = wc.imm_data;
+#endif
+        }
         doneReq->done = 1;
       }  
     }
@@ -473,8 +469,15 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
   // Wait for receiver to have posted the recv
   volatile struct ncclIbSendFifo* slot = comm->fifo + (comm->fifoHead%MAX_REQUESTS);
   while (slot->ready == 0) sched_yield();
+#ifdef USE_RDMA_WRITE
+  wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
+  wr.wr.rdma.remote_addr = slot->addr;
+  wr.wr.rdma.rkey = slot->rkey;
+  wr.imm_data = size;
+#endif
   slot->ready = 0;
   comm->fifoHead++;
+
 
   struct ibv_send_wr* bad_wr;
   SYSCHECK(ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
@@ -483,13 +486,13 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
   return 0;
 }
 
-ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, int size, void* ptr, struct ncclIbRequest* req) {
+ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t addr, struct ncclIbRequest* req) {
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
   wr.wr_id = (uint64_t)req;
 
-  comm->fifoElem.ptr = ptr;
-  comm->fifoElem.size = size;
+  comm->fifoElem.addr = addr;
+  comm->fifoElem.rkey = rkey;
   comm->fifoElem.ready = 1;
   wr.wr.rdma.remote_addr = comm->remFifoAddr + (comm->remFifoTail % MAX_REQUESTS) * sizeof(struct ncclIbSendFifo);
   wr.wr.rdma.rkey = comm->remFifoRkey;
@@ -498,8 +501,17 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, int size, void* ptr, st
   wr.opcode = IBV_WR_RDMA_WRITE;
   wr.send_flags = IBV_SEND_SIGNALED;
 
+  // Wait for WR to be available in the RQ
+  while (comm->verbs.numRequests == MAX_REQUESTS) { 
+     int done = 0;
+     /* This request is not even posted, but that should make the CQ progress */
+     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
+     if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
+  }
+
   struct ibv_send_wr* bad_wr;
   SYSCHECK(ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
+  comm->verbs.numRequests++;
   comm->remFifoTail++;
   
   return ncclSuccess;
@@ -530,6 +542,9 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
     req->mr = mr;
   }
 
+  struct ncclIbRequest* fifoReq = ncclIbGetRequest(&comm->reqs, &comm->verbs);
+  NCCLCHECK(ncclIbPostFifo(comm, req->mr->rkey, (uint64_t)data, fifoReq));
+
   // Wait for WR to be available in the RQ
   while (comm->verbs.numRequests == MAX_REQUESTS) { 
      int done = 0;
@@ -537,9 +552,6 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
      NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
      if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
   }
-
-  struct ncclIbRequest* fifoReq = ncclIbGetRequest(&comm->reqs, &comm->verbs);
-  NCCLCHECK(ncclIbPostFifo(comm, size, data, fifoReq));
 
   struct ibv_recv_wr* bad_wr;
   SYSCHECK(ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");

@@ -29,6 +29,8 @@ struct netSendResources {
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
   struct ncclSendRecvMem* hostDevMem;
+  bool cudaSupport;
+  struct ncclSendRecvMem* devNetMem;
 };
 
 struct netRecvResources {
@@ -137,7 +139,14 @@ ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   ring->send.transportResources = resources;
   resources->hostDevMem = NULL; //(struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
+  int flags;
+  NCCLCHECK(ncclNetPtrSupport(&flags));
+  resources->cudaSupport = false; //(flags & NCCL_PTR_CUDA) ? true : false;
+
   int size = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
+  if (resources->cudaSupport) {
+    CUDACHECK(cudaMalloc(&resources->devNetMem, size));
+  }
   NCCLCHECK(netHostAlloc(&resources->hostMem, size));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
 
@@ -189,7 +198,12 @@ ncclResult_t netRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
 ncclResult_t netSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   // Setup device pointers
   struct netSendResources* resources = (struct netSendResources*)send->transportResources;
-  send->conn.buff = resources->devHostMem->buff;
+
+  if (resources->cudaSupport) {
+    send->conn.buff = resources->devNetMem->buff;
+  } else {
+    send->conn.buff = resources->devHostMem->buff;
+  }
   send->conn.tail = &resources->devHostMem->tail;
   send->conn.opCount = &resources->devHostMem->opCount;
   send->conn.fifo = resources->devHostMem->sizesFifo;
@@ -247,7 +261,7 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
   struct netSendResources* resources = (struct netSendResources*) (ring->send.transportResources);
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = resources->hostDevMem ? &resources->hostDevMem->head : &resources->hostMem->head;
-  char* localBuff = resources->hostMem->buff;
+  char* localBuff = resources->cudaSupport ? resources->devNetMem->buff : resources->hostMem->buff;
   int* sizesFifo = resources->hostMem->sizesFifo;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;

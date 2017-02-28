@@ -58,6 +58,7 @@ struct ncclSendRecvMem {
 
 struct ncclRing {
   int id;
+  int nthreads;
   // Per ring resources
   struct ncclSendRecvMem* devMem;   // CUDA-size resources
   int buffSize;
