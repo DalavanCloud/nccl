@@ -283,6 +283,7 @@ int main(int argc, char *argv[]) {
     }
   }
   delete data;
+
   MPI_Finalize();
 
 out:
