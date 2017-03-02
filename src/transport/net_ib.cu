@@ -384,6 +384,7 @@ int ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {
 }
 
 int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
+  //printf("ncclIbConnect\n");
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)malloc(sizeof(struct ncclIbSendComm));
   memset(comm, 0, sizeof(struct ncclIbSendComm));
   struct ncclIbHandle* handle = (struct ncclIbHandle*) opaqueHandle;
@@ -391,12 +392,15 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   *sendComm = comm;
   
   // IB Setup
+  initDevices(); /*XXX:Anshuman added on 3/2/2017*/
   ibv_context* ctx = ncclIbDevs[dev].context;
   uint8_t ib_port = ncclIbDevs[dev].port;
+  //printf("[ncclIbConnect] ncclIbCreateQp\n");
   NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &comm->verbs));
 
   // Send my QP Info to receiver through the socket. Hope this won't block.
   struct ibv_port_attr portAttr;
+  //printf("[ncclIbConnect] ibv_query_port\n");
   SYSCHECK(ibv_query_port(ctx, ib_port, &portAttr), "ibv_query_port");
   struct ncclIbQpInfo qpInfo;
   qpInfo.lid = portAttr.lid;
@@ -413,6 +417,7 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
 }
 
 int ncclIbAccept(void* listenComm, void** recvComm) {
+  //printf("ncclIbAccept\n");
   struct ncclIbListenComm* lComm = (struct ncclIbListenComm*)listenComm;
   struct ncclIbRecvComm* rComm = (struct ncclIbRecvComm*)malloc(sizeof(struct ncclIbRecvComm));
   memset(rComm, 0, sizeof(struct ncclIbRecvComm));
@@ -426,8 +431,10 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
   // IB setup
   ibv_context* ctx = ncclIbDevs[lComm->dev].context;
   uint8_t ib_port = ncclIbDevs[lComm->dev].port;
+  //printf("[ncclIbAccept] ncclIbCreateQp\n");
   NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &rComm->verbs));
 
+  //printf("[ncclIbAccept] ncclIbRtrQp\n");
   struct ibv_qp* qp = rComm->verbs.qp;
   NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn, remQpInfo.lid, remQpInfo.ib_port));
   NCCLCHECK(ncclIbRtsQp(qp));
