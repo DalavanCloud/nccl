@@ -55,7 +55,7 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
     void* data = in_place ? args->recvbuffs[i] : args->sendbuffs[i];
 
 
-    CUDACHECK(cudaMemcpy((void *)((uintptr_t)args->expected + ((proc*nThreads + t)*nGpus + i)*count*wordSize(type)), 
+    CUDACHECK(cudaMemcpy((void *)((uintptr_t)args->expectedHost + ((proc*nThreads + t)*nGpus + i)*count*wordSize(type)), 
                 data, 
                 count*wordSize(type), cudaMemcpyDeviceToHost));
 
@@ -68,9 +68,9 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
   args->sync[0] = t + 1;
 
   if (t+1 == nThreads) {
-#ifdef MPI
+#ifdef MPI_SUPPORT
     // Last thread does the MPI allgather
-    MPI_Allgather(MPI_IN_PALCE, nBytes*nThreads*nGpus, args->expected, nBytes*nThreads*nGpus, MPI_BYTE, MPI_COMM_WORLD);
+    MPI_Allgather(MPI_IN_PLACE, nBytes*nThreads*nGpus, MPI_BYTE, args->expectedHost, nBytes*nThreads*nGpus, MPI_BYTE, MPI_COMM_WORLD);
 #endif
     args->sync[0] = 0;
   } else {

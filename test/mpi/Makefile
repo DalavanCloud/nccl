@@ -51,7 +51,7 @@ ${PBIN} : mpi_perf.cu
 	${NVCC} -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
 #
 ${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
-	mpicc -std=c99 -I$(BUILDDIR)/include/ -o $@ -c $<
+	mpicc -std=c99 -I$(BUILDDIR)/include/ -I$(CUDA_HOME)/include/ -o $@ -c $<
 #
 ${PBIN2} : mpi_perf.cu ${DST_DIR}/nccl_mpi.o
 	${NVCC} -o $@ $(NVCUFLAGS) -DMPI_TRANSPORT ${NVLDFLAGS} $^

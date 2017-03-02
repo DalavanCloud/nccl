@@ -3,7 +3,7 @@ include ../../makefiles/common.mk
 BUILDDIR := $(abspath ../../build)
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include
 ifeq ($(MPI), 1)
-NVCUFLAGS += -DMPI -I$(MPI_HOME)/include
+NVCUFLAGS += -DMPI_SUPPORT -I$(MPI_HOME)/include
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 endif
 LIBRARIES += cuda curand nvToolsExt nccl

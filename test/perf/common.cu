@@ -309,7 +309,7 @@ void Barrier(struct threadArgs_t* args)
   while (args->sync[0] != args->thread) pthread_yield();
   args->sync[0] = args->thread + 1;
   if (args->thread+1 == args->nThreads) {
-#ifdef MPI
+#ifdef MPI_SUPPORT
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
     args->sync[0] = 0;
@@ -438,7 +438,7 @@ int main(int argc, char* argv[]) {
   int localRank = 0;
   char hostname[1024];
   getHostName(hostname, 1024);
-#ifdef MPI
+#ifdef MPI_SUPPORT
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
   MPI_Comm_rank(MPI_COMM_WORLD, &proc);
@@ -466,7 +466,7 @@ int main(int argc, char* argv[]) {
   if (proc == 0) {
     NCCLCHECK(ncclGetUniqueId(&ncclId));
   }
-#ifdef MPI
+#ifdef MPI_SUPPORT
   MPI_Bcast(&ncclId, sizeof(ncclId), MPI_BYTE, 0, MPI_COMM_WORLD);
 #endif
   cudaStream_t streams[nGpus*nThreads];
@@ -499,7 +499,7 @@ int main(int argc, char* argv[]) {
         fflush(stdout);
       }
     }
-#ifdef MPI
+#ifdef MPI_SUPPORT
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
   }
@@ -567,7 +567,7 @@ int main(int argc, char* argv[]) {
   PRINT(" Out of bounds values : %d %s\n", errors[0], errors[0] ? "FAILED" : "OK");
   PRINT(" Avg bus bandwidth    : %g %s\n", bw[0], check_avg_bw == -1 ? "" : (bw[0] < check_avg_bw ? "FAILED" : "OK"));
   PRINT("\n");
-#ifdef MPI
+#ifdef MPI_SUPPORT
   MPI_Finalize();
 #endif
   if (errors[0] || bw[0] < check_avg_bw)

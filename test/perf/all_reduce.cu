@@ -63,7 +63,7 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
   args->sync[0] = args->thread + 1;
 
   if (args->thread+1 == args->nThreads) {
-#ifdef MPI
+#ifdef MPI_SUPPORT
     // Last thread does the MPI reduction
     void* remote, *remoteHost = malloc(args->nbytes);
     void* myInitialData = malloc(args->nbytes);
