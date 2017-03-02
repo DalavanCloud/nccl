@@ -12,7 +12,7 @@ NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 DST_DIR := $(abspath ${BUILDDIR}/test/perf)
 CU_FILES := $(wildcard *.cu)
 OBJ_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.o)
-EXE_FILES_LIST := all_reduce #all_gather broadcast reduce reduce_scatter
+EXE_FILES_LIST := all_reduce all_gather #broadcast reduce reduce_scatter
 EXE_FILES:= $(EXE_FILES_LIST:%=${DST_DIR}/%_perf)
 ifeq ($(MPI), 1)
 EXE_FILES+=$(EXE_FILES_LIST:%=${DST_DIR}/%_perf_mpi)
