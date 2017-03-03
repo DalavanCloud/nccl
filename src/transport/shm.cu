@@ -114,11 +114,7 @@ static inline int groupLast(int nranks, int* groups, int group) {
   return -1;
 }
 
-ncclResult_t shmGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
-  if (pattern >= 1) {
-    *nringsRet = 0;
-    return ncclSuccess;
-  }
+ncclResult_t shmGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
   if (*nringsRet == MAXRINGS) *nringsRet = 1;
   for (int ring = 0; ring<*nringsRet; ring++) {
     for (int group = 0; group<ngroups; group++) {

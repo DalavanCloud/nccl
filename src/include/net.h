@@ -21,8 +21,8 @@ typedef char ncclNetHandle_t[NCCL_NET_HANDLE_MAXSIZE];
 
 // Translation to external API
 static const char* ncclNetName() { return ncclNet->name; }
-static ncclResult_t ncclNetPtrSupport(int* supportedTypes) { NETCHECK(ncclNet->ptrSupport(supportedTypes)); return ncclSuccess; }
 static ncclResult_t ncclNetDevices(int* ndev, int** distances) { NETCHECK(ncclNet->devices(ndev, distances)); return ncclSuccess; }
+static ncclResult_t ncclNetPtrSupport(int dev, int* supportedTypes) { NETCHECK(ncclNet->ptrSupport(dev, supportedTypes)); return ncclSuccess; }
 static ncclResult_t ncclNetListen(int dev, void* handle, void** listenComm) { NETCHECK(ncclNet->listen(dev, handle, listenComm)); return ncclSuccess; }
 static ncclResult_t ncclNetConnect(int dev, void* handle, void** sendComm) { NETCHECK(ncclNet->connect(dev, handle, sendComm)); return ncclSuccess; }
 static ncclResult_t ncclNetAccept(void* listenComm, void** recvComm) { NETCHECK(ncclNet->accept(listenComm, recvComm)); return ncclSuccess; }

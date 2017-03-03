@@ -19,15 +19,8 @@
 #include "infiniband/verbs.h"
 
 #define USE_RDMA_WRITE 1
-
-int ncclIbPtrSupport(int* supportedTypes) {
-  *supportedTypes = NCCL_PTR_HOST;
-  char* str = getenv("NCCL_IB_CUDA_SUPPORT");
-  if (str && atoi(str) == 1) *supportedTypes |= NCCL_PTR_CUDA;
-  return 0;
-}
-
 #define MAX_IF_NAME_SIZE 16
+#define MAXPATHSIZE 1024
 static char ncclIbIfName[MAX_IF_NAME_SIZE];
 static struct in_addr ncclIbIfAddr;
 static int ncclNIbDevs = -1;
@@ -35,7 +28,7 @@ struct ncclIbDev {
   int device;
   uint8_t port;
   ibv_context* context;
-  int distance;
+  char devPath[MAXPATHSIZE];
 };
 
 #define MAX_IB_DEVS 16
@@ -57,7 +50,66 @@ static void* ncclIbAsyncThreadMain(void* args) {
   return NULL;
 }
 
-#define MAXPATHSIZE 1024
+ncclResult_t getCudaPath(int cudaDev, char** path) {
+  char busId[16];
+  CUDACHECK(cudaDeviceGetPCIBusId(busId, 16, cudaDev));
+  for (int i=0; i<16; i++) busId[i] = tolower(busId[i]);
+  char busPath[] =  "/sys/class/pci_bus/0000:00";
+  memcpy(busPath+sizeof("/sys/class/pci_bus/")-1, busId, sizeof("0000:00")-1); 
+
+  char pathname[MAXPATHSIZE];
+  strcpy(pathname, "/sys/class/pci_bus/");
+  int strLen = strlen(pathname);
+  int linkLen = readlink(busPath, pathname+strLen, MAXPATHSIZE-strLen);
+  if (linkLen == 0) {
+    WARN("Could not find link %s", path);
+    return ncclSystemError;
+  }
+  // readlink does not append '\0'. We have to do it.
+  pathname[strLen+linkLen] = '\0';
+  strncpy(pathname+strlen(pathname), "/device", MAXPATHSIZE-strlen(pathname));
+  char* cudaRpath = realpath(pathname, NULL); 
+  strncpy(pathname, cudaRpath, MAXPATHSIZE);
+  strncpy(pathname+strlen(pathname), "/", MAXPATHSIZE-strlen(pathname));
+  strncpy(pathname+strlen(pathname), busId, MAXPATHSIZE-strlen(pathname));
+  free(cudaRpath);
+  *path = realpath(pathname, NULL); 
+  if (*path == NULL) {
+    WARN("Could not find real path of %s", pathname);
+    return ncclSystemError;
+  }
+  return ncclSuccess;
+}
+
+ncclResult_t getMlxPath(char* ibdevPath, char** path) {
+  char pathname[MAXPATHSIZE];
+  strcpy(pathname, "/sys/class/infiniband/");
+  int strLen = strlen(pathname);
+  int linkLen = readlink(ibdevPath, pathname+strLen, MAXPATHSIZE-strLen);
+  if (linkLen == 0) {
+    WARN("Could not find link %s", ibdevPath);
+    return ncclSystemError;
+  }
+  // readlink does not append '\0'. We have to do it.
+  pathname[strLen+linkLen] = '\0';
+  strncpy(pathname+strlen(pathname), "/../..", MAXPATHSIZE-strlen(pathname));
+  *path = realpath(pathname, NULL); 
+  if (*path == NULL) {
+    WARN("Could not find real path of %s", pathname);
+    return ncclSystemError;
+  }
+  return ncclSuccess;
+}
+
+enum ncclIbPathDist {
+  PATH_PHB = 0,
+  PATH_PXB = 1,
+  PATH_PIX = 2,
+  PATH_SOC = 3
+};
+
+static const char* pathDists[] = { "PHB", "PXB", "PIX", "SOC" };
+
 int pciDistance(char* path1, char* path2) {
   int score = 0;
   int depth = 0;
@@ -69,7 +121,10 @@ int pciDistance(char* path1, char* path2) {
       if (same == 1) score++;
     }
   }
-  return depth-1-score;
+  if (score == 3) return PATH_SOC;
+  if (score == 4) return PATH_PIX;
+  if (score == depth-1)     return PATH_PHB;
+  return PATH_PXB;
 }
 
 static void initDevices() {
@@ -93,41 +148,12 @@ static void initDevices() {
       }
       INFO("NET/IB : Using interface %s for sideband communication", ncclIbIfName);
 
-      // Detect current CUDA device
-      int cudaDev;
-      cudaGetDevice(&cudaDev);
-      char busId[16];
-      cudaDeviceGetPCIBusId(busId, 16, cudaDev);
-      for (int i=0; i<16; i++) busId[i] = tolower(busId[i]);
-      char path[] =  "/sys/class/pci_bus/0000:00";
-      memcpy(path+sizeof("/sys/class/pci_bus/")-1, busId, sizeof("0000:00")-1); 
-      char pathname[MAXPATHSIZE];
-      readlink(path, pathname, MAXPATHSIZE);
-      char fullpathname[MAXPATHSIZE];
-      strcpy(fullpathname, "/sys/class/pci_bus/");
-      strcpy(fullpathname+strlen(fullpathname), pathname);
-      strcpy(fullpathname+strlen(fullpathname), "/device");
-      char* cudaRpath = realpath(fullpathname, NULL); 
-      strcpy(fullpathname, cudaRpath);
-      strcpy(fullpathname+strlen(fullpathname), "/");
-      strcpy(fullpathname+strlen(fullpathname), busId);
-      free(cudaRpath);
-      cudaRpath = realpath(fullpathname, NULL); 
-      
       // Detect IB cards
       int nIbDevs;
       ncclNIbDevs = 0;
       struct ibv_device** devices = ibv_get_device_list(&nIbDevs);
       for (int d=0; d<nIbDevs; d++) {
         struct ibv_context * context = ibv_open_device(devices[d]);
-
-        readlink(devices[d]->ibdev_path, pathname, MAXPATHSIZE);
-        char fullpathname[MAXPATHSIZE];
-        strcpy(fullpathname, "/sys/class/infiniband/");
-        strcpy(fullpathname+strlen(fullpathname), pathname);
-        strcpy(fullpathname+strlen(fullpathname), "/../..");
-        char* rpath = realpath(fullpathname, NULL); 
-
         int found = 0;
         if (context) {
           struct ibv_device_attr devAttr;
@@ -139,8 +165,9 @@ static void initDevices() {
               ncclIbDevs[ncclNIbDevs].device = d;
               ncclIbDevs[ncclNIbDevs].port = port;
               ncclIbDevs[ncclNIbDevs].context = context;
-              ncclIbDevs[ncclNIbDevs].distance = pciDistance(rpath, cudaRpath);
-              INFO("Found IB device %d : %s / port %d, distance %d", d, ibv_get_device_name(devices[d]), port, ncclIbDevs[ncclNIbDevs].distance);
+              strncpy(ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path, MAXPATHSIZE);
+              printf("-%s\n+%s\n", ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path);
+              INFO("IB device %d : %s / port %d", d, ibv_get_device_name(devices[d]), port);
               ncclNIbDevs++;
               found++;
               pthread_create(&ncclIbAsyncThread, NULL, ncclIbAsyncThreadMain, context);
@@ -150,7 +177,6 @@ static void initDevices() {
         }
       }
       ibv_free_device_list(devices);
-      free(cudaRpath);
     }
 
     char* env = getenv("NCCL_IB_TIMEOUT");
@@ -160,13 +186,47 @@ static void initDevices() {
   }
 }
 
-int ncclIbDevices(int* ndev, int** distances) {
+int ncclIbDevices(int* ndev, int** scores) {
   initDevices();
   *ndev = ncclNIbDevs;
-  int* dists = (int*)malloc(ncclNIbDevs*sizeof(int));
-  for (int i=0; i<ncclNIbDevs; i++) dists[i] = ncclIbDevs[i].distance;
-  *distances = dists;
+  int cudaDev;
+  cudaGetDevice(&cudaDev);
+  char* cudaPath;
+  getCudaPath(cudaDev, &cudaPath);
+  int* sc = (int*)malloc(ncclNIbDevs*sizeof(int));
+  for (int d=0; d<ncclNIbDevs; d++) {
+    char* mlxPath;
+    getMlxPath(ncclIbDevs[d].devPath, &mlxPath);
+    int distance = (mlxPath == NULL || cudaPath == NULL) ? PATH_SOC : pciDistance(mlxPath, cudaPath);
+    INFO("IB device %d, distance from %d : %s", d, cudaDev, pathDists[distance]);
+    sc[d] = 1+PATH_SOC-distance;
+    free(mlxPath);
+  }
+  free(cudaPath);
+  *scores = sc;
   return ncclSuccess;
+}
+
+int ncclIbPtrSupport(int dev, int* supportedTypes) {
+  initDevices();
+  *supportedTypes = NCCL_PTR_HOST;
+  int ibGdrEnabled = 0;
+  char* str = getenv("NCCL_IB_CUDA_SUPPORT");
+  if (str && atoi(str) > 0) {
+    ibGdrEnabled = 1;
+  } else { // auto detect
+    int cudaDev;
+    cudaGetDevice(&cudaDev);
+    char* cudaPath;
+    getCudaPath(cudaDev, &cudaPath);
+    char* mlxPath;
+    getMlxPath(ncclIbDevs[dev].devPath, &mlxPath);
+    int distance = (mlxPath == NULL || cudaPath == NULL) ? PATH_SOC : pciDistance(mlxPath, cudaPath);
+    free(mlxPath); free(cudaPath);
+    if (distance <= PATH_PIX) ibGdrEnabled = 1;
+  }
+  if (ibGdrEnabled == 1) *supportedTypes |= NCCL_PTR_CUDA;
+  return 0;
 }
 
 static ncclResult_t GetIpAddr(struct in_addr* addr) {
@@ -667,8 +727,8 @@ int ncclIbCloseListen(void* listenComm) {
 
 ncclNet_t ncclNetIb = {
   "IB",
-  ncclIbPtrSupport,
   ncclIbDevices,
+  ncclIbPtrSupport,
   ncclIbListen,
   ncclIbConnect,
   ncclIbAccept,

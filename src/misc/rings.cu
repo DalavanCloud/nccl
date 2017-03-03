@@ -44,7 +44,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
   for (int i=0; i<nranks*NTRANSPORTS; i++) coords[i] = -1;
   fillCoords(nranks, transports, coords, globalRankToIdx, globalIdxToRank);
 
-  int pattern = 0;
+  int minScore = NCCL_MAX_SCORE;
   int nringsTmp;
   int prevTmp[nranks*MAXRINGS];
   int nextTmp[nranks*MAXRINGS];
@@ -104,7 +104,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
           }
         }
         /* Get rings */
-        NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, groups, subvalues, &nringsTmp, subprev, subnext, pattern));
+        NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, groups, subvalues, &nringsTmp, subprev, subnext, minScore));
         /* Merge prev/next */
         for (int r=0; r<nringsTmp; r++) {
           for (int i=0; i<nidx; i++) {
@@ -114,7 +114,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
         }
       }
     }
-    pattern++;
+    minScore--;
     if (nringsTmp > *nrings) {
       *nrings = nringsTmp;
       for (int i=0; i<nranks*(*nrings); i++) {
@@ -122,9 +122,12 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
         next[i] = nextTmp[i];
       }
     }
-  } while (nringsTmp != 0 && pattern < 1);
+  } while (nringsTmp == 0 && minScore);
 
-  if (*nrings == 0) return ncclInternalError;
+  if (*nrings == 0) {
+    WARN("Could not create rings");
+    return ncclInternalError;
+  }
   return ncclSuccess;
 }
 

@@ -17,7 +17,7 @@
 
 /* Init functions */
 
-int ncclSocketPtrSupport(int* supportedTypes) {
+int ncclSocketPtrSupport(int dev, int* supportedTypes) {
   *supportedTypes = NCCL_PTR_HOST;
   return 0;
 }
@@ -54,12 +54,12 @@ static void initDevices() {
   }
 }
 
-int ncclSocketDevices(int* ndev, int** distances) {
+int ncclSocketDevices(int* ndev, int** scores) {
   initDevices();
   *ndev = ncclNetIfs;
-  int* dists = (int*)malloc(ncclNetIfs*sizeof(int));
-  for (int i=0; i<ncclNetIfs; i++) dists[i] = 0;
-  *distances = dists;
+  int* sc = (int*)malloc(ncclNetIfs*sizeof(int));
+  for (int i=0; i<ncclNetIfs; i++) sc[i] = NCCL_MAX_SCORE;
+  *scores = sc;
   return ncclSuccess;
 }
 
@@ -190,8 +190,8 @@ int ncclSocketClose(void* opaqueComm) {
 
 ncclNet_t ncclNetSocket = {
   "Socket",
-  ncclSocketPtrSupport,
   ncclSocketDevices,
+  ncclSocketPtrSupport,
   ncclSocketListen,
   ncclSocketConnect,
   ncclSocketAccept,

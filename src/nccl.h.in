@@ -86,7 +86,7 @@ ncclResult_t pncclCommCuDevice(const ncclComm_t comm, int* device);
 ncclResult_t  ncclCommUserRank(const ncclComm_t comm, int* rank);
 ncclResult_t pncclCommUserRank(const ncclComm_t comm, int* rank);
 
-/* Reduction opperation selector */
+/* Reduction operation selector */
 typedef enum { ncclSum        = 0,
                ncclProd       = 1,
                ncclMax        = 2,
@@ -169,17 +169,19 @@ ncclResult_t ncclGroupEnd();
 #define NCCL_PTR_HOST 0x1
 #define NCCL_PTR_CUDA 0x2
 
+#define NCCL_MAX_SCORE 0x7
+
 typedef struct {
   // Name of the network (mainly for logs)
   const char* name;
-  // Return whether this transport supports host pointers and/or CUDA pointers
-  // as data. Supported types should be composed with NCCL_PTR_HOST and 
-  // NCCL_PTR_CUDA.
-  int (*ptrSupport)(int* supportedTypes);
-  // Return the number of network devices with their distance to the current
-  // CUDA device. This call should allocate the 'distances' array which will
-  // be freed by NCCL.
-  int (*devices)(int* ndev, int** distances);
+  // Return the number of network devices with their scores relative to the 
+  // current CUDA device. This call should allocate the 'scores' array which
+  // will be freed by NCCL.
+  int (*devices)(int* ndev, int** scores);
+  // Return whether this device supports host pointers and/or CUDA pointers
+  // as data from the current GPU. Supported types should be composed with 
+  // NCCL_PTR_HOST and NCCL_PTR_CUDA.
+  int (*ptrSupport)(int dev, int* supportedTypes);
   // Create a receiving object and provide a handle to connect to it. The 
   // handle can be up to NCCL_NET_HANDLE_MAXSIZE bytes and will be exchanged 
   // between ranks to create a connection.
