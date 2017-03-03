@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <poll.h>
+#include <ctype.h>
 
 #include "infiniband/verbs.h"
 
@@ -34,6 +35,7 @@ struct ncclIbDev {
   int device;
   uint8_t port;
   ibv_context* context;
+  int distance;
 };
 
 #define MAX_IB_DEVS 16
@@ -53,6 +55,21 @@ static void* ncclIbAsyncThreadMain(void* args) {
     ibv_ack_async_event(&event);
   }
   return NULL;
+}
+
+#define MAXPATHSIZE 1024
+int pciDistance(char* path1, char* path2) {
+  int score = 0;
+  int depth = 0;
+  int same = 1;
+  for (int i=0; i<strlen(path1); i++) {
+    if (path1[i] != path2[i]) same = 0;
+    if (path1[i] == '/') {
+      depth++;
+      if (same == 1) score++;
+    }
+  }
+  return depth-1-score;
 }
 
 static void initDevices() {
@@ -75,6 +92,27 @@ static void initDevices() {
         }
       }
       INFO("NET/IB : Using interface %s for sideband communication", ncclIbIfName);
+
+      // Detect current CUDA device
+      int cudaDev;
+      cudaGetDevice(&cudaDev);
+      char busId[16];
+      cudaDeviceGetPCIBusId(busId, 16, cudaDev);
+      for (int i=0; i<16; i++) busId[i] = tolower(busId[i]);
+      char path[] =  "/sys/class/pci_bus/0000:00";
+      memcpy(path+sizeof("/sys/class/pci_bus/")-1, busId, sizeof("0000:00")-1); 
+      char pathname[MAXPATHSIZE];
+      readlink(path, pathname, MAXPATHSIZE);
+      char fullpathname[MAXPATHSIZE];
+      strcpy(fullpathname, "/sys/class/pci_bus/");
+      strcpy(fullpathname+strlen(fullpathname), pathname);
+      strcpy(fullpathname+strlen(fullpathname), "/device");
+      char* cudaRpath = realpath(fullpathname, NULL); 
+      strcpy(fullpathname, cudaRpath);
+      strcpy(fullpathname+strlen(fullpathname), "/");
+      strcpy(fullpathname+strlen(fullpathname), busId);
+      free(cudaRpath);
+      cudaRpath = realpath(fullpathname, NULL); 
       
       // Detect IB cards
       int nIbDevs;
@@ -82,6 +120,14 @@ static void initDevices() {
       struct ibv_device** devices = ibv_get_device_list(&nIbDevs);
       for (int d=0; d<nIbDevs; d++) {
         struct ibv_context * context = ibv_open_device(devices[d]);
+
+        readlink(devices[d]->ibdev_path, pathname, MAXPATHSIZE);
+        char fullpathname[MAXPATHSIZE];
+        strcpy(fullpathname, "/sys/class/infiniband/");
+        strcpy(fullpathname+strlen(fullpathname), pathname);
+        strcpy(fullpathname+strlen(fullpathname), "/../..");
+        char* rpath = realpath(fullpathname, NULL); 
+
         int found = 0;
         if (context) {
           struct ibv_device_attr devAttr;
@@ -90,10 +136,11 @@ static void initDevices() {
               struct ibv_port_attr portAttr;
               if (ibv_query_port(context, port, &portAttr) != 0) continue;
               if (portAttr.state != IBV_PORT_ACTIVE) continue;
-              INFO("Found IB device %d : %s / port %d", d, ibv_get_device_name(devices[d]), port);
               ncclIbDevs[ncclNIbDevs].device = d;
               ncclIbDevs[ncclNIbDevs].port = port;
               ncclIbDevs[ncclNIbDevs].context = context;
+              ncclIbDevs[ncclNIbDevs].distance = pciDistance(rpath, cudaRpath);
+              INFO("Found IB device %d : %s / port %d, distance %d", d, ibv_get_device_name(devices[d]), port, ncclIbDevs[ncclNIbDevs].distance);
               ncclNIbDevs++;
               found++;
               pthread_create(&ncclIbAsyncThread, NULL, ncclIbAsyncThreadMain, context);
@@ -103,6 +150,7 @@ static void initDevices() {
         }
       }
       ibv_free_device_list(devices);
+      free(cudaRpath);
     }
 
     char* env = getenv("NCCL_IB_TIMEOUT");
@@ -116,7 +164,7 @@ int ncclIbDevices(int* ndev, int** distances) {
   initDevices();
   *ndev = ncclNIbDevs;
   int* dists = (int*)malloc(ncclNIbDevs*sizeof(int));
-  for (int i=0; i<ncclNIbDevs; i++) dists[i] = 0;
+  for (int i=0; i<ncclNIbDevs; i++) dists[i] = ncclIbDevs[i].distance;
   *distances = dists;
   return ncclSuccess;
 }
@@ -188,6 +236,7 @@ struct ncclIbSendComm {
 
 struct ncclIbRecvComm {
   int fd;
+  int ready;
   struct ncclIbVerbs verbs;
   struct ncclIbReqs reqs;
   uint32_t remFifoRkey;
@@ -372,6 +421,17 @@ ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
     NCCLCHECK(socketReceive(comm->fd, &remQpInfo, sizeof(remQpInfo)));
     NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn, remQpInfo.lid, remQpInfo.ib_port));
     NCCLCHECK(ncclIbRtsQp(qp));
+    int go = 1;
+    NCCLCHECK(socketSend(comm->fd, &go, sizeof(go)));
+    comm->ready = 1;
+  }
+  return ncclSuccess;
+}
+
+ncclResult_t ncclRecvCheck(struct ncclIbRecvComm* comm) {
+  if (comm->ready == 0) {
+    int go;
+    NCCLCHECK(socketReceive(comm->fd, &go, sizeof(go)));
     comm->ready = 1;
   }
   return ncclSuccess;
@@ -486,9 +546,10 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
   return 0;
 }
 
-ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t addr, struct ncclIbRequest* req) {
+ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t addr) {
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
+  struct ncclIbRequest* req = ncclIbGetRequest(&comm->reqs, &comm->verbs);
   wr.wr_id = (uint64_t)req;
 
   comm->fifoElem.addr = addr;
@@ -513,6 +574,12 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   SYSCHECK(ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
   comm->verbs.numRequests++;
   comm->remFifoTail++;
+
+  while (req->done == 0) {
+    int done;
+    NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
+  }
+  req->used = 0;
   
   return ncclSuccess;
 }
@@ -520,6 +587,7 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
 int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) {
   struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
   struct ncclIbRequest* req = ncclIbGetRequest(&comm->reqs, &comm->verbs);
+  NCCLCHECK(ncclRecvCheck(comm));
   req->done = 0;
   req->size = size;
   req->verbs = &comm->verbs;
@@ -542,9 +610,6 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
     req->mr = mr;
   }
 
-  struct ncclIbRequest* fifoReq = ncclIbGetRequest(&comm->reqs, &comm->verbs);
-  NCCLCHECK(ncclIbPostFifo(comm, req->mr->rkey, (uint64_t)data, fifoReq));
-
   // Wait for WR to be available in the RQ
   while (comm->verbs.numRequests == MAX_REQUESTS) { 
      int done = 0;
@@ -557,13 +622,9 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
   SYSCHECK(ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");
   comm->verbs.numRequests++;
   *request = req;
-  // Wait for FIFO write to be complete
-  while (fifoReq->done == 0) {
-    int done;
-    NCCLCHECK((ncclResult_t)ncclIbTest(fifoReq, &done, NULL));
-  }
-  fifoReq->used = 0;
 
+  // Post to FIFO to notify sender
+  NCCLCHECK(ncclIbPostFifo(comm, req->mr->rkey, (uint64_t)data));
   return ncclSuccess;
 }
 

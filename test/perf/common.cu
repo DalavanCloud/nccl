@@ -8,8 +8,6 @@
 #include <pthread.h>
 #include <cstdio>
 
-#define CHECK 1
-
 #ifdef MPI_TRANSPORT
 extern "C" {
 void ncclMpiHook(MPI_Comm comm);
@@ -347,6 +345,8 @@ void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, in
   }
 }
 
+//#define CHECK 1
+
 void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
   size_t count = args->nbytes / wordSize(type);
 #ifdef CHECK
@@ -513,6 +513,8 @@ int main(int argc, char* argv[]) {
 #ifdef MPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
+    printf("");
+    fflush(stdout);
   }
 
   int errors[nThreads];

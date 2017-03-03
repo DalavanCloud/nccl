@@ -122,7 +122,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
         next[i] = nextTmp[i];
       }
     }
-  } while (nringsTmp != 0 && pattern < 2);
+  } while (nringsTmp != 0 && pattern < 1);
 
   if (*nrings == 0) return ncclInternalError;
   return ncclSuccess;

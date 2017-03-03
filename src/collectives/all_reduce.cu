@@ -215,11 +215,11 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
-    //if (comm->nRings > 1) {
-    //  LAUNCH_KERNEL(AllReduceKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
-    //} else {
+    if (comm->nRings > 1) {
+      LAUNCH_KERNEL(AllReduceKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
+    } else {
       LAUNCH_KERNEL(AllReduceKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
-    //}
+    }
   }
 
   return ncclSuccess;

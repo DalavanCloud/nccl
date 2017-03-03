@@ -141,7 +141,12 @@ ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
 
   int flags;
   NCCLCHECK(ncclNetPtrSupport(&flags));
-  resources->cudaSupport = false; //(flags & NCCL_PTR_CUDA) ? true : false;
+  static int useGDRforReads = -1;
+  if (useGDRforReads == -1) {
+    char* str = getenv("NCCL_NET_GDR_READ");
+    useGDRforReads = str ? atoi(str) : 0;
+  }
+  resources->cudaSupport = (useGDRforReads == 1) && (flags & NCCL_PTR_CUDA) ? true : false;
 
   int size = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
   if (resources->cudaSupport) {
@@ -154,20 +159,16 @@ ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
 }
 
 int getDev(int ringId, int nDev, int* dists) {
-  int dev = 0;
-  int skip = ringId;
+  int skip = ringId+1;
   while (skip) {
     for (int d=0; d<nDev; d++) {
       if (dists[d] == 0) {
-        if (skip == 0) {
-          dev = d;
-          break;
-        }
         skip--;
+        if (skip == 0) return d;
       }
     }
   }
-  return dev;
+  return 0;
 }
 
 ncclResult_t netRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {

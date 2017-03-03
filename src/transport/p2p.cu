@@ -208,7 +208,16 @@ int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings,
   int matrix[nranks*nranks];
   for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++)
     matrix[i*nranks+j] = oversubscribe ? values[i*nranks+j] : values[i*nranks+j]/2;
-  return p2pComputeRings(matrix, nranks, rings, nrings, connect);
+
+  int nringsRet = p2pComputeRings(matrix, nranks, rings, nrings, connect);
+  if (connect == 0) {
+    // Duplicate the rings for NVLink alone
+    for (int r=0; r<nringsRet; r++) {
+      for (int i=0; i<nranks; i++) rings[(r+nringsRet)*nranks+i] = rings[r*nranks+i];
+    }
+    nringsRet *= 2;
+  }
+  return nringsRet;
 }
 
 ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int pattern) {
@@ -220,10 +229,8 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
   int rings[MAXRINGS*nranks];
   for (int i=0; i<MAXRINGS*nranks; i++) rings[i] = -1;
 
-  // NVLinks rings go by pair and we duplicate them later
-  int nrings = *nringsRet / 2;
-
   // Get the maximum number of rings given the number of nvlinks
+  int nrings = MAXRINGS;
   for (int rank=0; rank<nranks; rank++) {
     int nr = 0;
     for (int i=0; i<nranks; i++) {
@@ -231,10 +238,11 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
     }
     nrings = min(nrings, nr);
   }
+  nrings = min(nrings, *nringsRet);
 
   if (nrings) {
     int comp_nrings = p2pComputeRingsFromPrevNext(values, nranks, rings, nrings, prev, next, 0);
-    if (comp_nrings && comp_nrings < nrings && nranks <= 4) {
+    if (comp_nrings && comp_nrings < nrings*2 && nranks <= 4) {
       // Try to oversubscribe to get a better result
       int rings2[MAXRINGS*nranks];
       for (int i=0; i<MAXRINGS*nranks; i++) rings2[i] = -1;
@@ -251,30 +259,55 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
   int pcie = (nrings == 0) ? 1 : 0;
   if (pcie) {
     // PCIe or QPI
-    nrings = *nringsRet == MAXRINGS ? 1 : *nringsRet;
-    for (int r=0; r<nrings; r++) {
-      for (int i=0; i<nranks; i++) {
-        if (r % 2 == 0)
-          rings[r*nranks+i] = i;
-        else
-          rings[r*nranks+i] = nranks-1-i;
+    int connect = 0;
+    for (int r=0; r<*nringsRet; r++) {
+      int start = findConnect(nranks, prev+r*nranks);
+      int end = findConnect(nranks, next+r*nranks);
+      if (start != -1 && end != -1) {
+        rings[r*nranks] = end;
+        rings[r*nranks+1] = start;
+        int cur = start;
+        int inc = r%2 == 0 ? 1 : -1;
+        for (int i=2; i<nranks; i++) {
+          cur = (cur+inc+nranks) % nranks;
+          while (cur == end || cur == start) cur = (cur+inc+nranks) % nranks;
+          rings[r*nranks+i] = cur;
+        }
+        connect = 1;
+      } else {
+        if (connect == 1 && r > 0) {
+          WARN("Connecting rings but did not find start/end for ring %d. Disabling other rings.", r);
+          nrings = *nringsRet = r;
+        } else {
+          // No connections here. stop.
+          break;
+        }
       }
     }
-  } else {
-    // Double the rings for NVLink
-    nrings *= 2;
+
+    if (connect == 0) {
+      nrings = 1;
+      for (int r=0; r<nrings; r++) {
+        for (int i=0; i<nranks; i++) {
+          if (r % 2 == 0)
+            rings[r*nranks+i] = i;
+          else
+            rings[r*nranks+i] = nranks-1-i;
+        }
+      }
+    } else {
+      nrings = *nringsRet;
+    }
   }
 
   *nringsRet = nrings;
   for (int ring = 0; ring<nrings; ring++) {
-    int input_ring = pcie ? ring : ring % (nrings/2);
-
     for (int index=0; index<nranks; index++) {
       int prevIndex = (index - 1 + nranks) % nranks;
       int nextIndex = (index + 1) % nranks;
-      int curRank = rings[input_ring*nranks+index];
-      int prevRank = rings[input_ring*nranks+prevIndex];
-      int nextRank = rings[input_ring*nranks+nextIndex];
+      int curRank = rings[ring*nranks+index];
+      int prevRank = rings[ring*nranks+prevIndex];
+      int nextRank = rings[ring*nranks+nextIndex];
       if (prev[ring*nranks+curRank] == -1) prev[ring*nranks+curRank] = prevRank;
       if (next[ring*nranks+curRank] == -1) next[ring*nranks+curRank] = nextRank;
     }
