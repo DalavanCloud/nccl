@@ -36,7 +36,17 @@ ${DST_DIR}/%.o:%.cu
 	@mkdir -p ${DST_DIR}
 	$(NVCC) --compile -o $@ $(NVCUFLAGS) $<
 #
-${DST_DIR}/%:${DST_DIR}/%.o
+${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
+	@printf "Compiling   %-35s > %s\n" $< $@
+	@mkdir -p ${DST_DIR}
+	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
+#
+${DST_DIR}/rings_test: ${DST_DIR}/rings_test.o
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) $< ${NVLDFLAGS}
+#
+${DST_DIR}/ncclNet_test: ncclNet_test.cu ${DST_DIR}/nccl_mpi.o
+	@printf "Linking  %-35s > %s\n" $< $@
+	@mkdir -p ${DST_DIR}
+	$(NVCC) -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
