@@ -253,30 +253,32 @@ int ncclMpiAccept(void *listenComm, void** recvComm) {
 } while(0)
 
 int ncclMpiIsend(void* sendComm, void* data, int size, int type, void** request) {
-  printf("ncclMpiIsend\n");
+  //printf("ncclMpiIsend\n");
   int ret;
   //CHECK_PTR(type);
   struct ncclMpiSendComm* comm = (struct ncclMpiSendComm*)sendComm;
   MPI_Request* mpiRequest = ncclMpiGetRequest();
   *request = mpiRequest;
-  printf("Send : %p %d %d %d %p\n", data, size, comm->rank, comm->tag, mpiRequest);
+  //printf("Send : %p %d %d %d %p\n", data, size, comm->rank, comm->tag, mpiRequest);
   MPI_PROTECT(ret, MPI_Isend(data, size, MPI_BYTE, comm->rank, comm->tag, ncclMpiComm, mpiRequest));
   return ret;
 }
 
 int ncclMpiIrecv(void* recvComm, void* data, int size, int type, void** request) {
-  printf("ncclMpiIrecv\n");
+  //printf("ncclMpiIrecv\n");
   int ret;
   //CHECK_PTR(type);
   struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)recvComm;
   MPI_Request* mpiRequest = ncclMpiGetRequest();
   *request = mpiRequest;
-  //printf("Recv : %p %d %d %p\n", data, size, comm->tag, mpiRequest);
-  MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, 0/*MPI_ANY_SOURCE*/, 0/*comm->tag*/, ncclMpiComm, mpiRequest));
+  //printf("Recv : %p %d %p %p\n", data, size, comm, mpiRequest);
+  //MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, 1/*MPI_ANY_SOURCE*/, 1/*comm->tag*/, ncclMpiComm, mpiRequest));
+  MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, MPI_ANY_SOURCE, comm->tag, ncclMpiComm, mpiRequest));
   return ret;
 }
 
 int ncclMpiTest(void* request, int* done, int* size) {
+  //printf("ncclMpiTest\n");
   MPI_Request* mpiRequest = (MPI_Request*)request;
   MPI_Status status;
   int err;

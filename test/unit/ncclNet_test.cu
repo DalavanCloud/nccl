@@ -204,9 +204,9 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
       } while(!done);
       gettimeofday(&end, NULL);
       *duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
+#endif
       //printf("%d closeRecv\n", rank);
       if(net->closeRecv(recvComm)){ failed=1; goto out; }
-#endif
     }
   }else{
     char connectHandle[NCCL_NET_HANDLE_MAXSIZE];
@@ -234,9 +234,9 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
     } while(!done);
     gettimeofday(&end, NULL);
     *duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
+#endif
     //printf("%d closeSend\n", rank);
     if(net->closeSend(sendComm)){ failed=1; goto out; }
-#endif
   } 
 
 out:
