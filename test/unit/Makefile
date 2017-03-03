@@ -50,3 +50,8 @@ ${DST_DIR}/ncclNet_test: ncclNet_test.cu ${DST_DIR}/nccl_mpi.o
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
+#
+${DST_DIR}/ncclNet_read_write_stress_test: ncclNet_read_write_stress_test.cu
+	@printf "Linking  %-35s > %s\n" $< $@
+	@mkdir -p ${DST_DIR}
+	$(NVCC) -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
