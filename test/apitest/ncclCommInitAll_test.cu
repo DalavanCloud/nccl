@@ -55,7 +55,7 @@ TEST_F(ncclCommInitAll_test, DISABLED_ndev_toomany) {
         pcomms = NULL;
     }
 };
-#if 0 // useless?
+#if 1 // useless?
 TEST_F(ncclCommInitAll_test, ndev_toomany_and_devList_allZero) {
     int ndev = 100;
     comms = (ncclComm_t*)calloc(ndev, sizeof(ncclComm_t));
