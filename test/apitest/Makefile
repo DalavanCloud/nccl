@@ -1,18 +1,19 @@
 .DEFAULT_GOAL=all
 include ../../makefiles/common.mk
 BUILDDIR ?= $(abspath ../../build)
+BUILDRELDIR = ../../${BUILDDIR}
 GTEST_DIR ?= $(abspath ../googletest/googletest)
 include ../gtest.mk
 ### files
 SRC_FILES	:= $(wildcard *.cu)
-DST_DIR		:= $(BUILDDIR)/test/apitest
+DST_DIR		:= $(BUILDRELDIR)/test/apitest
 OBJ_FILES	:= $(SRC_FILES:%.cu=${DST_DIR}/%.o)
 DEP_FILES	:= $(OBJ_FILES:%.o=%.dep)
 ### cc
-NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h ${CPPFLAGS} ${GTEST_CPPFLAGS}
+NVCUFLAGS += -I${BUILDRELDIR}/include/ -include nccl.h ${CPPFLAGS} ${GTEST_CPPFLAGS}
 ### ld
 LIBRARIES += cuda curand nvToolsExt nccl
-LIBDIR := ${BUILDDIR}/lib
+LIBDIR := ${BUILDRELDIR}/lib
 NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) ${GTEST_LIBS}
 ### rules
 .PHONY:

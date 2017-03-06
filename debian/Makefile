@@ -1,8 +1,9 @@
 #### PACKAGING ####
 include ../makefiles/common.mk
 include ../makefiles/version.mk
-BUILDDIR := $(abspath ../build)
-DEBIANDIR  := $(BUILDDIR)/debian
+BUILDDIR ?= $(abspath ../build)
+BUILDRELDIR = ../${BUILDDIR}
+DEBIANDIR  := $(BUILDRELDIR)/debian
 
 DEBGEN_IN  := $(wildcard *.in)
 DEBGEN     := $(DEBGEN_IN:.in=)
@@ -13,13 +14,14 @@ DEB_REVISION   ?= 1
 DEB_TIMESTAMP  := $(shell date -R)
 DEB_ARCH       ?= amd64
 
-build : $(DEBTARGETS)
+build : 
+	$(DEBTARGETS)
 
 package : build
 	@printf "Building Debian package\n"
-	(cd $(BUILDDIR); debuild -eLD_LIBRARY_PATH -uc -us -d -b)
-	mkdir -p $(BUILDDIR)/deb/
-	mv $(BUILDDIR)/../libnccl*.deb $(BUILDDIR)/deb/
+	(cd $(BUILDRELDIR); debuild -eLD_LIBRARY_PATH -uc -us -d -b)
+	mkdir -p $(BUILDRELDIR)/deb/
+	mv $(BUILDRELDIR)/../libnccl*.deb $(BUILDRELDIR)/deb/
 
 clean:
 	rm -Rf $(DEBIANDIR)

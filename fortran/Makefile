@@ -1,6 +1,7 @@
 include ../makefiles/common.mk
 include ../makefiles/version.mk
-build:lib
+build:
+	lib
 CUDA_HOME ?= /usr/local/cuda
 CUDA_LIB = $(CUDA_HOME)/lib64
 
@@ -8,9 +9,10 @@ FC := gfortran
 FCNAME := $(notdir $(FC))
 
 BUILDDIR ?= ../build
-INCDIR := $(BUILDDIR)/include
-LIBDIR := $(BUILDDIR)/lib
-OBJDIR := $(BUILDDIR)/obj
+BUILDRELDIR = ../${BUILDDIR}
+INCDIR := $(BUILDRELDIR)/include
+LIBDIR := $(BUILDRELDIR)/lib
+OBJDIR := $(BUILDRELDIR)/obj
 
 LIBNAME    := libncclfor.so
 LIBSONAME  := $(patsubst %,%.$(NCCL_MAJOR),$(LIBNAME))
@@ -69,7 +71,7 @@ ifneq ($(filter pgf%, $(FCNAME)), )
 TESTS += reduce_arr_out allreduce_arr_out reducescatter_arr_out broadcast_arr allgather_arr_out
 endif
 
-TESTDIR  := $(BUILDDIR)/test/fortran
+TESTDIR  := $(BUILDRELDIR)/test/fortran
 TESTBINS := $(patsubst %,$(TESTDIR)/%,$(TESTS))
 
 test: lib $(TESTBINS)

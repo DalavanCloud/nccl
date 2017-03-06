@@ -1,6 +1,7 @@
 .DEFAULT_GOAL=all
 include ../../makefiles/common.mk
 BUILDDIR ?= $(abspath ../../build)
+BUILDRELDIR = ../../${BUILDDIR}
 GTEST_DIR ?= $(abspath ../googletest/googletest)
 include ../gtest.mk
 ### mpi lib
@@ -10,13 +11,13 @@ MPI_HOME ?= $(realpath $(dir $(or \
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 NVCUFLAGS += -I$(MPI_HOME)/include
 ### flags
-NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h -I../include ${CPPFLAGS} ${GTEST_CPPFLAGS}
+NVCUFLAGS += -I${BUILDRELDIR}/include/ -include nccl.h -I../include ${CPPFLAGS} ${GTEST_CPPFLAGS}
 LIBRARIES += curand nccl
-LIBDIR    := ${BUILDDIR}/lib
-NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) $(BUILDDIR)/test/gtest.a
+LIBDIR    := ${BUILDRELDIR}/lib
+NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) $(BUILDRELDIR)/test/gtest.a
 ### files
 SRC_FILES := $(wildcard *.cpp) #$(wildcard *.cu)
-DST_DIR := $(BUILDDIR)/test/mpi
+DST_DIR := $(BUILDRELDIR)/test/mpi
 OBJ_FILES := ${SRC_FILES:%.cpp=${DST_DIR}/%.o}
 OBJ_FILES := ${OBJ_FILES:%.cu=${DST_DIR}/%.o}
 DEP_FILES := ${OBJ_FILES:%.o=%.dep}
@@ -51,7 +52,7 @@ ${PBIN} : mpi_perf.cu
 	${NVCC} -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
 #
 ${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
-	mpicc -std=c99 -I$(BUILDDIR)/include/ -I$(CUDA_HOME)/include/ -o $@ -c $<
+	mpicc -std=c99 -I$(BUILDRELDIR)/include/ -I$(CUDA_HOME)/include/ -o $@ -c $<
 #
 ${PBIN2} : mpi_perf.cu ${DST_DIR}/nccl_mpi.o
 	${NVCC} -o $@ $(NVCUFLAGS) -DMPI_TRANSPORT ${NVLDFLAGS} $^
@@ -63,12 +64,12 @@ ${DST_DIR}/%.o: %.cu
 #
 GPU_COUNT ?= 2
 test: ${BIN}
-	cd ${BUILDDIR} && \
+	cd ${BUILDRELDIR} && \
 	export LD_LIBRARY_PATH=$$LD_LIBRARY_PATH:./lib NCCL_DEBUG=WARN && \
 	mpiexec -mca btl self,sm -np ${GPU_COUNT} ./test/mpi/mpi_test
 
 perf: ${BIN}
-	cd ${BUILDDIR} && \
+	cd ${BUILDRELDIR} && \
 	export LD_LIBRARY_PATH=$$LD_LIBRARY_PATH:./lib NCCL_DEBUG=WARN && \
 	mpiexec -mca btl self,sm -np ${GPU_COUNT} ./test/mpi/mpi_test -perf
 #EOF

@@ -12,10 +12,11 @@ LIBSRCFILES := init.cu bootstrap.cu transport.cu misc/group.cu \
 LIBNAME     := libnccl.so
 STATICLIBNAME := libnccl_static.a
 ##### dirs
-BUILDDIR := $(abspath ../build)
-INCDIR := $(BUILDDIR)/include
-LIBDIR := $(BUILDDIR)/lib
-OBJDIR := $(BUILDDIR)/obj
+BUILDDIR ?= $(abspath ../build)
+BUILDRELDIR = ../${BUILDDIR}
+INCDIR := $(BUILDRELDIR)/include
+LIBDIR := $(BUILDRELDIR)/lib
+OBJDIR := $(BUILDRELDIR)/obj
 ##### target files
 INCTARGETS := $(INCEXPORTS:%=$(INCDIR)/%)
 LIBSONAME  := $(LIBNAME:%=%.$(NCCL_MAJOR))
@@ -74,6 +75,6 @@ clean :
 install : lib
 	mkdir -p $(PREFIX)/lib
 	mkdir -p $(PREFIX)/include
-	cp -P -v $(BUILDDIR)/lib/* $(PREFIX)/lib/
-	cp -v $(BUILDDIR)/include/* $(PREFIX)/include/
+	cp -P -v $(BUILDRELDIR)/lib/* $(PREFIX)/lib/
+	cp -v $(BUILDRELDIR)/include/* $(PREFIX)/include/
 
