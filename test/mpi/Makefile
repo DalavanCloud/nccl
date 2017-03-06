@@ -12,7 +12,7 @@ NVCUFLAGS += -I$(MPI_HOME)/include
 ### flags
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h -I../include ${CPPFLAGS} ${GTEST_CPPFLAGS}
 LIBRARIES += curand nccl
-LIBDIR    := ../../build/lib
+LIBDIR    := ${BUILDDIR}/lib
 NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) $(BUILDDIR)/test/gtest.a
 ### files
 SRC_FILES := $(wildcard *.cpp) #$(wildcard *.cu)

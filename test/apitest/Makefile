@@ -12,7 +12,7 @@ DEP_FILES	:= $(OBJ_FILES:%.o=%.dep)
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h ${CPPFLAGS} ${GTEST_CPPFLAGS}
 ### ld
 LIBRARIES += cuda curand nvToolsExt nccl
-LIBDIR := ../../build/lib
+LIBDIR := ${BUILDDIR}/lib
 NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) ${GTEST_LIBS}
 ### rules
 .PHONY:
