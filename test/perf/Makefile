@@ -1,16 +1,15 @@
 include ../../makefiles/common.mk
 ##
 BUILDDIR := $(abspath ../../build)
-BUILDRELDIR = ../../${BUILDDIR}
-NVCUFLAGS += -I$(BUILDRELDIR)/include/ -I../include
+NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include
 ifeq ($(MPI), 1)
 NVCUFLAGS += -DMPI_SUPPORT -I$(MPI_HOME)/include
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 endif
 LIBRARIES += cuda curand nvToolsExt nccl
-NVLDFLAGS   += -L$(BUILDRELDIR)/lib $(LIBRARIES:%=-l%)
+NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 ##
-DST_DIR := $(abspath ${BUILDRELDIR}/test/perf)
+DST_DIR := $(abspath ${BUILDDIR}/test/perf)
 CU_FILES := $(wildcard *.cu)
 OBJ_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.o)
 EXE_FILES_LIST := all_reduce all_gather #broadcast reduce reduce_scatter
@@ -44,7 +43,7 @@ ${DST_DIR}/common_mpi.o:common.cu
 	$(NVCC) -DMPI_TRANSPORT --compile -o $@ $(NVCUFLAGS) $<
 #
 ${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
-	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDRELDIR)/include/ -o $@ -c $<
+	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
 #
 ${DST_DIR}/%_perf:${DST_DIR}/%.o ${DST_DIR}/common.o
 	@printf "Linking  %-35s > %s\n" $< $@

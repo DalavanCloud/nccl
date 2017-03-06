@@ -1,13 +1,12 @@
 include ../../makefiles/common.mk
 ##
-BUILDDIR := $(abspath ../../build)
-BUILDRELDIR = ../../${BUILDDIR}
+BUILDDIR ?= $(abspath ../../build)
 # We need private functions. Include and link with src
-NVCUFLAGS += -I$(BUILDRELDIR)/include/ -I../include -I../../src/include
+NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
 LIBRARIES += cuda
-NVLDFLAGS += $(BUILDRELDIR)/obj/*.o $(BUILDRELDIR)/obj/*/*.o -L$(BUILDRELDIR)/lib $(LIBRARIES:%=-l%)
+NVLDFLAGS += $(BUILDDIR)/obj/*.o $(BUILDDIR)/obj/*/*.o -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 ##
-DST_DIR := $(abspath ${BUILDRELDIR}/test/unit)
+DST_DIR := $(abspath ${BUILDDIR}/test/unit)
 CU_FILES := $(wildcard *.cu)
 OBJ_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.o)
 EXE_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%)

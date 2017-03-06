@@ -2,8 +2,7 @@
 include ../makefiles/common.mk
 include ../makefiles/version.mk
 BUILDDIR ?= $(abspath ../build)
-BUILDRELDIR = ../${BUILDDIR}
-DEBIANDIR  := $(BUILDRELDIR)/debian
+DEBIANDIR  := $(BUILDDIR)/debian
 
 DEBGEN_IN  := $(wildcard *.in)
 DEBGEN     := $(DEBGEN_IN:.in=)
@@ -19,9 +18,9 @@ build :
 
 package : build
 	@printf "Building Debian package\n"
-	(cd $(BUILDRELDIR); debuild -eLD_LIBRARY_PATH -uc -us -d -b)
-	mkdir -p $(BUILDRELDIR)/deb/
-	mv $(BUILDRELDIR)/../libnccl*.deb $(BUILDRELDIR)/deb/
+	(cd $(BUILDDIR); debuild -eLD_LIBRARY_PATH -uc -us -d -b)
+	mkdir -p $(BUILDDIR)/deb/
+	mv $(BUILDDIR)/../libnccl*.deb $(BUILDDIR)/deb/
 
 clean:
 	rm -Rf $(DEBIANDIR)

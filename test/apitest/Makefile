@@ -1,19 +1,18 @@
 .DEFAULT_GOAL=all
 include ../../makefiles/common.mk
 BUILDDIR ?= $(abspath ../../build)
-BUILDRELDIR = ../../${BUILDDIR}
 GTEST_DIR ?= $(abspath ../googletest/googletest)
 include ../gtest.mk
 ### files
 SRC_FILES	:= $(wildcard *.cu)
-DST_DIR		:= $(BUILDRELDIR)/test/apitest
+DST_DIR		:= $(BUILDDIR)/test/apitest
 OBJ_FILES	:= $(SRC_FILES:%.cu=${DST_DIR}/%.o)
 DEP_FILES	:= $(OBJ_FILES:%.o=%.dep)
 ### cc
-NVCUFLAGS += -I${BUILDRELDIR}/include/ -include nccl.h ${CPPFLAGS} ${GTEST_CPPFLAGS}
+NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h ${CPPFLAGS} ${GTEST_CPPFLAGS}
 ### ld
 LIBRARIES += cuda curand nvToolsExt nccl
-LIBDIR := ${BUILDRELDIR}/lib
+LIBDIR := ${BUILDDIR}/lib
 NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) ${GTEST_LIBS}
 ### rules
 .PHONY:
@@ -26,7 +25,7 @@ ${DST_DIR}/%.dep:%.cu
 	| sed "0,/^$*.o :/s//$(subst /,\/,${DST_DIR}/$*.o) :/" \
 	> $@
 endif
-all: ${DST_DIR}/apitest
+all:${DST_DIR}/apitest
 
 clean:
 	rm -rf ${DST_DIR}

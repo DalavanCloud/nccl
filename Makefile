@@ -6,14 +6,14 @@
 .PHONY : all clean
 
 default : src.build
-BUILDDIR ?= $(abspath build)
+BUILDDIR ?= $(abspath ./build)
+ABSBUILDDIR := $(abspath $(BUILDDIR))
 TARGETS := src test fortran debian
 all:   ${TARGETS:%=%.build}
 clean: ${TARGETS:%=%.clean}
 debian.build fortran.build test.build: src.build
 %.build:
-	@echo abspath:$(abspath $(BUILDDIR))
-	${MAKE} -C $* build
+	${MAKE} -C $* build BUILDDIR=${ABSBUILDDIR}
 
 %.clean:
 	${MAKE} -C $* clean

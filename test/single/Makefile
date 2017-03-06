@@ -1,12 +1,11 @@
 include ../../makefiles/common.mk
 ##
-BUILDDIR := $(abspath ../../build)
-BUILDRELDIR = ../../${BUILDDIR}
-NVCUFLAGS += -I${BUILDRELDIR}/include/ -I../include
+BUILDDIR ?= $(abspath ../../build)
+NVCUFLAGS += -I${BUILDDIR}/include/ -I../include
 LIBRARIES += cuda curand nvToolsExt nccl
-NVLDFLAGS   += -L${BUILDRELDIR}/lib $(LIBRARIES:%=-l%)
+NVLDFLAGS   += -L${BUILDDIR}/lib $(LIBRARIES:%=-l%)
 ##
-DST_DIR := $(abspath ${BUILDRELDIR}/test/single)
+DST_DIR := $(abspath ${BUILDDIR}/test/single)
 CU_FILES := $(wildcard *.cu)
 OBJ_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.o)
 EXE_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%)

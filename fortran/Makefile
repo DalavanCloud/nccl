@@ -9,10 +9,9 @@ FC := gfortran
 FCNAME := $(notdir $(FC))
 
 BUILDDIR ?= ../build
-BUILDRELDIR = ../${BUILDDIR}
-INCDIR := $(BUILDRELDIR)/include
-LIBDIR := $(BUILDRELDIR)/lib
-OBJDIR := $(BUILDRELDIR)/obj
+INCDIR := $(BUILDDIR)/include
+LIBDIR := $(BUILDDIR)/lib
+OBJDIR := $(BUILDDIR)/obj
 
 LIBNAME    := libncclfor.so
 LIBSONAME  := $(patsubst %,%.$(NCCL_MAJOR),$(LIBNAME))
@@ -71,7 +70,7 @@ ifneq ($(filter pgf%, $(FCNAME)), )
 TESTS += reduce_arr_out allreduce_arr_out reducescatter_arr_out broadcast_arr allgather_arr_out
 endif
 
-TESTDIR  := $(BUILDRELDIR)/test/fortran
+TESTDIR  := $(BUILDDIR)/test/fortran
 TESTBINS := $(patsubst %,$(TESTDIR)/%,$(TESTS))
 
 test: lib $(TESTBINS)
