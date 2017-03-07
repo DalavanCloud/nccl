@@ -44,7 +44,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
   for (int i=0; i<nranks*NTRANSPORTS; i++) coords[i] = -1;
   fillCoords(nranks, transports, coords, globalRankToIdx, globalIdxToRank);
 
-  int pattern = 0;
+  int minScore = NCCL_MAX_SCORE;
   int nringsTmp;
   int prevTmp[nranks*MAXRINGS];
   int nextTmp[nranks*MAXRINGS];
@@ -55,6 +55,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
       int idxToRank[nranks];
       int rankToIdx[nranks];
       int groups[nranks];
+      int subgroups[nranks];
       for (int i=0; i<nranks; i++) idxToRank[i] = rankToIdx[i] = -1;
       
       int nidx = 0;
@@ -67,6 +68,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
         if (!sameLocal) continue;
 
         groups[nidx] = coords[r*NTRANSPORTS+t];
+        subgroups[nidx] = t ? coords[r*NTRANSPORTS+t-1] : nidx;
         rankToIdx[r] = nidx;
         idxToRank[nidx] = r;
         nidx++;
@@ -104,7 +106,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
           }
         }
         /* Get rings */
-        NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, groups, subvalues, &nringsTmp, subprev, subnext, pattern));
+        NCCLCHECK(ncclTransports[t].getRings(nidx, groups, subgroups, subvalues, &nringsTmp, subprev, subnext, minScore));
         /* Merge prev/next */
         for (int r=0; r<nringsTmp; r++) {
           for (int i=0; i<nidx; i++) {
@@ -112,9 +114,13 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
             if ((nextTmp[r*nranks+idxToRank[i]] == -1) && (subnext[r*nidx+i] != -1)) nextTmp[r*nranks+idxToRank[i]] = idxToRank[subnext[r*nidx+i]];
           }
         }
+        for (int r=0; r<nringsTmp; r++) {
+        //printf("[%d] [%d] [%d] [%d] Prev ", rank, minScore, t, r); for (int i=0; i<nranks; i++) printf("%d ", prevTmp[r*nranks+i]); printf("\n");
+        //printf("[%d] [%d] [%d] [%d] Next ", rank, minScore, t, r); for (int i=0; i<nranks; i++) printf("%d ", nextTmp[r*nranks+i]); printf("\n");
+        }
       }
     }
-    pattern++;
+    minScore--;
     if (nringsTmp > *nrings) {
       *nrings = nringsTmp;
       for (int i=0; i<nranks*(*nrings); i++) {
@@ -122,9 +128,12 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
         next[i] = nextTmp[i];
       }
     }
-  } while (nringsTmp != 0 && pattern < 2);
+  } while (nringsTmp == 0 && minScore);
 
-  if (*nrings == 0) return ncclInternalError;
+  if (*nrings == 0) {
+    WARN("Could not create rings");
+    return ncclInternalError;
+  }
   return ncclSuccess;
 }
 

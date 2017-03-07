@@ -58,6 +58,7 @@ struct ncclSendRecvMem {
 
 struct ncclRing {
   int id;
+  int nthreads;
   // Per ring resources
   struct ncclSendRecvMem* devMem;   // CUDA-size resources
   int buffSize;
@@ -104,7 +105,7 @@ struct ncclComm {
 #define CUDACHECK(cmd) do {                                 \
     cudaError_t e = cmd;                                    \
     if( e != cudaSuccess ) {                                \
-        WARN("Cuda failure '%s'\n", cudaGetErrorString(e)); \
+        WARN("Cuda failure '%s'", cudaGetErrorString(e)); \
         return ncclUnhandledCudaError;                      \
     }                                                       \
 } while(false)
@@ -135,7 +136,7 @@ struct ncclComm {
   ncclResult_t res = call; \
   if (res != ncclSuccess) { \
     /* Print the back trace*/ \
-    WARN(""); \
+    WARN("< ... >"); \
     return res; \
   } \
 } while (0);

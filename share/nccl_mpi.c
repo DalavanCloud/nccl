@@ -27,37 +27,61 @@
  *
  ************************************************************************/
 
-/************************************************************************
- * This is an example using the NCCL network API to use MPI for inter-node
- * communication.
- *
- * This file should be included in the code and the ncclMpiHook function 
- * should be called before any call to NCCL (ncclCommInitRank in particular).
- *
- ************************************************************************/
-
 #include "mpi.h"
 #include "nccl.h"
 
+/************************************************************************
+ * This is an example using the NCCL network API to use MPI for
+ * inter-node communication.
+ *
+ * This file should be included as part of the application code.
+ ************************************************************************/
+
+/* Functions to be used by the application */
+
+// ncclMpiHook : make NCCL use MPI as inter-node communication system.
+// This function should be called after MPI_Init and before any NCCL call
+// (in particular ncclCommGetUniqueId and ncclCommInitRank).
+// If MPI is used concurrently with NCCL, it is recommended to create a 
+// dedicated communicator for NCCL (usually a dup of MPI_COMM_WORLD).
+void ncclMpiHook(MPI_Comm comm);
+
+// ncclMpiLock/ncclMpiUnlock : protect MPI calls if MPI is not thread-safe.
+// NCCL being an asynchronous communication library, MPI may be called from
+// threads. If the MPI implementation is not THREAD_MULTIPLE, it is critical
+// to guard other MPI calls in the application using those two functions.
+void ncclMpiLock();
+void ncclMpiUnlock();
+
+/* NCCL MPI Plugin */
+
+// Functions prototypes
+int ncclMpiPtrSupport(int* supportedTypes);
 int ncclMpiDevices(int* ndev, int** distances);
-int ncclMpiGetHandle(int dev, void* handle, void** recvComm);
-int ncclMpiConnectHandle(void* handle, void** sendComm);
-int ncclMpiIsend(void* sendComm, void* data, int size, void** request);
-int ncclMpiIrecv(void* recvComm, void* data, int size, void** request);
+int ncclMpiListen(int dev, void* handle, void** listenComm);
+int ncclMpiConnectHandle(int dev, void* handle, void** sendComm);
+int ncclMpiAccept(void *listenComm, void** recvComm);
+int ncclMpiIsend(void* sendComm, void* data, int size, int type, void** request);
+int ncclMpiIrecv(void* recvComm, void* data, int size, int type, void** request);
 int ncclMpiTest(void* request, int* done, int* size);
 int ncclMpiCloseSend(void* sendComm);
 int ncclMpiCloseRecv(void* recvComm);
+int ncclMpiCloseListen(void* listenComm);
 
+// MPI Net Module
 ncclNet_t ncclMpi = {
   "MPI",
+  ncclMpiPtrSupport,
   ncclMpiDevices,
-  ncclMpiGetHandle,
+  ncclMpiListen,
   ncclMpiConnectHandle,
+  ncclMpiAccept,
   ncclMpiIsend,
   ncclMpiIrecv,
   ncclMpiTest,
   ncclMpiCloseSend,
-  ncclMpiCloseRecv
+  ncclMpiCloseRecv,
+  ncclMpiCloseListen
 };
 
 static MPI_Comm ncclMpiComm;
@@ -75,9 +99,18 @@ void ncclMpiHook(MPI_Comm comm) {
 pthread_mutex_t ncclMpiGlobalLock = PTHREAD_MUTEX_INITIALIZER;
 static int ncclMpiLockMode = -1;
 
+void ncclMpiLock() {
+  if (ncclMpiLockMode == 1) pthread_mutex_lock(&ncclMpiGlobalLock);
+}
+void ncclMpiUnlock() {
+  if (ncclMpiLockMode == 1) pthread_mutex_unlock(&ncclMpiGlobalLock);
+}
+
 static void ncclMpiGetLockMode() {
   int provided;
   MPI_Query_thread(&provided);
+  // MPI implementations may have thread safety bugs; provide a way
+  // to force locking.
   char* str = getenv("NCCL_MPI_FORCE_LOCK");
   if (provided < MPI_THREAD_MULTIPLE || (str && atoi(str) == 1)) {
     ncclMpiLockMode = 1;
@@ -86,24 +119,18 @@ static void ncclMpiGetLockMode() {
   }
 }
 
-#define NCCL_MPI_CHECK_LOCK_MODE do { \
-  if (ncclMpiLockMode == -1) { \
-    ncclMpiGetLockMode(); \
-  } \
-} while (0)
-
-#define MPI_CALL(retvar, cmd) do { \
-  NCCL_MPI_CHECK_LOCK_MODE; \
-  if (ncclMpiLockMode == 1) pthread_mutex_lock(&ncclMpiGlobalLock); \
+#define MPI_PROTECT(retvar, cmd) do { \
+  if (ncclMpiLockMode == -1) ncclMpiGetLockMode(); \
+  ncclMpiLock(); \
   retvar = cmd; \
-  if (ncclMpiLockMode == 1) pthread_mutex_unlock(&ncclMpiGlobalLock); \
+  ncclMpiUnlock(); \
 } while (0)
 
+/* Dynamic request pool management */
 static int numRequests = 0;
 MPI_Request* ncclMpiRequests = NULL;
 int* ncclMpiRequestUsed = NULL;
 pthread_mutex_t ncclMpiRequestsLock = PTHREAD_MUTEX_INITIALIZER;
-
 
 MPI_Request* ncclMpiGetRequest() {
   pthread_mutex_lock(&ncclMpiRequestsLock);
@@ -139,6 +166,9 @@ void ncclMpiFreeRequest(MPI_Request* request) {
   pthread_mutex_unlock(&ncclMpiRequestsLock);
 }
 
+/* Opaque structures */
+
+// We generate a tag for each handle, but our rank doesn't change.
 struct ncclMpiHandle {
   int rank;
   int tag;
@@ -163,6 +193,21 @@ static void getTag(int *tag) {
   *tag = val;
 }
 
+static int getCudaSupport() {
+  static int cudaSupport = -1;
+  if (cudaSupport == -1) {
+    char* str = getenv("NCCL_MPI_CUDA_SUPPORT");
+    cudaSupport = str ? atoi(str) : 0;
+  }
+  return cudaSupport;
+}
+
+int ncclMpiPtrSupport(int* supportedTypes) {
+  *supportedTypes = NCCL_PTR_HOST;
+  if (getCudaSupport()) *supportedTypes |= NCCL_PTR_CUDA;
+  return 0;
+}
+
 int ncclMpiDevices(int* ndev, int** distances) {
   *ndev = 1;
   *distances = (int*)malloc(sizeof(int));
@@ -170,7 +215,7 @@ int ncclMpiDevices(int* ndev, int** distances) {
   return 0;
 }
 
-int ncclMpiGetHandle(int dev, void* opaqueHandle, void** recvComm) {
+int ncclMpiListen(int dev, void* opaqueHandle, void** listenComm) {
   struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)malloc(sizeof(struct ncclMpiRecvComm));
   struct ncclMpiHandle* handle = (struct ncclMpiHandle*) opaqueHandle;
   assert(sizeof(struct ncclMpiHandle) < NCCL_NET_HANDLE_MAXSIZE);
@@ -178,50 +223,74 @@ int ncclMpiGetHandle(int dev, void* opaqueHandle, void** recvComm) {
   getTag(&tag);
   comm->tag = handle->tag = tag;
   int ret;
-  MPI_CALL(ret, MPI_Comm_rank(ncclMpiComm, &handle->rank));
-  *recvComm = comm;
+  MPI_PROTECT(ret, MPI_Comm_rank(ncclMpiComm, &handle->rank));
+  //MPI_PROTECT(ret, MPI_Comm_rank(MPI_COMM_WORLD, &handle->rank));
+  *listenComm = comm;
   return ret;
 }
 
-int ncclMpiConnectHandle(void* opaqueHandle, void** sendComm) {
+// No real need to connect or accept in MPI, just retain the rank and tag.
+int ncclMpiConnectHandle(int dev, void* opaqueHandle, void** sendComm) {
   struct ncclMpiSendComm* comm = (struct ncclMpiSendComm*)malloc(sizeof(struct ncclMpiSendComm));
   struct ncclMpiHandle* handle = (struct ncclMpiHandle*) opaqueHandle;
   comm->rank = handle->rank;
   comm->tag = handle->tag;
   *sendComm = comm;
   return 0;
-};
+}
 
-int ncclMpiIsend(void* sendComm, void* data, int size, void** request) {
+int ncclMpiAccept(void *listenComm, void** recvComm) {
+  return 0;
+}
+
+#define CHECK_PTR(type) do {          \
+  if (type == NCCL_PTR_CUDA) {        \
+    if (getCudaSupport() == 0)        \
+      return 1;                       \
+  } else if (type != NCCL_PTR_HOST) { \
+    return 1;                         \
+  }                                   \
+} while(0)
+
+int ncclMpiIsend(void* sendComm, void* data, int size, int type, void** request) {
+  //printf("ncclMpiIsend\n");
+  int ret;
+  //CHECK_PTR(type);
   struct ncclMpiSendComm* comm = (struct ncclMpiSendComm*)sendComm;
   MPI_Request* mpiRequest = ncclMpiGetRequest();
   *request = mpiRequest;
-  int ret;
-  MPI_CALL(ret, MPI_Isend(data, size, MPI_BYTE, comm->rank, comm->tag, ncclMpiComm, mpiRequest));
+  //printf("Send : %p %d %d %d %p\n", data, size, comm->rank, comm->tag, mpiRequest);
+  MPI_PROTECT(ret, MPI_Isend(data, size, MPI_BYTE, comm->rank, comm->tag, ncclMpiComm, mpiRequest));
   return ret;
 }
 
-int ncclMpiIrecv(void* recvComm, void* data, int size, void** request) {
+int ncclMpiIrecv(void* recvComm, void* data, int size, int type, void** request) {
+  //printf("ncclMpiIrecv\n");
+  int ret;
+  //CHECK_PTR(type);
   struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)recvComm;
   MPI_Request* mpiRequest = ncclMpiGetRequest();
   *request = mpiRequest;
-  int ret;
-  MPI_CALL(ret, MPI_Irecv(data, size, MPI_BYTE, MPI_ANY_SOURCE, comm->tag, ncclMpiComm, mpiRequest));
+  //printf("Recv : %p %d %p %p\n", data, size, comm, mpiRequest);
+  //MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, 1/*MPI_ANY_SOURCE*/, 1/*comm->tag*/, ncclMpiComm, mpiRequest));
+  MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, MPI_ANY_SOURCE, comm->tag, ncclMpiComm, mpiRequest));
   return ret;
 }
 
 int ncclMpiTest(void* request, int* done, int* size) {
+  //printf("ncclMpiTest\n");
   MPI_Request* mpiRequest = (MPI_Request*)request;
   MPI_Status status;
   int err;
-  MPI_CALL(err, MPI_Test(mpiRequest, done, &status));
+  MPI_PROTECT(err, MPI_Test(mpiRequest, done, &status));
   if (err == 0 && *done == 1) {
-    if (size) MPI_CALL(err, MPI_Get_count(&status, MPI_BYTE, size));
+    if (size) MPI_PROTECT(err, MPI_Get_count(&status, MPI_BYTE, size));
     ncclMpiFreeRequest(request);
   }
   return err;
 }
 
+// No need to close connections in MPI
 int ncclMpiCloseSend(void* sendComm) {
   return 0;
 }
@@ -230,3 +299,6 @@ int ncclMpiCloseRecv(void* recvComm) {
   return 0;
 }
 
+int ncclMpiCloseListen(void* listenComm) {
+  return 0;
+}

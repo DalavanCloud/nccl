@@ -8,6 +8,22 @@
 #include <pthread.h>
 #include <cstdio>
 
+#ifdef MPI_TRANSPORT
+extern "C" {
+void ncclMpiHook(MPI_Comm comm);
+void ncclMpiLock();
+void ncclMpiUnlock();
+}
+
+#define MPI_PROTECT(mpicall) do { \
+  ncclMpiLock(); \
+  mpicall; \
+  ncclMpiUnlock(); \
+} while(0)
+#else
+#define MPI_PROTECT(mpicall) mpicall
+#endif
+
 thread_local int is_main_thread = 0;
 
 double DeltaMaxValue(ncclDataType_t type) {
@@ -357,6 +373,8 @@ void InitSend(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, in
   rep++;
 }
 
+#define CHECK 1
+
 void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
   size_t count = args->nbytes / wordSize(type);
   
@@ -398,7 +416,11 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
 
   GetBw(count, wordSize(type), deltaSec, &algBw, &busBw, args->nProcs*args->nThreads*args->nGpus);
 
+#ifdef CHECK
   double maxDelta = CheckData(args, type, op, root);
+#else
+  double maxDelta = -1.0;
+#endif
 
   PRINT("  %7.3f  %5.2f  %5.2f  %7.0le", deltaSec * 1.0E3, algBw, busBw,
       maxDelta);
@@ -537,6 +559,8 @@ int main(int argc, char* argv[]) {
 #ifdef MPI_SUPPORT
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
+    printf("");
+    fflush(stdout);
   }
 
   int errors[nThreads];

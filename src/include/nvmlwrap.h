@@ -7,9 +7,58 @@
 #ifndef NCCL_NVMLWRAP_H_
 #define NCCL_NVMLWRAP_H_
 
-// Dynamically handle dependencies on NVML
-
 #include "core.h"
+
+//#define NVML_DIRECT 1
+#ifdef NVML_DIRECT
+#include "nvml.h"
+
+#define NVMLCHECK(cmd) do {                              \
+    nvmlReturn_t e = cmd;                                 \
+    if( e != NVML_SUCCESS ) {                            \
+        WARN("NVML failure '%s'\n", nvmlErrorString(e)); \
+        return ncclSystemError;                          \
+    }                                                    \
+} while(false)
+
+static ncclResult_t wrapNvmlSymbols(void) { return ncclSuccess; }
+static ncclResult_t wrapNvmlInit(void) { NVMLCHECK(nvmlInit()); return ncclSuccess; }
+static ncclResult_t wrapNvmlShutdown(void) { NVMLCHECK(nvmlShutdown()); return ncclSuccess; }
+static ncclResult_t wrapNvmlDeviceGetHandleByPciBusId(const char* pciBusId, nvmlDevice_t* device) {
+  NVMLCHECK(nvmlDeviceGetHandleByPciBusId(pciBusId, device));
+  return ncclSuccess;
+}
+static ncclResult_t wrapNvmlDeviceGetIndex(nvmlDevice_t device, unsigned* index) {
+  NVMLCHECK(nvmlDeviceGetIndex(device, index));
+  return ncclSuccess;
+}
+static ncclResult_t wrapNvmlDeviceSetCpuAffinity(nvmlDevice_t device) {
+  NVMLCHECK(nvmlDeviceSetCpuAffinity(device)); 
+  return ncclSuccess;
+}
+static ncclResult_t wrapNvmlDeviceClearCpuAffinity(nvmlDevice_t device) {
+  NVMLCHECK(nvmlDeviceClearCpuAffinity(device));
+  return ncclSuccess;
+}
+static ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t *device) {
+  NVMLCHECK(nvmlDeviceGetHandleByIndex(index,device));
+  return ncclSuccess;
+}
+static ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive) {
+  NVMLCHECK(nvmlDeviceGetNvLinkState(device, link, isActive));
+  return ncclSuccess;
+}
+static ncclResult_t wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDevice_t device, unsigned int link, nvmlPciInfo_t *pci) {
+  NVMLCHECK(nvmlDeviceGetNvLinkRemotePciInfo(device, link, pci));
+  return ncclSuccess;
+}
+static ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int link,
+                                                   nvmlNvLinkCapability_t capability, unsigned int *capResult) {
+  NVMLCHECK(nvmlDeviceGetNvLinkCapability(device, link, capability, capResult));
+  return ncclSuccess;
+}
+#else
+// Dynamically handle dependencies on NVML
 
 /* Extracted from nvml.h */
 typedef struct nvmlDevice_st* nvmlDevice_t;
@@ -91,6 +140,7 @@ ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link
 ncclResult_t wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDevice_t device, unsigned int link, nvmlPciInfo_t *pci);
 ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int link,
                                                    nvmlNvLinkCapability_t capability, unsigned int *capResult);
+#endif // NVML_DIRECT
 
 #endif // End include guard
 
