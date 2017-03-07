@@ -140,10 +140,14 @@ ncclResult_t shmGetRings(int nranks, int* groups, int* subgroups, int* values, i
           end = rank;
         }
       }
-      if (start == -1) 
-        start = (nranksInGroup == 1) ? end : groupFirst(nranks, groups, group, end);
-      if (end == -1) 
-        end = (nranksInGroup == 1) ? start : groupLast(nranks, groups, group, start);
+      if (nranksInGroup == 1) {
+        start = end = groupFirst(nranks, groups, group, -1);
+      } else {
+        if (start == -1) 
+          start = groupFirst(nranks, groups, group, end);
+        if (end == -1) 
+          end = groupLast(nranks, groups, group, start);
+      }
       if (start == -1 || end == -1) {
         *nringsRet = ring;
         return ncclSuccess;
