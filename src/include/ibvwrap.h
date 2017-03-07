@@ -25,11 +25,11 @@ struct ibv_mr *wrap_ibv_reg_mr(struct ibv_pd *pd, void *addr, size_t length, int
 int wrap_ibv_dereg_mr(struct ibv_mr *mr) { return ibv_dereg_mr(mr); }
 struct ibv_comp_channel *wrap_ibv_create_comp_channel(struct ibv_context *context) { return ibv_create_comp_channel(context); }
 struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector) { return ibv_create_cq(context, cqe, cq_context, channel, comp_vector); }
-static inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) { return ibv_poll_cq(cq, num_entries, wc); }
+/*static inline*/ int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) { return ibv_poll_cq(cq, num_entries, wc); }
 struct ibv_qp *wrap_ibv_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr) { return ibv_create_qp(pd, qp_init_attr); }
 int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask) { return ibv_modify_qp(qp, attr, attr_mask); }
-static inline int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr){ return ibv_post_send(qp, wr, bad_wr); }
-static inline int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr) { return ibv_post_recv(qp, wr, bad_wr); }
+/*static inline*/ int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr){ return ibv_post_send(qp, wr, bad_wr); }
+/*static inline*/ int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr) { return ibv_post_recv(qp, wr, bad_wr); }
 const char *wrap_ibv_event_type_str(enum ibv_event_type event) { return ibv_event_type_str(event); }
 #else
 // Dynamically handle dependencies on IB verbs
@@ -620,11 +620,11 @@ struct ibv_mr *wrap_ibv_reg_mr(struct ibv_pd *pd, void *addr, size_t length, int
 int wrap_ibv_dereg_mr(struct ibv_mr *mr);
 struct ibv_comp_channel *wrap_ibv_create_comp_channel(struct ibv_context *context);
 struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector);
-static inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc);
+/*static*/ inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc);
 struct ibv_qp *wrap_ibv_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr);
 int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask);
-static inline int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr);
-static inline int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr);
+/*static*/ inline int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr);
+/*static*/ inline int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr);
 const char *wrap_ibv_event_type_str(enum ibv_event_type event);
 #endif // IB verbs
 #endif //End include guard
