@@ -58,28 +58,30 @@ void ncclMpiUnlock();
 // Functions prototypes
 int ncclMpiPtrSupport(int* supportedTypes);
 int ncclMpiDevices(int* ndev, int** distances);
-int ncclMpiGetHandle(int dev, void* handle, void** recvComm);
+int ncclMpiListen(int dev, void* handle, void** listenComm);
 int ncclMpiConnectHandle(int dev, void* handle, void** sendComm);
-int ncclMpiAccept(void* recvComm);
+int ncclMpiAccept(void *listenComm, void** recvComm);
 int ncclMpiIsend(void* sendComm, void* data, int size, int type, void** request);
 int ncclMpiIrecv(void* recvComm, void* data, int size, int type, void** request);
 int ncclMpiTest(void* request, int* done, int* size);
 int ncclMpiCloseSend(void* sendComm);
 int ncclMpiCloseRecv(void* recvComm);
+int ncclMpiCloseListen(void* listenComm);
 
 // MPI Net Module
 ncclNet_t ncclMpi = {
   "MPI",
   ncclMpiPtrSupport,
   ncclMpiDevices,
-  ncclMpiGetHandle,
+  ncclMpiListen,
   ncclMpiConnectHandle,
   ncclMpiAccept,
   ncclMpiIsend,
   ncclMpiIrecv,
   ncclMpiTest,
   ncclMpiCloseSend,
-  ncclMpiCloseRecv
+  ncclMpiCloseRecv,
+  ncclMpiCloseListen
 };
 
 static MPI_Comm ncclMpiComm;
@@ -213,7 +215,7 @@ int ncclMpiDevices(int* ndev, int** distances) {
   return 0;
 }
 
-int ncclMpiGetHandle(int dev, void* opaqueHandle, void** recvComm) {
+int ncclMpiListen(int dev, void* opaqueHandle, void** listenComm) {
   struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)malloc(sizeof(struct ncclMpiRecvComm));
   struct ncclMpiHandle* handle = (struct ncclMpiHandle*) opaqueHandle;
   assert(sizeof(struct ncclMpiHandle) < NCCL_NET_HANDLE_MAXSIZE);
@@ -222,7 +224,8 @@ int ncclMpiGetHandle(int dev, void* opaqueHandle, void** recvComm) {
   comm->tag = handle->tag = tag;
   int ret;
   MPI_PROTECT(ret, MPI_Comm_rank(ncclMpiComm, &handle->rank));
-  *recvComm = comm;
+  //MPI_PROTECT(ret, MPI_Comm_rank(MPI_COMM_WORLD, &handle->rank));
+  *listenComm = comm;
   return ret;
 }
 
@@ -236,7 +239,7 @@ int ncclMpiConnectHandle(int dev, void* opaqueHandle, void** sendComm) {
   return 0;
 }
 
-int ncclMpiAccept(void* recvComm) {
+int ncclMpiAccept(void *listenComm, void** recvComm) {
   return 0;
 }
 
@@ -250,26 +253,32 @@ int ncclMpiAccept(void* recvComm) {
 } while(0)
 
 int ncclMpiIsend(void* sendComm, void* data, int size, int type, void** request) {
-  CHECK_PTR(type);
+  //printf("ncclMpiIsend\n");
+  int ret;
+  //CHECK_PTR(type);
   struct ncclMpiSendComm* comm = (struct ncclMpiSendComm*)sendComm;
   MPI_Request* mpiRequest = ncclMpiGetRequest();
   *request = mpiRequest;
-  int ret;
+  //printf("Send : %p %d %d %d %p\n", data, size, comm->rank, comm->tag, mpiRequest);
   MPI_PROTECT(ret, MPI_Isend(data, size, MPI_BYTE, comm->rank, comm->tag, ncclMpiComm, mpiRequest));
   return ret;
 }
 
 int ncclMpiIrecv(void* recvComm, void* data, int size, int type, void** request) {
-  CHECK_PTR(type);
+  //printf("ncclMpiIrecv\n");
+  int ret;
+  //CHECK_PTR(type);
   struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)recvComm;
   MPI_Request* mpiRequest = ncclMpiGetRequest();
   *request = mpiRequest;
-  int ret;
+  //printf("Recv : %p %d %p %p\n", data, size, comm, mpiRequest);
+  //MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, 1/*MPI_ANY_SOURCE*/, 1/*comm->tag*/, ncclMpiComm, mpiRequest));
   MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, MPI_ANY_SOURCE, comm->tag, ncclMpiComm, mpiRequest));
   return ret;
 }
 
 int ncclMpiTest(void* request, int* done, int* size) {
+  //printf("ncclMpiTest\n");
   MPI_Request* mpiRequest = (MPI_Request*)request;
   MPI_Status status;
   int err;
@@ -287,5 +296,9 @@ int ncclMpiCloseSend(void* sendComm) {
 }
 
 int ncclMpiCloseRecv(void* recvComm) {
+  return 0;
+}
+
+int ncclMpiCloseListen(void* listenComm) {
   return 0;
 }

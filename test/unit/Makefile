@@ -1,6 +1,12 @@
 include ../../makefiles/common.mk
 ##
 BUILDDIR := $(abspath ../../build)
+### mpi lib
+MPI_HOME ?= $(realpath $(dir $(or \
+	$(realpath /usr/include/mpi.h),\
+	$(realpath /usr/lib/openmpi/include/mpi.h)))..)
+NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
+NVCUFLAGS += -I$(MPI_HOME)/include
 # We need private functions. Include and link with src
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
 LIBRARIES += cuda ibverbs
@@ -31,7 +37,22 @@ ${DST_DIR}/%.o:%.cu
 	@mkdir -p ${DST_DIR}
 	$(NVCC) --compile -o $@ $(NVCUFLAGS) $<
 #
-${DST_DIR}/%:${DST_DIR}/%.o ${LIBOBJS}
+${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
+	@printf "Compiling   %-35s > %s\n" $< $@
+	@mkdir -p ${DST_DIR}
+	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
+#
+${DST_DIR}/rings_test: ${DST_DIR}/rings_test.o ${LIBOBJS}
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
+#
+${DST_DIR}/ncclNet_test: ${DST_DIR}/ncclNet_test.o ${DST_DIR}/nccl_mpi.o ${LIBOBJS}
+	@printf "Linking  %-35s > %s\n" $^ $@
+	@mkdir -p ${DST_DIR}
+	$(NVCC) -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
+#
+${DST_DIR}/ncclNet_read_write_stress_test: ${DST_DIR}/ncclNet_read_write_stress_test.o ${LIBOBJS}
+	@printf "Linking  %-35s > %s\n" $^ $@
+	@mkdir -p ${DST_DIR}
+	$(NVCC) -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
