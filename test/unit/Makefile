@@ -4,7 +4,8 @@ BUILDDIR := $(abspath ../../build)
 # We need private functions. Include and link with src
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
 LIBRARIES += cuda ibverbs
-NVLDFLAGS += $(BUILDDIR)/obj/*.o $(BUILDDIR)/obj/*/*.o -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
+LIBOBJS := $(BUILDDIR)/obj/*.o $(BUILDDIR)/obj/*/*.o
+NVLDFLAGS += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 ##
 DST_DIR := $(abspath ${BUILDDIR}/test/unit)
 CU_FILES := $(wildcard *.cu)
@@ -30,7 +31,7 @@ ${DST_DIR}/%.o:%.cu
 	@mkdir -p ${DST_DIR}
 	$(NVCC) --compile -o $@ $(NVCUFLAGS) $<
 #
-${DST_DIR}/%:${DST_DIR}/%.o
+${DST_DIR}/%:${DST_DIR}/%.o ${LIBOBJS}
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
-	$(NVCC) -o $@ $(NVCUFLAGS) $< ${NVLDFLAGS}
+	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}

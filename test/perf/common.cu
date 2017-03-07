@@ -345,7 +345,7 @@ void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, in
   }
 }
 
-//#define CHECK 1
+#define CHECK 1
 
 void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
   size_t count = args->nbytes / wordSize(type);

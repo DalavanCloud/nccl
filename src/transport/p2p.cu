@@ -220,7 +220,7 @@ int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings,
   return nringsRet;
 }
 
-ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
+ncclResult_t p2pGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
   if (*nringsRet == 0) return ncclSuccess;
   int rings[MAXRINGS*nranks];
   for (int i=0; i<MAXRINGS*nranks; i++) rings[i] = -1;

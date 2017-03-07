@@ -55,6 +55,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
       int idxToRank[nranks];
       int rankToIdx[nranks];
       int groups[nranks];
+      int subgroups[nranks];
       for (int i=0; i<nranks; i++) idxToRank[i] = rankToIdx[i] = -1;
       
       int nidx = 0;
@@ -67,6 +68,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
         if (!sameLocal) continue;
 
         groups[nidx] = coords[r*NTRANSPORTS+t];
+        subgroups[nidx] = t ? coords[r*NTRANSPORTS+t-1] : nidx;
         rankToIdx[r] = nidx;
         idxToRank[nidx] = r;
         nidx++;
@@ -104,13 +106,17 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
           }
         }
         /* Get rings */
-        NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, groups, subvalues, &nringsTmp, subprev, subnext, minScore));
+        NCCLCHECK(ncclTransports[t].getRings(nidx, groups, subgroups, subvalues, &nringsTmp, subprev, subnext, minScore));
         /* Merge prev/next */
         for (int r=0; r<nringsTmp; r++) {
           for (int i=0; i<nidx; i++) {
             if ((prevTmp[r*nranks+idxToRank[i]] == -1) && (subprev[r*nidx+i] != -1)) prevTmp[r*nranks+idxToRank[i]] = idxToRank[subprev[r*nidx+i]];
             if ((nextTmp[r*nranks+idxToRank[i]] == -1) && (subnext[r*nidx+i] != -1)) nextTmp[r*nranks+idxToRank[i]] = idxToRank[subnext[r*nidx+i]];
           }
+        }
+        for (int r=0; r<nringsTmp; r++) {
+        //printf("[%d] [%d] [%d] [%d] Prev ", rank, minScore, t, r); for (int i=0; i<nranks; i++) printf("%d ", prevTmp[r*nranks+i]); printf("\n");
+        //printf("[%d] [%d] [%d] [%d] Next ", rank, minScore, t, r); for (int i=0; i<nranks; i++) printf("%d ", nextTmp[r*nranks+i]); printf("\n");
         }
       }
     }

@@ -100,47 +100,61 @@ ncclResult_t shmCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
   return ncclSuccess;
 }
 
-static inline int groupFirst(int nranks, int* groups, int group) {
+static inline int groupFirst(int nranks, int* groups, int group, int rankToAvoid) {
   for (int rank = 0; rank<nranks; rank++) {
-    if (groups[rank] == group) return rank;
+    if ((groups[rank] == group) && (rank != rankToAvoid)) return rank;
   }
   return -1;
 }
 
-static inline int groupLast(int nranks, int* groups, int group) {
+static inline int groupLast(int nranks, int* groups, int group, int rankToAvoid) {
   for (int rank = nranks-1; rank>=0; rank--) {
-    if (groups[rank] == group) return rank;
+    if ((groups[rank] == group) && (rank != rankToAvoid)) return rank;
   }
   return -1;
 }
 
-ncclResult_t shmGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
-  if (*nringsRet == MAXRINGS) *nringsRet = 1;
+ncclResult_t shmGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
+  if (*nringsRet == MAXRINGS) *nringsRet = 2;
+  int nGroups = groups[nranks-1] + 1;
+  int starts[nGroups];
+  int ends[nGroups];
   for (int ring = 0; ring<*nringsRet; ring++) {
-    for (int group = 0; group<ngroups; group++) {
-      // Check if this group is already connected
-      int skip = 0;
-      for (int rank = 0; rank<nranks; rank++) {
-        if (groups[rank] == group && next[ring*nranks+rank] != -1) skip = 1;
+    for (int group = 0; group<nGroups; group++) {
+      int start = -1;
+      int end = -1;
+      int nranksInGroup = 0;
+      for (int rank=0; rank<nranks; rank++) {
+        if (groups[rank] != group) continue;
+        nranksInGroup++;
+        if (prev[rank] != -1) {
+          if (start != -1) {
+            WARN("Multiple starts found in group");
+          }
+          start = rank;
+        }
+        if (next[rank] != -1) {
+          if (end != -1) {
+            WARN("Multiple ends found in group");
+          }
+          end = rank;
+        }
       }
-      if (skip) continue;
-
-      int source = -1, destination = -1;
-      if (ring % 2 == 0) {
-        int nextGroup = (group+1)%ngroups;
-        source = groupLast(nranks, groups, group);
-        destination = groupFirst(nranks, groups, nextGroup);
-      } else {
-        int prevGroup = (group-1+ngroups)%ngroups;
-        destination = groupLast(nranks, groups, prevGroup);
-        source = groupFirst(nranks, groups, group);
-      }
-      if (source == -1 || destination == -1) {
+      if (start == -1) 
+        start = (nranksInGroup == 1) ? end : groupFirst(nranks, groups, group, end);
+      if (end == -1) 
+        end = (nranksInGroup == 1) ? start : groupLast(nranks, groups, group, start);
+      if (start == -1 || end == -1) {
         *nringsRet = ring;
         return ncclSuccess;
       }
-      next[ring*nranks+source] = destination;
-      prev[ring*nranks+destination] = source;
+      starts[group] = start;
+      ends[group] = end;
+    }
+    for (int group = 0; group<nGroups; group++) {
+      int nextGroup = (group+1)%nGroups;
+      next[ring*nranks+ends[group]] = starts[nextGroup];
+      prev[ring*nranks+starts[nextGroup]] = ends[group];
     }
   }
   return ncclSuccess;
