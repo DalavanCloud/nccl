@@ -438,7 +438,8 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   for (int i = 0; i < args->nGpus; i++) {
     int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
     RunColl((void*)(in_place ? ((void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank)) : args->sendbuffs[i]), 
-        (void*)args->recvbuffs[i], count, type, op, root, args->comms[i], args->streams[i]);
+        (void*)(in_place ? (void*)((uintptr_t)args->recvbuffs[i] + args->recvInplaceOffset*rank) : args->recvbuffs[i]), 
+ 	count, type, op, root, args->comms[i], args->streams[i]);
   }
   NCCLCHECK(ncclGroupEnd());
 
@@ -489,8 +490,8 @@ void AllocateBuffs(void **sendbuff, size_t sendBytes, void **recvbuff, size_t re
     CUDACHECK(cudaMalloc(recvbuff, (sendBytes > recvBytes) ? sendBytes : recvBytes));
 
     if (is_first || !sameExpected) {
-        *expectedHost = malloc(nbytes*nranks);
-        CUDACHECK(cudaHostRegister(*expectedHost, nbytes*nranks, 0));
+        *expectedHost = malloc(recvBytes);
+        CUDACHECK(cudaHostRegister(*expectedHost, recvBytes, cudaHostRegisterPortable | cudaHostRegisterMapped));
         CUDACHECK(cudaHostGetDevicePointer(expected, *expectedHost, 0));
         cached_ptr = *expected;
         cached_hostptr = *expectedHost;
@@ -565,7 +566,7 @@ int main(int argc, char* argv[]) {
   ncclComm_t* comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nThreads*nGpus);
   for (int i=0; i<nGpus*nThreads; i++) {
     CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
-    AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, expectedHost+i, recvBytes, nProcs*nThreads*nGpus, sameExpected);
+    AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, expectedHost+i, (size_t)nbytes, nProcs*nThreads*nGpus, sameExpected);
     CUDACHECK(cudaStreamCreate(streams+i));
     NCCLCHECK(ncclCommInitRank(comms+i, nProcs*nThreads*nGpus, ncclId, proc*nThreads*nGpus+i));
   }

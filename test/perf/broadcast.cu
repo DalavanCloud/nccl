@@ -55,6 +55,10 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
   while (args->sync[0] != args->thread) pthread_yield();
 
   for (int i=0; i<args->nGpus; i++) {
+     int device;
+     NCCLCHECK(ncclCommCuDevice(args->comms[i], &device)); 
+     CUDACHECK(cudaSetDevice(device));
+
      //set expected buf to zero at root, copy over source data at others
      if ((root_proc == args->proc) 
          && (root_thread == args->thread) 
