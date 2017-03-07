@@ -468,51 +468,21 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
   int myDev = ranks[myNcclId].cudaDev;
   pid_t myPid = ranks[myNcclId].pid;
 
-  // The order that we link with peers must ensure that
-  // P2P slots are used for high-priority links first.
-  int* orderedList = (int*)malloc(ndev*sizeof(int));
-  int nList = 0;
-  for (int r=0; r<comm->nRings; ++r) {
-    int nextIdx = 1;
-    int nextDev = comm->ncclFromRing[r][nextIdx];
-    int found = 0;
-    for (int p=0; p<nList; ++p) {
-      if (orderedList[p] == nextDev)
-        found = 1;
-    }
-    if (!found)
-      orderedList[nList++] = nextDev;
-
-    int prevIdx = comm->nRanks - 1;
-    int prevDev = comm->ncclFromRing[r][prevIdx];
-    found = 0;
-    for (int p=0; p<nList; ++p) {
-      if (orderedList[p] == prevDev)
-        found = 1;
-    }
-    if (!found)
-      orderedList[nList++] = prevDev;
-  }
-  int loopPeers = nList;
-  for (int d=0; d<ndev; ++d) {
-    int found = 0;
-    for (int p=0; p<nList; ++p) {
-      if (orderedList[p] == d)
-        found = 1;
-    }
-    if (!found)
-      orderedList[nList++] = d;
-  }
-
-  for (int j=0; j<ndev; ++j) {
-    int i = orderedList[j];
+  for (int i=0; i<ndev; ++i) {
     int iRank = ranks[i].rank;
     int iDev = ranks[i].cudaDev;
     pid_t iPid = ranks[i].pid;
+
+    int iIsNeighbor = 0;
+    for(int r=0; r<comm->nRings; ++r) {
+      if (comm->ncclFromRing[r][1 % ndev] == i
+          || comm->ncclFromRing[r][ndev-1] == i) {
+        iIsNeighbor = 1;
+        break;
+      }
+    }
+
     int canpeer = 0;
-
-    int iIsNeighbor = (i == (myNcclId+1)%ndev) || (i == (myNcclId+ndev-1)%ndev);
-
     if (iIsNeighbor && cudaDeviceCanAccessPeer(&canpeer, myDev, iDev) != cudaSuccess) {
       INFO("peer query failed between rank %d (dev %d) and rank %d (dev %d)",
         rank, myDev, iRank, iDev);
@@ -589,7 +559,7 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
     }
 
     if (comm->ptrs[i].type == NodeRef::HOST) {
-      if (j < loopPeers)
+      if (iIsNeighbor)
         *globalMemSpaceBroke = 1;
       INFO("rank access %d -> %d via zero-copy host mem", rank, iRank);
       if (cudaHostGetDevicePointer(&comm->ptrs[i].local, ranks[myNcclId].hostptr, 0) != cudaSuccess) {
@@ -604,7 +574,6 @@ static ncclResult_t commBuildMaps(ncclComm_t comm, ncclUniqueId* commId, int ran
       }
     }
   }
-  free(orderedList);
 
   // Setup device-side ring view
   int maxBuffPerRing = comm->buffSizePerRing;
