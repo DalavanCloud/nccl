@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <algorithm>
 #include <curand.h>
-#ifdef MPI
+#ifdef MPI_SUPPORT
 #include "mpi.h"
 #endif
 
@@ -75,6 +75,10 @@ extern void GetBw(double baseBw, double* algBw, double* busBw, int nranks);
 extern void RunColl(const void* sendbuf, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
 extern void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first);
 extern double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root);
+extern void AllocateBuffs(void **sendbuff, void **recvbuff, void **expected, void **expectedHost, size_t nbytes, int nranks);
+extern void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first);
+extern void print_line_header (int size, int count, const char *typeName, const char *opName);
+extern void print_header();
 
 #include <unistd.h>
 

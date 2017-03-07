@@ -12,7 +12,7 @@ DEP_FILES	:= $(OBJ_FILES:%.o=%.dep)
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h ${CPPFLAGS} ${GTEST_CPPFLAGS}
 ### ld
 LIBRARIES += cuda curand nvToolsExt nccl
-LIBDIR := ../../build/lib
+LIBDIR := ${BUILDDIR}/lib
 NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) ${GTEST_LIBS}
 ### rules
 .PHONY:
@@ -25,7 +25,7 @@ ${DST_DIR}/%.dep:%.cu
 	| sed "0,/^$*.o :/s//$(subst /,\/,${DST_DIR}/$*.o) :/" \
 	> $@
 endif
-all: ${DST_DIR}/apitest
+all:${DST_DIR}/apitest
 
 clean:
 	rm -rf ${DST_DIR}

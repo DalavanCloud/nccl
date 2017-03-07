@@ -1,6 +1,6 @@
 include ../../makefiles/common.mk
 ##
-BUILDDIR := $(abspath ../../build)
+BUILDDIR ?= $(abspath ../../build)
 ### mpi lib
 MPI_HOME ?= $(realpath $(dir $(or \
 	$(realpath /usr/include/mpi.h),\

@@ -105,7 +105,7 @@ struct ncclComm {
 #define CUDACHECK(cmd) do {                                 \
     cudaError_t e = cmd;                                    \
     if( e != cudaSuccess ) {                                \
-        WARN("Cuda failure '%s'\n", cudaGetErrorString(e)); \
+        WARN("Cuda failure '%s'", cudaGetErrorString(e)); \
         return ncclUnhandledCudaError;                      \
     }                                                       \
 } while(false)

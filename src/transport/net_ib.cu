@@ -166,7 +166,6 @@ static void initDevices() {
               ncclIbDevs[ncclNIbDevs].port = port;
               ncclIbDevs[ncclNIbDevs].context = context;
               strncpy(ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path, MAXPATHSIZE);
-              printf("-%s\n+%s\n", ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path);
               INFO("IB device %d : %s / port %d", d, ibv_get_device_name(devices[d]), port);
               ncclNIbDevs++;
               found++;
