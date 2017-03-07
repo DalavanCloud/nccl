@@ -506,8 +506,6 @@ int main(int argc, char* argv[]) {
   NCCLCHECK(ncclGroupStart());
   ncclComm_t* comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nThreads*nGpus);
   for (int i=0; i<nGpus*nThreads; i++) {
-    printf("[%d] setting device : %d \n", localRank, (localRank*nThreads*nGpus+i));
-    fflush(stdout);
     CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
     AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, expectedHost+i, nbytes, nProcs*nThreads*nGpus, sameExpected);
     CUDACHECK(cudaStreamCreate(streams+i));
