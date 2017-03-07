@@ -7,7 +7,7 @@ build: ${DIRS:%=%.build}
 clean: ${DIRS:%=%.clean}
 
 %.build:gtest
-	${MAKE} -C $*
+	${MAKE} -C $* BUILDDIR=${BUILDDIR}
 
 %.clean:
 	${MAKE} -C $* clean

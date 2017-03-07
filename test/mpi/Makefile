@@ -12,7 +12,7 @@ NVCUFLAGS += -I$(MPI_HOME)/include
 ### flags
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h -I../include ${CPPFLAGS} ${GTEST_CPPFLAGS}
 LIBRARIES += curand nccl
-LIBDIR    := ../../build/lib
+LIBDIR    := ${BUILDDIR}/lib
 NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) $(BUILDDIR)/test/gtest.a
 ### files
 SRC_FILES := $(wildcard *.cpp) #$(wildcard *.cu)
@@ -51,7 +51,7 @@ ${PBIN} : mpi_perf.cu
 	${NVCC} -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^
 #
 ${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
-	mpicc -std=c99 -I$(BUILDDIR)/include/ -o $@ -c $<
+	mpicc -std=c99 -I$(BUILDDIR)/include/ -I$(CUDA_HOME)/include/ -o $@ -c $<
 #
 ${PBIN2} : mpi_perf.cu ${DST_DIR}/nccl_mpi.o
 	${NVCC} -o $@ $(NVCUFLAGS) -DMPI_TRANSPORT ${NVLDFLAGS} $^

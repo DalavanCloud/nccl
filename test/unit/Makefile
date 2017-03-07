@@ -1,6 +1,6 @@
 include ../../makefiles/common.mk
 ##
-BUILDDIR := $(abspath ../../build)
+BUILDDIR ?= $(abspath ../../build)
 # We need private functions. Include and link with src
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
 LIBRARIES += cuda

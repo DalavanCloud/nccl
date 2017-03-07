@@ -84,7 +84,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
     offset = chunkOffset + rankDest * size;
     maxOffset = min(chunkSize, size-chunkOffset);
 
-    if (thisInput == thisOutput) {
+    if (thisInput + chunkOffset == thisOutput + offset) { // In place
       Prims::Copy(
           thisInput  + offset,
 	  nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),

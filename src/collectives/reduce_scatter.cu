@@ -55,7 +55,6 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   // Compute pointers
   const T * __restrict__ thisInput = args.ThisInput;
   T * __restrict__ thisOutput = args.ThisOutput;
-  if (thisOutput == thisInput) thisOutput += ring->devUserRanks[0] * size;
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 

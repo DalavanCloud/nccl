@@ -3,7 +3,7 @@ include ../../makefiles/common.mk
 BUILDDIR := $(abspath ../../build)
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include
 ifeq ($(MPI), 1)
-NVCUFLAGS += -DMPI -I$(MPI_HOME)/include
+NVCUFLAGS += -DMPI_SUPPORT -I$(MPI_HOME)/include
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 endif
 LIBRARIES += cuda curand nvToolsExt nccl
@@ -12,7 +12,7 @@ NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 DST_DIR := $(abspath ${BUILDDIR}/test/perf)
 CU_FILES := $(wildcard *.cu)
 OBJ_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.o)
-EXE_FILES_LIST := all_reduce #all_gather broadcast reduce reduce_scatter
+EXE_FILES_LIST := all_reduce all_gather broadcast reduce_scatter reduce
 EXE_FILES:= $(EXE_FILES_LIST:%=${DST_DIR}/%_perf)
 ifeq ($(MPI), 1)
 EXE_FILES+=$(EXE_FILES_LIST:%=${DST_DIR}/%_perf_mpi)

@@ -400,7 +400,9 @@ ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId
   if (myrank == 0) showVersion();
 
   NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));
-  if (ndev < 1) {
+  int cudaDevCount;
+  CUDACHECK(cudaGetDeviceCount(&cudaDevCount));
+  if (ndev < 1 || ndev > cudaDevCount) {
     WARN("Invalid device count requested : %d", ndev);
     return ncclUnsupportedDeviceCount;
   }
@@ -485,7 +487,9 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   showVersion();
 
   NCCLCHECK(PtrCheck(comms, "CommInitAll", "comms"));
-  if (ndev < 1) {
+  int devcount=0;
+  cudaGetDeviceCount(&devcount);
+  if (ndev < 1 || ndev > devcount) {
     WARN("Invalid device count requested : %d", ndev);
     return ncclUnsupportedDeviceCount;
   }

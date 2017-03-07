@@ -12,7 +12,7 @@ LIBSRCFILES := init.cu bootstrap.cu transport.cu misc/group.cu \
 LIBNAME     := libnccl.so
 STATICLIBNAME := libnccl_static.a
 ##### dirs
-BUILDDIR := $(abspath ../build)
+BUILDDIR ?= $(abspath ../build)
 INCDIR := $(BUILDDIR)/include
 LIBDIR := $(BUILDDIR)/lib
 OBJDIR := $(BUILDDIR)/obj

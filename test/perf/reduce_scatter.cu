@@ -8,8 +8,7 @@
 #include "common.h"
 
 void print_header() {
-  PRINT("# %10s  %12s  %6s  %6s        out-of-place                    in-place\n", "", "", "", "");
-  PRINT("# %10s  %12s  %6s  %6s  %7s  %5s  %5s  %7s  %7s  %5s  %5s  %7s\n", "bytes", "N", "type", "op",
+  PRINT("# %10s  %12s  %6s  %6s %7s  %5s  %5s  %7s  %7s  %5s  %5s  %7s\n", "bytes", "N", "type", "op",
       "time", "algbw", "busbw", "res", "time", "algbw", "busbw", "res");
 }
 
@@ -18,14 +17,17 @@ void print_line_header (int size, int count, const char *typeName, const char *o
 }
 
 void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *procSharedBytes, int *sameExpected, size_t nbytes, int nranks) {
-    *sendbytes = nbytes;
+    *sendbytes = nbytes*nranks;
     *recvbytes = nbytes;
-    *sameExpected = 1;
-    *procSharedBytes = 0;
- }
+    *sameExpected = 0;
+    *procSharedBytes = nbytes*nranks;
+}
 
 void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first) {
-  size_t count = args->nbytes / wordSize(type);
+  size_t recvbytes = args->expectedBytes;
+  size_t recvcount = args->expectedBytes / wordSize(type);
+  size_t sendbytes = args->sendBytes;
+  size_t sendcount = args->sendBytes / wordSize(type);
 
   while (args->sync[0] != args->thread) pthread_yield();
 
@@ -36,13 +38,14 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
     void* data = in_place ? args->recvbuffs[i] : args->sendbuffs[i];
 
     if (is_first && i == 0) {
-      CUDACHECK(cudaMemcpy(args->expected[0], data, count*wordSize(type), cudaMemcpyDeviceToHost));
+      CUDACHECK(cudaMemcpy(args->procSharedHost, data, sendbytes, cudaMemcpyDeviceToHost));
     } else {
-      Accumulate(args->expected[0], data, count, type, op);
+      Accumulate(args->procShared, data, sendcount, type, op);
     }
 
+    CUDACHECK(cudaDeviceSynchronize());
     if (in_place == 0) {
-      CUDACHECK(cudaMemset(args->recvbuffs[i], 0, args->nbytes));
+      CUDACHECK(cudaMemset(args->recvbuffs[i], 0, recvbytes));
     }
     CUDACHECK(cudaDeviceSynchronize());
   }
@@ -52,18 +55,19 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
   if (args->thread+1 == args->nThreads) {
 #ifdef MPI_SUPPORT
     // Last thread does the MPI reduction
-    void* remote, *remoteHost = malloc(args->nbytes);
-    void* myInitialData = malloc(args->nbytes);
-    memcpy(myInitialData, args->expectedHost[0], args->nbytes);
-    CUDACHECK(cudaHostRegister(remoteHost, args->nbytes, 0));
+    void* remote, *remoteHost = malloc(sendbytes);
+    void* myInitialData = malloc(sendbytes);
+    memcpy(myInitialData, args->procSharedHost, sendbytes);
+    CUDACHECK(cudaHostRegister(remoteHost, sendbytes, 0));
     CUDACHECK(cudaHostGetDevicePointer(&remote, remoteHost, 0));
+
     for (int i=0; i<args->nProcs; i++) {
       if (i == args->proc) {
-        MPI_Bcast(myInitialData, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+        MPI_Bcast(myInitialData, sendbytes, MPI_BYTE, i, MPI_COMM_WORLD);
         free(myInitialData);
       } else {
-        MPI_Bcast(remoteHost, args->nbytes, MPI_BYTE, i, MPI_COMM_WORLD);
-        Accumulate(args->expected[0], remote, count, type, op);
+        MPI_Bcast(remoteHost, sendbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+        Accumulate(args->procShared, remote, sendcount, type, op);
         cudaDeviceSynchronize();
       }
     }
@@ -74,18 +78,23 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
   } else {
     while (args->sync[0]) pthread_yield();
   }
+
+  for (int i=0; i<args->nGpus; i++) {
+      int offset = ((args->proc*args->nThreads + args->thread)*args->nGpus + i)*recvbytes;
+      memcpy(args->expectedHost[i], (void *)((uintptr_t)args->procSharedHost + offset), recvbytes);
+  }
 }
 
 void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw, int nranks) {
   double baseBw = (double)(count * typesize) / 1.0E9 / sec;
 
   *algBw = baseBw;
-  double factor = ((double)(2*(nranks - 1)))/((double)nranks);
+  double factor = (nranks - 1);
   *busBw = baseBw * factor;
 }
 
 void RunColl(void* sendbuff, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
-  NCCLCHECK(ncclAllReduce(sendbuff, recvbuff, count, type, op, comm, stream));
+  NCCLCHECK(ncclReduceScatter(sendbuff, recvbuff, count, type, op, comm, stream));
 }
 
 void RunTestOp(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName) {
