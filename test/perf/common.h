@@ -39,12 +39,16 @@ struct threadArgs_t {
   int thread;
   int nGpus;
   void** sendbuffs;
+  size_t sendBytes;
   void** recvbuffs;
   ncclComm_t* comms;
   cudaStream_t* streams;
 
-  void* expectedHost;
-  void* expected;
+  void** expectedHost;
+  void** expected;
+  size_t expectedBytes;
+  void* procSharedHost;
+  void* procShared;
   volatile int* sync;
   int syncRank;
   int syncNranks;
@@ -58,7 +62,7 @@ struct threadArgs_t {
 #include <chrono>
 
 // Provided by common.cu
-extern void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, int root, const char* opName);
+extern void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op,  const char* opName, int root, int inPlace);
 extern void Randomize(void* ptr, int count, ncclDataType_t type, int seed);
 extern void Accumulate(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op);
 extern void CheckDelta(void* expected, void* results, int count, ncclDataType_t type, double* devmax);
@@ -66,13 +70,14 @@ extern double DeltaMaxValue(ncclDataType_t type);
 
 // Provided by each coll
 extern void RunTests(struct threadArgs_t* args);
-extern void GetBw(double baseBw, double* algBw, double* busBw, int nranks);
-extern void RunColl(const void* sendbuf, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
-extern void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first);
-extern double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root);
+extern void GetBw(size_t count, int typeSize, double sec, double* algBw, double* busBw, int nranks);
+extern void RunColl(void* sendbuf, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op,  int root, ncclComm_t comm, cudaStream_t stream);
+extern void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op,  int in_place, int is_first);
+extern double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op);
 extern void AllocateBuffs(void **sendbuff, void **recvbuff, void **expected, void **expectedHost, size_t nbytes, int nranks);
-extern void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first);
-extern void print_line_header (int size, int count, const char *typeName, const char *opName);
+extern void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op,  int root, int in_place, int is_first);
+extern void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *procSharedBytes, int *sameexpected, size_t nbytes, int nranks);
+extern void print_line_header (int size, int count, const char *typeName, const char *opName, int root);
 extern void print_header();
 
 #include <unistd.h>
