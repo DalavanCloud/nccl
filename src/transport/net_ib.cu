@@ -16,7 +16,8 @@
 #include <poll.h>
 #include <ctype.h>
 
-#include "infiniband/verbs.h"
+//#include "infiniband/verbs.h"
+#include "ibvwrap.h"
 
 #define USE_RDMA_WRITE 1
 #define MAX_IF_NAME_SIZE 16
@@ -41,11 +42,11 @@ static void* ncclIbAsyncThreadMain(void* args) {
   struct ibv_context* context = (struct ibv_context*)args;
   while (1) {
     struct ibv_async_event event;
-    int ret = ibv_get_async_event(context, &event);
+    int ret = wrap_ibv_get_async_event(context, &event);
     if (ret != 0) break;
     if (event.event_type != IBV_EVENT_COMM_EST)
-      WARN("IB Got async event : %s", ibv_event_type_str(event.event_type));
-    ibv_ack_async_event(&event);
+      WARN("IB Got async event : %s", wrap_ibv_event_type_str(event.event_type));
+    wrap_ibv_ack_async_event(&event);
   }
   return NULL;
 }
@@ -151,32 +152,32 @@ static void initDevices() {
       // Detect IB cards
       int nIbDevs;
       ncclNIbDevs = 0;
-      struct ibv_device** devices = ibv_get_device_list(&nIbDevs);
+      struct ibv_device** devices = wrap_ibv_get_device_list(&nIbDevs);
       for (int d=0; d<nIbDevs; d++) {
-        struct ibv_context * context = ibv_open_device(devices[d]);
+        struct ibv_context * context = wrap_ibv_open_device(devices[d]);
         int found = 0;
         if (context) {
           struct ibv_device_attr devAttr;
-          if (ibv_query_device(context, &devAttr) == 0) {
+          if (wrap_ibv_query_device(context, &devAttr) == 0) {
             for (int port = 1; port <= devAttr.phys_port_cnt; port++) {
               struct ibv_port_attr portAttr;
-              if (ibv_query_port(context, port, &portAttr) != 0) continue;
+              if (wrap_ibv_query_port(context, port, &portAttr) != 0) continue;
               if (portAttr.state != IBV_PORT_ACTIVE) continue;
               ncclIbDevs[ncclNIbDevs].device = d;
               ncclIbDevs[ncclNIbDevs].port = port;
               ncclIbDevs[ncclNIbDevs].context = context;
               strncpy(ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path, MAXPATHSIZE);
               printf("-%s\n+%s\n", ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path);
-              INFO("IB device %d : %s / port %d", d, ibv_get_device_name(devices[d]), port);
+              INFO("IB device %d : %s / port %d", d, wrap_ibv_get_device_name(devices[d]), port);
               ncclNIbDevs++;
               found++;
               pthread_create(&ncclIbAsyncThread, NULL, ncclIbAsyncThreadMain, context);
             } 
           }
-          if (found == 0) ibv_close_device(context);
+          if (found == 0) wrap_ibv_close_device(context);
         }
       }
-      ibv_free_device_list(devices);
+      wrap_ibv_free_device_list(devices);
     }
 
     char* env = getenv("NCCL_IB_TIMEOUT");
@@ -313,9 +314,9 @@ struct ncclIbRecvComm {
   }
 
 ncclResult_t ncclIbCreateQp(ibv_context* ctx, uint8_t ib_port, struct ncclIbVerbs* verbs) {
-  NULLCHECK(verbs->pd = ibv_alloc_pd(ctx));
-  NULLCHECK(verbs->cc = ibv_create_comp_channel(ctx));
-  NULLCHECK(verbs->cq = ibv_create_cq(ctx, MAX_REQUESTS, NULL, verbs->cc, 0));
+  NULLCHECK(verbs->pd = wrap_ibv_alloc_pd(ctx));
+  NULLCHECK(verbs->cc = wrap_ibv_create_comp_channel(ctx));
+  NULLCHECK(verbs->cq = wrap_ibv_create_cq(ctx, MAX_REQUESTS, NULL, verbs->cc, 0));
 
   struct ibv_qp_init_attr qpInitAttr;
   memset(&qpInitAttr, 0, sizeof(struct ibv_qp_init_attr));
@@ -327,14 +328,14 @@ ncclResult_t ncclIbCreateQp(ibv_context* ctx, uint8_t ib_port, struct ncclIbVerb
   qpInitAttr.cap.max_send_sge = 1;
   qpInitAttr.cap.max_recv_sge = 1;
   qpInitAttr.cap.max_inline_data = 0;
-  NULLCHECK(verbs->qp = ibv_create_qp(verbs->pd, &qpInitAttr));
+  NULLCHECK(verbs->qp = wrap_ibv_create_qp(verbs->pd, &qpInitAttr));
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(struct ibv_qp_attr));
   qpAttr.qp_state = IBV_QPS_INIT;
   qpAttr.pkey_index = 0;
   qpAttr.port_num = ib_port;
   qpAttr.qp_access_flags = IBV_ACCESS_REMOTE_WRITE;
-  SYSCHECK(ibv_modify_qp(verbs->qp, &qpAttr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS), "ibv_modify_qp");
+  SYSCHECK(wrap_ibv_modify_qp(verbs->qp, &qpAttr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS), "ibv_modify_qp");
   return ncclSuccess;
 }
 
@@ -353,7 +354,7 @@ ncclResult_t ncclIbRtrQp(ibv_qp* qp, int qpn, int lid, uint8_t ib_port) {
   qpAttr.ah_attr.sl = 1;
   qpAttr.ah_attr.src_path_bits = 0;
   qpAttr.ah_attr.port_num = ib_port;
-  SYSCHECK(ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER), "ibv_modify_qp");
+  SYSCHECK(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER), "ibv_modify_qp");
   return ncclSuccess;
 }
 
@@ -367,7 +368,7 @@ ncclResult_t ncclIbRtsQp(ibv_qp* qp) {
   qpAttr.rnr_retry = 1;
   qpAttr.sq_psn = 0;
   qpAttr.max_rd_atomic = 1;
-  SYSCHECK(ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC), "ibv_modify_qp");
+  SYSCHECK(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC), "ibv_modify_qp");
   return ncclSuccess;
 }
 
@@ -401,14 +402,14 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   // Send my QP Info to receiver through the socket. Hope this won't block.
   struct ibv_port_attr portAttr;
   //printf("[ncclIbConnect] ibv_query_port\n");
-  SYSCHECK(ibv_query_port(ctx, ib_port, &portAttr), "ibv_query_port");
+  SYSCHECK(wrap_ibv_query_port(ctx, ib_port, &portAttr), "ibv_query_port");
   struct ncclIbQpInfo qpInfo;
   qpInfo.lid = portAttr.lid;
   qpInfo.ib_port = ib_port;
   qpInfo.qpn = comm->verbs.qp->qp_num;
 
   // Prepare my fifo
-  NULLCHECK(comm->fifoMr = ibv_reg_mr(comm->verbs.pd, comm->fifo, sizeof(struct ncclIbSendFifo)*MAX_REQUESTS, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ));
+  NULLCHECK(comm->fifoMr = wrap_ibv_reg_mr(comm->verbs.pd, comm->fifo, sizeof(struct ncclIbSendFifo)*MAX_REQUESTS, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ));
   qpInfo.fifoRkey = comm->fifoMr->rkey;
   qpInfo.fifoAddr = (uint64_t)comm->fifo;
    
@@ -442,14 +443,14 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
   // Retain remote fifo info and prepare my RDMA ops
   rComm->remFifoRkey = remQpInfo.fifoRkey;
   rComm->remFifoAddr = remQpInfo.fifoAddr;
-  NULLCHECK(rComm->fifoElemMr = ibv_reg_mr(rComm->verbs.pd, &rComm->fifoElem, sizeof(struct ncclIbSendFifo), IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ));
+  NULLCHECK(rComm->fifoElemMr = wrap_ibv_reg_mr(rComm->verbs.pd, &rComm->fifoElem, sizeof(struct ncclIbSendFifo), IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ));
   rComm->fifoSge.addr = (uint64_t)&rComm->fifoElem;
   rComm->fifoSge.length = sizeof(struct ncclIbSendFifo);
   rComm->fifoSge.lkey = rComm->fifoElemMr->lkey;
 
   // Fill Handle
   struct ibv_port_attr portAttr;
-  SYSCHECK(ibv_query_port(ctx, ib_port, &portAttr), "ibv_query_port");
+  SYSCHECK(wrap_ibv_query_port(ctx, ib_port, &portAttr), "ibv_query_port");
   struct ncclIbQpInfo qpInfo;
   qpInfo.lid = portAttr.lid;
   qpInfo.ib_port = ib_port;
@@ -509,7 +510,7 @@ int ncclIbTest(void* request, int* done, int* size) {
 
   for (int wrDone = 1; wrDone;) {
     struct ibv_wc wc;
-    SYSCHECKVAL(ibv_poll_cq(r->verbs->cq, 1, &wc), "ibv_poll_cq", wrDone);
+    SYSCHECKVAL(wrap_ibv_poll_cq(r->verbs->cq, 1, &wc), "ibv_poll_cq", wrDone);
     if (wrDone == 1) {
       //printf("Got completion opcode %d, status %d, wr_id %p, size %d\n", wc.opcode, wc.status, wc.wr_id, wc.byte_len);
       if (wc.status != IBV_WC_SUCCESS) {
@@ -550,8 +551,8 @@ ncclResult_t ncclIbGetMr(struct ncclIbVerbs* verbs, void* data, int size, struct
     }
   }
   int elem = (verbs->mrRotation++)%MAX_REQUESTS;
-  if (verbs->mrPool[elem]) SYSCHECK(ibv_dereg_mr(verbs->mrPool[elem]), "ibv_dereg_mr");
-  NULLCHECK(verbs->mrPool[elem] = ibv_reg_mr(verbs->pd, data, size, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE));
+  if (verbs->mrPool[elem]) SYSCHECK(wrap_ibv_dereg_mr(verbs->mrPool[elem]), "ibv_dereg_mr");
+  NULLCHECK(verbs->mrPool[elem] = wrap_ibv_reg_mr(verbs->pd, data, size, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE));
   *mrRet = verbs->mrPool[elem];
   return ncclSuccess;
 }
@@ -607,7 +608,7 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 
 
   struct ibv_send_wr* bad_wr;
-  SYSCHECK(ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
+  SYSCHECK(wrap_ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
   comm->verbs.numRequests++;
   *request = req;
   return 0;
@@ -638,7 +639,7 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   }
 
   struct ibv_send_wr* bad_wr;
-  SYSCHECK(ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
+  SYSCHECK(wrap_ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
   comm->verbs.numRequests++;
   comm->remFifoTail++;
 
@@ -686,7 +687,7 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
   }
 
   struct ibv_recv_wr* bad_wr;
-  SYSCHECK(ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");
+  SYSCHECK(wrap_ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");
   comm->verbs.numRequests++;
   *request = req;
 
@@ -700,9 +701,9 @@ int ncclIbCloseSend(void* sendComm) {
   if (comm) {
     free(comm->reqs.requests);
     close(comm->fd);
-    if (comm->fifoMr != NULL) SYSCHECK(ibv_dereg_mr(comm->fifoMr), "ibv_dereg_mr");
+    if (comm->fifoMr != NULL) SYSCHECK(wrap_ibv_dereg_mr(comm->fifoMr), "ibv_dereg_mr");
     for (int i=0; i<MAX_REQUESTS; i++) {
-      if (comm->verbs.mrPool[i] != NULL) SYSCHECK(ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
+      if (comm->verbs.mrPool[i] != NULL) SYSCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
     }
     free(comm);
   }
@@ -714,9 +715,9 @@ int ncclIbCloseRecv(void* recvComm) {
   if (comm) {
     free(comm->reqs.requests);
     close(comm->fd);
-    if (comm->fifoElemMr != NULL) SYSCHECK(ibv_dereg_mr(comm->fifoElemMr), "ibv_dereg_mr");
+    if (comm->fifoElemMr != NULL) SYSCHECK(wrap_ibv_dereg_mr(comm->fifoElemMr), "ibv_dereg_mr");
     for (int i=0; i<MAX_REQUESTS; i++) {
-      if (comm->verbs.mrPool[i] != NULL) SYSCHECK(ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
+      if (comm->verbs.mrPool[i] != NULL) SYSCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
     }
     free(comm);
   }
