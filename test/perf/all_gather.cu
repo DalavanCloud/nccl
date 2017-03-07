@@ -72,7 +72,7 @@ void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw,
   double baseBw = (double)(count * typesize * nranks) / 1.0E9 / sec;
 
   *algBw = baseBw;
-  double factor = (nranks - 1)/nranks;
+  double factor = ((double)(nranks - 1))/((double)nranks);
   *busBw = baseBw * factor;
 }
 

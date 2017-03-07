@@ -84,13 +84,6 @@ void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw,
   *busBw = baseBw * factor;
 }
 
-void GetBw(double baseBw, double* algBw, double* busBw, int nranks) {
-  *algBw = baseBw;
-  double factor = 2 * nranks - 2;
-  factor /= nranks;
-  *busBw = baseBw * factor;
-}
-
 void RunColl(void* sendbuff, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
   int rank; 
   NCCLCHECK(ncclCommUserRank(comm, &rank));
