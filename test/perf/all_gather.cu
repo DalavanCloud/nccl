@@ -18,11 +18,13 @@ void print_line_header (int size, int count, const char *typeName, const char *o
   PRINT("%12i  %12i  %6s", size, count, typeName);
 }
 
-void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *procSharedBytes, int *sameExpected, size_t nbytes, int nranks) {
+void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedBytes, int *sameExpected, size_t nbytes, int nranks) {
     *sendbytes = nbytes;
     *recvbytes = nbytes*nranks;
     *sameExpected = 1;
     *procSharedBytes = 0;
+    *sendInplaceOffset = nbytes;
+    *recvInplaceOffset = 0;
 }
 
 void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first) {
@@ -37,14 +39,15 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
 
   for (int i=0; i<nGpus; i++) {
     int device;
+    int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
     NCCLCHECK(ncclCommCuDevice(args->comms[i], &device));
     CUDACHECK(cudaSetDevice(device));
 
-    void* data = in_place ? args->recvbuffs[i] : args->sendbuffs[i];
+    void* data = in_place ? (void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank) : args->sendbuffs[i];
 
     CUDACHECK(cudaMemcpy((void *)((uintptr_t)args->expectedHost[0] + ((proc*nThreads + t)*nGpus + i)*nBytes), 
                 data, 
-                count*wordSize(type), cudaMemcpyDeviceToHost));
+                nBytes, cudaMemcpyDeviceToHost));
 
     if (in_place == 0) {
       CUDACHECK(cudaMemset(args->recvbuffs[i], 0, args->expectedBytes));
@@ -61,7 +64,6 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
         args->expectedHost[0], 
         nBytes*nThreads*nGpus, MPI_BYTE, MPI_COMM_WORLD);
 #endif
-
     args->sync[0] = 0;
   } else {
     while (args->sync[0]) pthread_yield();

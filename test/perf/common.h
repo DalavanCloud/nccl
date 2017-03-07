@@ -40,7 +40,9 @@ struct threadArgs_t {
   int nGpus;
   void** sendbuffs;
   size_t sendBytes;
+  size_t sendInplaceOffset;
   void** recvbuffs;
+  size_t recvInplaceOffset;
   ncclComm_t* comms;
   cudaStream_t* streams;
 
@@ -76,7 +78,7 @@ extern void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t
 extern double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op);
 extern void AllocateBuffs(void **sendbuff, void **recvbuff, void **expected, void **expectedHost, size_t nbytes, int nranks);
 extern void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op,  int root, int in_place, int is_first);
-extern void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *procSharedBytes, int *sameexpected, size_t nbytes, int nranks);
+extern void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *sendInlineOffset, size_t *recvInlineOffset, size_t *procSharedBytes, int *sameexpected, size_t nbytes, int nranks);
 extern void print_line_header (int size, int count, const char *typeName, const char *opName, int root);
 extern void print_header();
 

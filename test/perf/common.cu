@@ -343,16 +343,37 @@ void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type
   }
 }
 
-double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root) {
+double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
   int count = args->expectedBytes/wordSize(type);
   double maxDelta = 0.0;
   for (int i=0; i<args->nGpus; i++) {
     int device;
+    int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
     NCCLCHECK(ncclCommCuDevice(args->comms[i], &device));
     CUDACHECK(cudaSetDevice(device));
-    CheckDelta(args->recvbuffs[i], args->expected[i], count, type, args->delta);
+    void *data = in_place ? ((void *)((uintptr_t)args->recvbuffs[i] + args->recvInplaceOffset*rank)) : args->recvbuffs[i];
+    CheckDelta(data , args->expected[i], count, type, args->delta);
     cudaDeviceSynchronize();
     maxDelta = std::max(*(args->deltaHost), maxDelta);
+
+#ifdef DEBUG_PRINT
+    if (rank == 0) { 
+       int *temp = (int *)malloc(args->expectedBytes);
+
+       printf("\n Expected: ");
+       for(int j=0; j<args->expectedBytes/sizeof(int); j++) { 
+       	printf("%d:%d ", j, *((int *)args->expectedHost[0] + j));
+       }
+       printf("\n");
+
+       cudaMemcpy(temp, data, args->expectedBytes, cudaMemcpyDeviceToHost);
+       printf("\n Actual: ");
+       for (int j=0; j<args->expectedBytes/sizeof(int); j++) { 
+       	printf("%d:%d ", j, *((int *)temp + j));
+       }
+       printf("\n");
+    }
+#endif
   }
   if (maxDelta > DeltaMaxValue(type)) args->errors[0]++;
   return maxDelta;
@@ -363,11 +384,25 @@ void InitSend(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, in
   static int rep = 1;
   for (int i=0; i<args->nGpus; i++) {
     int device;
+    int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
     NCCLCHECK(ncclCommCuDevice(args->comms[i], &device));
     CUDACHECK(cudaSetDevice(device));
-    void* data = in_place ? args->recvbuffs[i] : args->sendbuffs[i];
-    int seed = i+count+rep+in_place;
+    void* data = in_place ? (void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank) : args->sendbuffs[i];
+    int seed = rank+count+rep+in_place;
     Randomize(data, count, type, seed);
+
+#ifdef DEBUG_PRINT
+    if (rank == 2) { 
+       int *temp = (int *)malloc(args->sendBytes);
+       cudaMemcpy(temp, data, args->sendBytes, cudaMemcpyDeviceToHost);
+       printf("\n Send Data at rank %d:", rank);
+       for (int i=0; i<args->sendBytes/sizeof(int); i++) { 
+       	printf("%d:%d ", i, *((int *)temp + i));
+       }
+       printf("\n");
+    }
+#endif
+
     cudaDeviceSynchronize();
   }
   rep++;
@@ -401,7 +436,8 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   auto start = std::chrono::high_resolution_clock::now();
   NCCLCHECK(ncclGroupStart());
   for (int i = 0; i < args->nGpus; i++) {
-    RunColl((void*)(in_place ? args->recvbuffs[i] : args->sendbuffs[i]), 
+    int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
+    RunColl((void*)(in_place ? ((void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank)) : args->sendbuffs[i]), 
         (void*)args->recvbuffs[i], count, type, op, root, args->comms[i], args->streams[i]);
   }
   NCCLCHECK(ncclGroupEnd());
@@ -417,7 +453,7 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   GetBw(count, wordSize(type), deltaSec, &algBw, &busBw, args->nProcs*args->nThreads*args->nGpus);
 
 #ifdef CHECK
-  double maxDelta = CheckData(args, type, op, root);
+  double maxDelta = CheckData(args, type, op, root, in_place);
 #else
   double maxDelta = -1.0;
 #endif
@@ -520,16 +556,16 @@ int main(int argc, char* argv[]) {
   void* expected[nGpus*nThreads];
   void* expectedHost[nGpus*nThreads];
   void *procSharedHost, *procShared;
-  size_t sendBytes, recvBytes, procSharedBytes; 
+  size_t sendBytes, recvBytes, procSharedBytes, sendInplaceOffset, recvInplaceOffset; 
   int sameExpected;
 
-  getCollByteCount(&sendBytes, &recvBytes, &procSharedBytes, &sameExpected, (size_t)nbytes, (size_t)nProcs*nGpus*nThreads);
+  getCollByteCount(&sendBytes, &recvBytes, &sendInplaceOffset, &recvInplaceOffset, &procSharedBytes, &sameExpected, (size_t)nbytes, (size_t)nProcs*nGpus*nThreads);
 
   NCCLCHECK(ncclGroupStart());
   ncclComm_t* comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nThreads*nGpus);
   for (int i=0; i<nGpus*nThreads; i++) {
     CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
-    AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, expectedHost+i, nbytes, nProcs*nThreads*nGpus, sameExpected);
+    AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, expectedHost+i, recvBytes, nProcs*nThreads*nGpus, sameExpected);
     CUDACHECK(cudaStreamCreate(streams+i));
     NCCLCHECK(ncclCommInitRank(comms+i, nProcs*nThreads*nGpus, ncclId, proc*nThreads*nGpus+i));
   }
@@ -589,6 +625,8 @@ int main(int argc, char* argv[]) {
     args[t].nGpus=nGpus;
     args[t].sendbuffs = sendbuffs+t*nGpus;
     args[t].recvbuffs = recvbuffs+t*nGpus;
+    args[t].sendInplaceOffset = sendInplaceOffset;
+    args[t].recvInplaceOffset = recvInplaceOffset;
     args[t].sendBytes = sendBytes;
     args[t].comms=comms+t*nGpus;
     args[t].streams=streams+t*nGpus;
