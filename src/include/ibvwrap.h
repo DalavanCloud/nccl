@@ -7,7 +7,7 @@
 #ifndef NCCL_IBVWRAP_H_
 #define NCCL_IBVWRAP_H_
 
-#define IBV_DIRECT 1
+//#define IBV_DIRECT 1
 #ifdef IBV_DIRECT
 #include "infiniband/verbs.h"
 
@@ -35,6 +35,7 @@ const char *wrap_ibv_event_type_str(enum ibv_event_type event) { return ibv_even
 // Dynamically handle dependencies on IB verbs
 
 /* Extracted from infiniband/verbs.h*/
+#include <stdint.h>
 
 union ibv_gid {
 	uint8_t			raw[16];
@@ -236,6 +237,14 @@ struct ibv_wc {
 	uint8_t			dlid_path_bits;
 };
 
+enum ibv_access_flags {
+	IBV_ACCESS_LOCAL_WRITE		= 1,
+	IBV_ACCESS_REMOTE_WRITE		= (1<<1),
+	IBV_ACCESS_REMOTE_READ		= (1<<2),
+	IBV_ACCESS_REMOTE_ATOMIC	= (1<<3),
+	IBV_ACCESS_MW_BIND		= (1<<4)
+};
+
 struct ibv_pd {
 	struct ibv_context     *context;
 	uint32_t		handle;
@@ -316,6 +325,30 @@ struct ibv_qp_init_attr {
 	int			sq_sig_all;
 };
 
+enum ibv_qp_attr_mask {
+	IBV_QP_STATE			= 1 << 	0,
+	IBV_QP_CUR_STATE		= 1 << 	1,
+	IBV_QP_EN_SQD_ASYNC_NOTIFY	= 1 << 	2,
+	IBV_QP_ACCESS_FLAGS		= 1 << 	3,
+	IBV_QP_PKEY_INDEX		= 1 << 	4,
+	IBV_QP_PORT			= 1 << 	5,
+	IBV_QP_QKEY			= 1 << 	6,
+	IBV_QP_AV			= 1 << 	7,
+	IBV_QP_PATH_MTU			= 1 << 	8,
+	IBV_QP_TIMEOUT			= 1 << 	9,
+	IBV_QP_RETRY_CNT		= 1 << 10,
+	IBV_QP_RNR_RETRY		= 1 << 11,
+	IBV_QP_RQ_PSN			= 1 << 12,
+	IBV_QP_MAX_QP_RD_ATOMIC		= 1 << 13,
+	IBV_QP_ALT_PATH			= 1 << 14,
+	IBV_QP_MIN_RNR_TIMER		= 1 << 15,
+	IBV_QP_SQ_PSN			= 1 << 16,
+	IBV_QP_MAX_DEST_RD_ATOMIC	= 1 << 17,
+	IBV_QP_PATH_MIG_STATE		= 1 << 18,
+	IBV_QP_CAP			= 1 << 19,
+	IBV_QP_DEST_QPN			= 1 << 20
+};
+
 enum ibv_qp_state {
 	IBV_QPS_RESET,
 	IBV_QPS_INIT,
@@ -368,6 +401,13 @@ enum ibv_wr_opcode {
 	IBV_WR_RDMA_READ,
 	IBV_WR_ATOMIC_CMP_AND_SWP,
 	IBV_WR_ATOMIC_FETCH_AND_ADD
+};
+
+enum ibv_send_flags {
+	IBV_SEND_FENCE		= 1 << 0,
+	IBV_SEND_SIGNALED	= 1 << 1,
+	IBV_SEND_SOLICITED	= 1 << 2,
+	IBV_SEND_INLINE		= 1 << 3
 };
 
 struct ibv_sge {
@@ -566,25 +606,25 @@ struct ibv_context {
 	pthread_mutex_t		mutex;
 	void		       *abi_compat;
 };
-struct ibv_device **wrap_ibv_get_device_list(int *num_devices) { return 0;/*ibv_get_device_list(num_devices)*/ }
-void wrap_ibv_free_device_list(struct ibv_device **list) { /*ibv_free_device_list(list);*/ }
-const char *wrap_ibv_get_device_name(struct ibv_device *device) { return 0;/*ibv_get_device_name(device);*/ }
-struct ibv_context *wrap_ibv_open_device(struct ibv_device *device) { return 0;/*ibv_open_device(device);*/ }
-int wrap_ibv_close_device(struct ibv_context *context) { return 0/*ibv_close_device(context);*/ }
-int wrap_ibv_get_async_event(struct ibv_context *context, struct ibv_async_event *event) { return 0;/*ibv_get_async_event(context, event);*/ }
-void wrap_ibv_ack_async_event(struct ibv_async_event *event) { /*ibv_ack_async_event(event);*/ }
-int wrap_ibv_query_device(struct ibv_context *context, struct ibv_device_attr *device_attr) { return 0;/*ibv_query_device(context, device_attr);*/ }
-int wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr) { return 0;/*ibv_query_port(context, port_num, port_attr);*/ }
-struct ibv_pd *wrap_ibv_alloc_pd(struct ibv_context *context) { return 0;/*ibv_alloc_pd(context);*/ }
-struct ibv_mr *wrap_ibv_reg_mr(struct ibv_pd *pd, void *addr, size_t length, int access) { return 0;/*ibv_reg_mr(pd, addr, length, access);*/ }
-int wrap_ibv_dereg_mr(struct ibv_mr *mr) { return 0;/*ibv_dereg_mr(mr);*/ }
-struct ibv_comp_channel *wrap_ibv_create_comp_channel(struct ibv_context *context) { return 0;/*ibv_create_comp_channel(context);*/ }
-struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector) { return 0;/*ibv_create_cq(context, cqe, cq_context, channel, comp_vector);*/ }
-static inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) { return 0;/*ibv_poll_cq(cq, num_entries, wc);*/ }
-struct ibv_qp *wrap_ibv_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr) { return 0;/*ibv_create_qp(pd, qp_init_attr);*/ }
-int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask) { return 0;/*ibv_modify_qp(qp, attr, attr_mask);*/ }
-static inline int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr){ return 0;/*ibv_post_send(qp, wr, bad_wr);*/ }
-static inline int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr) { return 0;/*ibv_post_recv(qp, wr, bad_wr);*/ }
-const char *wrap_ibv_event_type_str(enum ibv_event_type event) { return 0;/*ibv_event_type_str(event);*/ }
+struct ibv_device **wrap_ibv_get_device_list(int *num_devices);
+void wrap_ibv_free_device_list(struct ibv_device **list);
+const char *wrap_ibv_get_device_name(struct ibv_device *device);
+struct ibv_context *wrap_ibv_open_device(struct ibv_device *device);
+int wrap_ibv_close_device(struct ibv_context *context);
+int wrap_ibv_get_async_event(struct ibv_context *context, struct ibv_async_event *event);
+void wrap_ibv_ack_async_event(struct ibv_async_event *event);
+int wrap_ibv_query_device(struct ibv_context *context, struct ibv_device_attr *device_attr);
+int wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr);
+struct ibv_pd *wrap_ibv_alloc_pd(struct ibv_context *context);
+struct ibv_mr *wrap_ibv_reg_mr(struct ibv_pd *pd, void *addr, size_t length, int access);
+int wrap_ibv_dereg_mr(struct ibv_mr *mr);
+struct ibv_comp_channel *wrap_ibv_create_comp_channel(struct ibv_context *context);
+struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector);
+static inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc);
+struct ibv_qp *wrap_ibv_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr);
+int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask);
+static inline int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr);
+static inline int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr);
+const char *wrap_ibv_event_type_str(enum ibv_event_type event);
 #endif // IB verbs
 #endif //End include guard
