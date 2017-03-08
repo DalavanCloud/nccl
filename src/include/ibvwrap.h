@@ -37,6 +37,11 @@ const char *wrap_ibv_event_type_str(enum ibv_event_type event) { return ibv_even
 /* Extracted from infiniband/verbs.h*/
 #include <stdint.h>
 
+typedef enum ibv_return_enum
+{
+    IBV_SUCCESS = 0,                   //!< The operation was successful
+} ibv_return_t;
+
 union ibv_gid {
 	uint8_t			raw[16];
 	struct {
@@ -620,11 +625,11 @@ struct ibv_mr *wrap_ibv_reg_mr(struct ibv_pd *pd, void *addr, size_t length, int
 int wrap_ibv_dereg_mr(struct ibv_mr *mr);
 struct ibv_comp_channel *wrap_ibv_create_comp_channel(struct ibv_context *context);
 struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector);
-/*static*/ inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc);
+/*static inline*/ int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc);
 struct ibv_qp *wrap_ibv_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr);
 int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask);
-/*static*/ inline int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr);
-/*static*/ inline int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr);
+/*static inline*/ int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr);
+/*static inline*/ int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr);
 const char *wrap_ibv_event_type_str(enum ibv_event_type event);
 #endif // IB verbs
 #endif //End include guard
