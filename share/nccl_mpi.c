@@ -56,32 +56,30 @@ void ncclMpiUnlock();
 /* NCCL MPI Plugin */
 
 // Functions prototypes
-int ncclMpiPtrSupport(int* supportedTypes);
-int ncclMpiDevices(int* ndev, int** distances);
+int ncclMpiDevices(int* ndev, int** scores);
+int ncclMpiPtrSupport(int dev, int* supportedTypes);
 int ncclMpiListen(int dev, void* handle, void** listenComm);
-int ncclMpiConnectHandle(int dev, void* handle, void** sendComm);
+int ncclMpiConnect(int dev, void* handle, void** sendComm);
 int ncclMpiAccept(void *listenComm, void** recvComm);
 int ncclMpiIsend(void* sendComm, void* data, int size, int type, void** request);
 int ncclMpiIrecv(void* recvComm, void* data, int size, int type, void** request);
 int ncclMpiTest(void* request, int* done, int* size);
-int ncclMpiCloseSend(void* sendComm);
-int ncclMpiCloseRecv(void* recvComm);
-int ncclMpiCloseListen(void* listenComm);
+int ncclMpiClose(void* comm);
 
 // MPI Net Module
 ncclNet_t ncclMpi = {
   "MPI",
-  ncclMpiPtrSupport,
   ncclMpiDevices,
+  ncclMpiPtrSupport,
   ncclMpiListen,
-  ncclMpiConnectHandle,
+  ncclMpiConnect,
   ncclMpiAccept,
   ncclMpiIsend,
   ncclMpiIrecv,
   ncclMpiTest,
-  ncclMpiCloseSend,
-  ncclMpiCloseRecv,
-  ncclMpiCloseListen
+  ncclMpiClose,
+  ncclMpiClose,
+  ncclMpiClose
 };
 
 static MPI_Comm ncclMpiComm;
@@ -174,7 +172,13 @@ struct ncclMpiHandle {
   int tag;
 };
 
+struct ncclMpiListenComm {
+  /* no rank, we listen to ANY_SOURCE */
+  int tag;
+};
+
 struct ncclMpiRecvComm {
+  int rank;
   int tag;
 };
 
@@ -202,21 +206,22 @@ static int getCudaSupport() {
   return cudaSupport;
 }
 
-int ncclMpiPtrSupport(int* supportedTypes) {
+int ncclMpiDevices(int* ndev, int** scores) {
+  *ndev = 1;
+  int* sc = (int*)malloc(sizeof(int));
+  sc[0] = NCCL_MAX_SCORE;
+  *scores = sc;
+  return 0;
+}
+
+int ncclMpiPtrSupport(int dev, int* supportedTypes) {
   *supportedTypes = NCCL_PTR_HOST;
   if (getCudaSupport()) *supportedTypes |= NCCL_PTR_CUDA;
   return 0;
 }
 
-int ncclMpiDevices(int* ndev, int** distances) {
-  *ndev = 1;
-  *distances = (int*)malloc(sizeof(int));
-  distances[0][0] = 0;
-  return 0;
-}
-
 int ncclMpiListen(int dev, void* opaqueHandle, void** listenComm) {
-  struct ncclMpiRecvComm* comm = (struct ncclMpiRecvComm*)malloc(sizeof(struct ncclMpiRecvComm));
+  struct ncclMpiListenComm* comm = (struct ncclMpiListenComm*)malloc(sizeof(struct ncclMpiListenComm));
   struct ncclMpiHandle* handle = (struct ncclMpiHandle*) opaqueHandle;
   assert(sizeof(struct ncclMpiHandle) < NCCL_NET_HANDLE_MAXSIZE);
   int tag;
@@ -224,23 +229,50 @@ int ncclMpiListen(int dev, void* opaqueHandle, void** listenComm) {
   comm->tag = handle->tag = tag;
   int ret;
   MPI_PROTECT(ret, MPI_Comm_rank(ncclMpiComm, &handle->rank));
-  //MPI_PROTECT(ret, MPI_Comm_rank(MPI_COMM_WORLD, &handle->rank));
+  printf("Create listen tag %d\n", tag);
   *listenComm = comm;
   return ret;
 }
 
-// No real need to connect or accept in MPI, just retain the rank and tag.
-int ncclMpiConnectHandle(int dev, void* opaqueHandle, void** sendComm) {
+int ncclMpiConnect(int dev, void* opaqueHandle, void** sendComm) {
   struct ncclMpiSendComm* comm = (struct ncclMpiSendComm*)malloc(sizeof(struct ncclMpiSendComm));
   struct ncclMpiHandle* handle = (struct ncclMpiHandle*) opaqueHandle;
+  int err;
+  int myTmpTag;
+  getTag(&myTmpTag);
+  MPI_Request requests[2];
+  printf("Connect to rank %d tag %d\n", handle->rank, handle->tag);
+  MPI_PROTECT(err, MPI_Isend(&myTmpTag, sizeof(myTmpTag), MPI_BYTE, handle->rank, handle->tag, ncclMpiComm, requests));
+  MPI_PROTECT(err, MPI_Irecv(&comm->tag, sizeof(comm->tag), MPI_BYTE, handle->rank, myTmpTag, ncclMpiComm, requests+1));
+  int done = 0;
+  printf("Waiting for rank %d tag %d\n", handle->rank, myTmpTag);
+  while (done == 0) MPI_PROTECT(err, MPI_Testall(2, requests, &done, MPI_STATUSES_IGNORE));
   comm->rank = handle->rank;
-  comm->tag = handle->tag;
   *sendComm = comm;
-  return 0;
+  return err;
 }
 
 int ncclMpiAccept(void *listenComm, void** recvComm) {
-  return 0;
+  struct ncclMpiListenComm* lComm = (struct ncclMpiListenComm*)listenComm;
+  struct ncclMpiRecvComm* rComm = (struct ncclMpiRecvComm*)malloc(sizeof(struct ncclMpiRecvComm));
+  int remTmpTag;
+  MPI_Status status;
+  int err;
+  MPI_Request request;
+  printf("Waiting for any rank tag %d\n", lComm->tag);
+  MPI_PROTECT(err, MPI_Irecv(&remTmpTag, sizeof(remTmpTag), MPI_BYTE, MPI_ANY_SOURCE, lComm->tag, ncclMpiComm, &request));
+  int done = 0;
+  while (done == 0) MPI_PROTECT(err, MPI_Test(&request, &done, &status));
+
+  rComm->rank = status.MPI_SOURCE;
+  printf("Got connection from %d, sending tag %d\n", rComm->rank, remTmpTag);
+  getTag(&rComm->tag);
+  MPI_PROTECT(err, MPI_Isend(&rComm->tag, sizeof(rComm->tag), MPI_BYTE, rComm->rank, remTmpTag, ncclMpiComm, &request));
+  done = 0;
+  while (done == 0) MPI_PROTECT(err, MPI_Test(&request, &done, MPI_STATUS_IGNORE));
+
+  *recvComm = rComm;
+  return err;
 }
 
 #define CHECK_PTR(type) do {          \
@@ -273,7 +305,7 @@ int ncclMpiIrecv(void* recvComm, void* data, int size, int type, void** request)
   *request = mpiRequest;
   //printf("Recv : %p %d %p %p\n", data, size, comm, mpiRequest);
   //MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, 1/*MPI_ANY_SOURCE*/, 1/*comm->tag*/, ncclMpiComm, mpiRequest));
-  MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, MPI_ANY_SOURCE, comm->tag, ncclMpiComm, mpiRequest));
+  MPI_PROTECT(ret, MPI_Irecv(data, size, MPI_BYTE, comm->rank, comm->tag, ncclMpiComm, mpiRequest));
   return ret;
 }
 
@@ -291,14 +323,7 @@ int ncclMpiTest(void* request, int* done, int* size) {
 }
 
 // No need to close connections in MPI
-int ncclMpiCloseSend(void* sendComm) {
-  return 0;
-}
-
-int ncclMpiCloseRecv(void* recvComm) {
-  return 0;
-}
-
-int ncclMpiCloseListen(void* listenComm) {
+int ncclMpiClose(void* comm) {
+  free(comm);
   return 0;
 }

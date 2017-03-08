@@ -11,12 +11,12 @@ ABSBUILDDIR := $(abspath $(BUILDDIR))
 TARGETS := src test fortran debian
 all:   ${TARGETS:%=%.build}
 clean: ${TARGETS:%=%.clean}
-debian.build fortran.build test.build: src.build
+fortran.build test.build: src.build
 %.build:
 	${MAKE} -C $* build BUILDDIR=${ABSBUILDDIR}
 
 %.clean:
 	${MAKE} -C $* clean
 
-deb: debian.build
+deb: src.build
 	${MAKE} -C debian package
