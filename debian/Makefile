@@ -13,8 +13,7 @@ DEB_REVISION   ?= 1
 DEB_TIMESTAMP  := $(shell date -R)
 DEB_ARCH       ?= amd64
 
-build : 
-	$(DEBTARGETS)
+build : $(DEBTARGETS)
 
 package : build
 	@printf "Building Debian package\n"
