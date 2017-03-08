@@ -194,7 +194,7 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
       //printf("%d recv\n", rank);
       struct timeval start, end;
       gettimeofday(&start, NULL);
-      if(net->irecv(recvComm, data, bytes, type, (void **)&request)){ failed=1; goto out; }
+      //if(net->irecv(recvComm, data, bytes, type, (void **)&request)){ failed=1; goto out; }
 
 #if 0
       int done=0;
@@ -224,7 +224,7 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
     //printf("%d send\n", rank);
     struct timeval start, end;
     gettimeofday(&start, NULL);
-    if(net->isend(sendComm, data, bytes, type, (void **)&request)){ failed=1; goto out; };
+    //if(net->isend(sendComm, data, bytes, type, (void **)&request)){ failed=1; goto out; };
 
 #if 0
     int done=0;
