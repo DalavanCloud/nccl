@@ -102,13 +102,13 @@ ncclResult_t getMlxPath(char* ibdevPath, char** path) {
 }
 
 enum ncclIbPathDist {
-  PATH_PHB = 0,
+  PATH_PIX = 0,
   PATH_PXB = 1,
-  PATH_PIX = 2,
+  PATH_PHB = 2,
   PATH_SOC = 3
 };
 
-static const char* pathDists[] = { "PHB", "PXB", "PIX", "SOC" };
+static const char* pathDists[] = { "PIX", "PXB", "PHB", "SOC" };
 
 int pciDistance(char* path1, char* path2) {
   int score = 0;
