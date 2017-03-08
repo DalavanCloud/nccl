@@ -15,8 +15,8 @@ extern ncclNet_t ncclNetSocket;
 extern ncclNet_t ncclNetIb; 
 
 #define MAX_REQUESTS 1024
-#define SOCKET 1
-//#define IB 1
+//#define SOCKET 1
+#define IB 1
 //#define RECV_0_SEND_1 1
 //#define RECV_1_SEND_0 1
 

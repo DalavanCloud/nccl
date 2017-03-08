@@ -148,7 +148,8 @@ static void initDevices() {
         }
       }
       INFO("NET/IB : Using interface %s for sideband communication", ncclIbIfName);
-
+      if(wrap_ibv_symbols() != ncclSuccess) { return; }
+      INFO("wrap_ibv_symbols executed");
       // Detect IB cards
       int nIbDevs;
       ncclNIbDevs = 0;

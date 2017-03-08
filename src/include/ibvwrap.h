@@ -7,10 +7,13 @@
 #ifndef NCCL_IBVWRAP_H_
 #define NCCL_IBVWRAP_H_
 
+#include "core.h"
+
 //#define IBV_DIRECT 1
 #ifdef IBV_DIRECT
 #include "infiniband/verbs.h"
 
+ncclResult_t wrap_ibv_symbols(void) { return ncclSuccess; }
 struct ibv_device **wrap_ibv_get_device_list(int *num_devices) { return ibv_get_device_list(num_devices); }
 void wrap_ibv_free_device_list(struct ibv_device **list) { return ibv_free_device_list(list); }
 const char *wrap_ibv_get_device_name(struct ibv_device *device) { return ibv_get_device_name(device); }
@@ -611,6 +614,8 @@ struct ibv_context {
 	pthread_mutex_t		mutex;
 	void		       *abi_compat;
 };
+
+ncclResult_t wrap_ibv_symbols(void);
 struct ibv_device **wrap_ibv_get_device_list(int *num_devices);
 void wrap_ibv_free_device_list(struct ibv_device **list);
 const char *wrap_ibv_get_device_name(struct ibv_device *device);

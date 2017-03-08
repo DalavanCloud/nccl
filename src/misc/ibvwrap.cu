@@ -34,6 +34,7 @@ static int (*ibv_internal_post_recv)(struct ibv_qp *qp, struct ibv_recv_wr *wr, 
 static const char * (*ibv_internal_event_type_str)(enum ibv_event_type event);
 
 ncclResult_t wrap_ibv_symbols(void) {
+  INFO("wrap_ibv_symbols");
   if (ibvState == ibvInitialized)
     return ncclSuccess;
   if (ibvState == ibvError)
@@ -290,6 +291,7 @@ int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mas
 }
 
 int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
+  printf("wrap_ibv_post_send");
   if (ibv_internal_post_send == NULL) {
      WARN("lib wrapper not initialized.");
      exit(-1);
@@ -303,6 +305,7 @@ int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_sen
 }
 
 int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
+  printf("wrap_ibv_post_recv");
   if (ibv_internal_post_recv == NULL) {
      WARN("lib wrapper not initialized.");
      exit(-1);
