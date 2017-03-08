@@ -16,9 +16,7 @@ extern ncclNet_t ncclNetIb;
 
 #define MAX_REQUESTS 1024
 #define SOCKET 1
-//#define IB 1
-//#define RECV_0_SEND_1 1
-//#define RECV_1_SEND_0 1
+#define IB 1
 
 int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int nranks){
   int failed = 0;
@@ -44,8 +42,8 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     if(net->connect(0, connectHandle, (void **)&sendComm)){ failed=1; goto out; }
     printf("Rank 0 connected to rank 1\n");
 
-    type |= NCCL_PTR_CUDA;
-    if(net->isend(sendComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
+    type |= NCCL_PTR_HOST;
+    if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
     type = 0;
     printf("Rank 0 posted send\n");
 
@@ -80,8 +78,8 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     if(net->accept(listenComm, (void **)&recvComm)){ failed=1; goto out; }
     printf("Rank 1 accepted connection from rank 0\n");
 
-    type |= NCCL_PTR_CUDA;
-    if(net->irecv(recvComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+    type |= NCCL_PTR_HOST;
+    if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
     type = 0;
     printf("Rank 1 posted recv\n");
 
@@ -137,12 +135,11 @@ int main(int argc, char *argv[]) {
 #endif
   for(int i=0; i<sizeof(nets)/sizeof(nets[0]); i++){
     ncclNet_t *net = nets[i]; 
-    printf("net %p\n", net);
-    printf("net->name %s\n", net->name);
-    printf("net->listen %p\n", net->listen);
-    //net->listen(0,0,0);
-    tester(net, data, data_d, MAX_SIZE, rank, nranks);
+    if(!rank) {printf("net->name %s\n", net->name);}
+    failed = tester(net, data, data_d, MAX_SIZE, rank, nranks);
+    if (failed) goto out;
   }
+  printf("[%d] : Test successful\n", rank);
   delete data;
   cudaFree(data_d);
   MPI_Finalize();
@@ -150,8 +147,9 @@ int main(int argc, char *argv[]) {
 out:
   if(failed){
     printf("[%d] Test failed\n", rank);
-  }else{
-    printf("[%d] : Test successful\n", rank);
+    delete data;
+    cudaFree(data_d);
+    MPI_Finalize();
   }
   return failed;
 }
