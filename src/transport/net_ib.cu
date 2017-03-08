@@ -224,7 +224,10 @@ int ncclIbPtrSupport(int dev, int* supportedTypes) {
     free(mlxPath); free(cudaPath);
     if (distance <= PATH_PIX) ibGdrEnabled = 1;
   }
-  if (ibGdrEnabled == 1) *supportedTypes |= NCCL_PTR_CUDA;
+  int ibGdrPossible = (access("/sys/kernel/mm/memory_peers/nv_mem/version", F_OK) == -1) ? 0 : 1;
+  if (ibGdrEnabled == 1 && ibGdrPossible == 0)
+    WARN("No module present for GPU Direct RDMA.");
+  if (ibGdrEnabled == 1 && ibGdrPossible == 1) *supportedTypes |= NCCL_PTR_CUDA;
   return 0;
 }
 
