@@ -62,9 +62,9 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
 
   for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
-    ALIGN_SIZE(chunkSize, THREADS*UNROLL);
+    ALIGN_SIZE(chunkSize, THREADS*UNROLL*sizeof(uint64_t)/sizeof(T));
     int offset = gridOffset + bid*chunkSize;
-    int maxOffset = size-offset;
+    int maxOffset = min(chunkSize, size-offset);
     if (prevRank == root) {
       Prims::Copy(
           thisInput + offset,
@@ -84,8 +84,8 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
           postDoneToPrev);
     } else {
       Prims::Reduce(
-          thisInput + offset,
           prevInput + boffset,
+          thisInput + offset,
           nextOutput + boffset,
           sliceSize, maxOffset,
           step,
@@ -107,8 +107,6 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   }
 }
 
-#define PCIE_THREADS 512
-#define NVLINK_THREADS 128
 #define UNROLL 8
 
 template<class FUNC, typename T>
@@ -121,11 +119,7 @@ ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const size_t count
     NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternTo(root), comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, root, count, comm);
-    if (comm->nRings > 1) {
-      LAUNCH_KERNEL(ReduceKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
-    } else {
-      LAUNCH_KERNEL(ReduceKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
-    }
+    LAUNCH_KERNEL(ReduceKernel, comm->nThreads, UNROLL, FUNC, T, args, stream);
   }
 
   return ncclSuccess;

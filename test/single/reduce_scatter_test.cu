@@ -108,7 +108,7 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
 
     NCCLCHECK(ncclGroupStart());
     for (int i = 0; i < nDev; ++i)
-      NCCLCHECK(ncclReduceScatter((const void*)sendbuff[i], (void*)sendbuff[i], n, type,
+      NCCLCHECK(ncclReduceScatter((const void*)sendbuff[i], (void*)(sendbuff[i]+i*n), n, type,
           op, comms[i], s[i]));
     NCCLCHECK(ncclGroupEnd());
 

@@ -201,8 +201,6 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   }
 }
 
-#define PCIE_THREADS 512
-#define NVLINK_THREADS 128
 #define UNROLL 8
 
 template<class FUNC, typename T>
@@ -215,11 +213,7 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
-    //if (comm->nRings > 1) {
-    //  LAUNCH_KERNEL(AllReduceKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
-    //} else {
-      LAUNCH_KERNEL(AllReduceKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
-    //}
+    LAUNCH_KERNEL(AllReduceKernel, comm->nThreads, UNROLL, FUNC, T, args, stream);
   }
 
   return ncclSuccess;
@@ -246,3 +240,4 @@ ncclResult_t ncclAllReduce(const void* sendbuff, void* recvbuff, size_t count,
   return enqueueCheck(ncclAllReduceFunc, "AllReduce", sendbuff, recvbuff, count, datatype,
       op, 0, comm, stream);
 }
+

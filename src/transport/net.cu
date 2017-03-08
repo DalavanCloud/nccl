@@ -95,7 +95,7 @@ static inline int groupBestScore(int nranks, int* groups, int group, int* subgro
   return bestRank;
 }
 
-ncclResult_t netGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
+ncclResult_t netGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore, int* nthreads) {
   int nGroups = groups[nranks-1] + 1;
   for (int ring = 0; ring<*nringsRet; ring++) {
     int starts[nGroups];

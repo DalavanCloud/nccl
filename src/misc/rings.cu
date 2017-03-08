@@ -33,8 +33,9 @@ static void fillCoords(int nranks, int* matrix, int* coords, int* rankToIdx, int
   recFillCoords(0, nranks, matrix, current, coords, &index, rankToIdx, idxToRank);
 }
 
-ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
+ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
   *nrings = 0;
+  *nthreads = 512;
   if (nranks == 1) return ncclSuccess;
 
   // Compute hierarchical topology groups, indexes, and rank<->index tables
@@ -106,7 +107,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
           }
         }
         /* Get rings */
-        NCCLCHECK(ncclTransports[t].getRings(nidx, groups, subgroups, subvalues, &nringsTmp, subprev, subnext, minScore));
+        NCCLCHECK(ncclTransports[t].getRings(nidx, groups, subgroups, subvalues, &nringsTmp, subprev, subnext, minScore, nthreads));
         /* Merge prev/next */
         for (int r=0; r<nringsTmp; r++) {
           for (int i=0; i<nidx; i++) {

@@ -90,6 +90,7 @@ struct ncclComm {
   // Rings for collectives 
   int nRings;
   struct ncclRing rings[MAXRINGS];
+  int nThreads;
   
   // Device copy of the communicator
   struct ncclComm *devComm;

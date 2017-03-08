@@ -114,8 +114,8 @@ static inline int groupLast(int nranks, int* groups, int group, int rankToAvoid)
   return -1;
 }
 
-ncclResult_t shmGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
-  if (*nringsRet == MAXRINGS) *nringsRet = 2;
+ncclResult_t shmGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore, int* nthreads) {
+  if (*nringsRet == MAXRINGS) *nringsRet = 1;
   int nGroups = groups[nranks-1] + 1;
   int starts[nGroups];
   int ends[nGroups];

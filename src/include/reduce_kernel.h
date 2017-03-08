@@ -367,30 +367,4 @@ struct FuncMin<half> {
     return __float2half(fm);
   }
 };
-
-// Assumptions:
-// - there is exactly 1 block
-// - THREADS is the number of threads in the CTA
-// - this function is called by all producer threads
-template<int UNROLL, int THREADS, class FUNC, typename T>
-__device__ void Reduce(volatile T * __restrict__ const dest,
-    const volatile T * __restrict__ const src0,
-    const volatile T * __restrict__ const src1, const int N) {
-  ReduceOrCopy<UNROLL, THREADS, FUNC, T, false, true>(threadIdx.x, dest,
-      nullptr, src0, src1, N);
-}
-
-// Assumptions:
-// - there is exactly 1 block
-// - THREADS is the number of threads in the CTA
-// - this function is called by all producer threads
-template<int UNROLL, int THREADS, class FUNC, typename T>
-__device__ void ReduceAndCopy(volatile T * __restrict__ const dest0,
-    volatile T * __restrict__ const dest1,
-    const volatile T * __restrict__ const src0,
-    const volatile T * __restrict__ const src1, const int N) {
-  ReduceOrCopy<UNROLL, THREADS, FUNC, T, true, true>(threadIdx.x, dest0, dest1,
-      src0, src1, N);
-}
-
 #endif // REDUCE_KERNEL_H_

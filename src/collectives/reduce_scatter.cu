@@ -125,8 +125,6 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   }
 }
 
-#define PCIE_THREADS 512
-#define NVLINK_THREADS 128
 #define UNROLL 8
 
 template<class FUNC, typename T>
@@ -139,12 +137,7 @@ ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
     NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
-    if (comm->nRings > 1) {
-      LAUNCH_KERNEL(ReduceScatterKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
-    } else {
-      LAUNCH_KERNEL(ReduceScatterKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
-    }
-    //NCCLCHECK(WaitProxies(comm));
+    LAUNCH_KERNEL(ReduceScatterKernel, comm->nThreads, UNROLL, FUNC, T, args, stream);
   }
 
   return ncclSuccess;
