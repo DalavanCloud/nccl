@@ -18,11 +18,13 @@ void print_line_header (int size, int count, const char *typeName, const char *o
   PRINT("%12i  %12i  %6s  %6i", size, count, typeName, root);
 }
 
-void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *procSharedBytes, int *sameExpected, size_t nbytes, int nranks) {
+void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedBytes, int *sameExpected, size_t nbytes, int nranks) {
     *sendbytes = nbytes;
     *recvbytes = nbytes;
     *sameExpected = 0;
     *procSharedBytes = nbytes;
+    *sendInplaceOffset = 0;
+    *recvInplaceOffset = 0;
 }
 
 void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first) {
@@ -53,6 +55,10 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
   while (args->sync[0] != args->thread) pthread_yield();
 
   for (int i=0; i<args->nGpus; i++) {
+     int device;
+     NCCLCHECK(ncclCommCuDevice(args->comms[i], &device)); 
+     CUDACHECK(cudaSetDevice(device));
+
      //set expected buf to zero at root, copy over source data at others
      if ((root_proc == args->proc) 
          && (root_thread == args->thread) 

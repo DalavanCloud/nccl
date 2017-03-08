@@ -1,7 +1,6 @@
 include ../makefiles/common.mk
 include ../makefiles/version.mk
-build:
-	lib
+build:lib
 CUDA_HOME ?= /usr/local/cuda
 CUDA_LIB = $(CUDA_HOME)/lib64
 

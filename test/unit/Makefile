@@ -5,8 +5,10 @@ BUILDDIR ?= $(abspath ../../build)
 MPI_HOME ?= $(realpath $(dir $(or \
 	$(realpath /usr/include/mpi.h),\
 	$(realpath /usr/lib/openmpi/include/mpi.h)))..)
+ifeq ($(MPI),1)
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 NVCUFLAGS += -I$(MPI_HOME)/include
+endif
 # We need private functions. Include and link with src
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
 LIBRARIES += cuda ibverbs
@@ -14,7 +16,11 @@ LIBOBJS := $(BUILDDIR)/obj/*.o $(BUILDDIR)/obj/*/*.o
 NVLDFLAGS += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 ##
 DST_DIR := $(abspath ${BUILDDIR}/test/unit)
-CU_FILES := $(wildcard *.cu)
+#CU_FILES := $(wildcard *.cu)
+CU_FILES := rings_test.cu
+ifeq ($(MPI),1)
+CU_FILES += ncclNet_test.cu ncclNet_read_write_stress_test.cu
+endif
 OBJ_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.o)
 EXE_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%)
 DEP_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.dep)
