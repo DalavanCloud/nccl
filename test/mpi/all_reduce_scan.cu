@@ -189,6 +189,7 @@ int main(int argc, char* argv[]) {
     printf("Could not find GPU for rank %d\n", globalRank);
     exit(EXIT_FAILURE);
   }
+  CUDACHECK(cudaSetDevice(gpu));
   char busid[32] = {0};
   CUDACHECK(cudaDeviceGetPCIBusId(busid, sizeof(busid), gpu));
   printf("# Rank %d using GPU %d [%s] on host %s\n", globalRank, gpu, busid, procName);
@@ -203,8 +204,6 @@ int main(int argc, char* argv[]) {
   ncclComm_t comm;
   cudaStream_t stream;
 
-
-  CUDACHECK(cudaSetDevice(gpu));
   CUDACHECK(cudaMalloc(&input,  max_size));
   CUDACHECK(cudaMalloc(&output, max_size));
   CUDACHECK(cudaMallocHost(&error, sizeof(double)));
