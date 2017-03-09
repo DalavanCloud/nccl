@@ -217,8 +217,6 @@ int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings,
     }
     nringsRet *= 2;
     *nthreads = 128;
-  } else {
-    *nthreads = 256;
   }
   return nringsRet;
 }

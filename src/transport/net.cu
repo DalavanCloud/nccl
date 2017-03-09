@@ -97,6 +97,9 @@ static inline int groupBestScore(int nranks, int* groups, int group, int* subgro
 
 ncclResult_t netGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore, int* nthreads) {
   int nGroups = groups[nranks-1] + 1;
+  int cardUsed[NET_MAX_IFS*nGroups];
+  for (int c=0; c<NET_MAX_IFS*nGroups; c++) cardUsed[c] = 0;
+
   for (int ring = 0; ring<*nringsRet; ring++) {
     int starts[nGroups];
     int ends[nGroups];
@@ -107,14 +110,23 @@ ncclResult_t netGetRings(int nranks, int* groups, int* subgroups, int* values, i
         nranksInGroup++;
         nsubGroups = max(subgroups[rank], nsubGroups);
       }
+      starts[group] = ends[group] = -1;
       // Receive on the rank closest to the NIC
-      int start = starts[group] = groupBestScore(nranks, groups, group, NULL, -1, -1, values, ring, minScore);
-      // Send from any rank, but best on a different subgroup and close to the NIC also.
-      int end = ends[group] = 
-        (nranksInGroup == 1) ? start 
-        : groupBestScore(nranks, groups, group, subgroups, nsubGroups ? subgroups[start] : -1, start, values, ring, minScore);
-      //printf("Minscore %d, Ring %d, group %d, start = %d, end = %d\n", minScore, ring, group, start, end);
-      if (start == -1 || end == -1) {
+      for (int card=0; card<NET_MAX_IFS; card++) {
+        if (cardUsed[group*NET_MAX_IFS+card] == 1) continue;
+        int start = groupBestScore(nranks, groups, group, NULL, -1, -1, values, card, minScore);
+        // Send from any rank, but best on a different subgroup and close to the NIC also.
+        int end = (nranksInGroup == 1) ? start 
+          : groupBestScore(nranks, groups, group, subgroups, nsubGroups ? subgroups[start] : -1, start, values, card, minScore);
+        //printf("Ring %d, Minscore %d, Card %d, group %d, start = %d, end = %d\n", ring, minScore, card, group, start, end);
+        if (start != -1 && end != -1) {
+          cardUsed[group*NET_MAX_IFS+card] = 1;
+          starts[group] = start;
+          ends[group] = end;
+          break;
+        }
+      }
+      if (starts[group] == -1 || ends[group] == -1) {
         *nringsRet = ring;
         return ncclSuccess;
       }
