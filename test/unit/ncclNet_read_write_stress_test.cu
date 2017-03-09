@@ -10,6 +10,8 @@
 #include "mpi.h"
 #include "nccl.h"
 #include "debug.h"
+#include <sys/types.h>
+#include <unistd.h>
 
 extern ncclNet_t ncclNetSocket; 
 extern ncclNet_t ncclNetIb; 
@@ -27,7 +29,7 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
   char listenHandle[NCCL_NET_HANDLE_MAXSIZE], connectHandle[NCCL_NET_HANDLE_MAXSIZE];
   char *listenComm, *sendComm, *recvComm; 
   int type = 0, cnt = 0;
-  char *request[MAX_REQUESTS];
+  //char *request[MAX_REQUESTS];
   MPI_Barrier(MPI_COMM_WORLD);
   if(rank==0){
     if(net->devices(&ndev, &scores)){failed=1; goto out; }
@@ -42,17 +44,20 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
 
     if(MPI_Recv(connectHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, 1/*rank*/, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE)){ failed=1; goto out; }
     if(net->connect(0, connectHandle, (void **)&sendComm)){ failed=1; goto out; }
-    printf("Rank 0 connected to rank 1\n");
+    printf("Rank 0 connected to rank 1 %d\n", getpid());
 
-    type |= NCCL_PTR_CUDA;
-    if(net->isend(sendComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
+    char *req;
+    type |= NCCL_PTR_HOST;
+    //if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
+    if(net->isend(sendComm, data, bytes, type, (void **)&req)){ failed=1; goto out; };
     type = 0;
-    printf("Rank 0 posted send\n");
+    printf("Rank 0 posted send %d\n", getpid());
 
     int done=0;
     do {
 	    int size = -1;
-	    if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
+	    //if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
+	    if(net->test(req, &done, &size)){ failed=1; goto out; }
     } while(!done);
 
     /*type |= NCCL_PTR_HOST;
@@ -78,17 +83,20 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     if(net->listen(0, (void *)listenHandle, (void **)&listenComm)){ failed=1; goto out; }
     if(MPI_Send(listenHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, 0/*rank*/, 0, MPI_COMM_WORLD)){ failed=1; goto out; }
     if(net->accept(listenComm, (void **)&recvComm)){ failed=1; goto out; }
-    printf("Rank 1 accepted connection from rank 0\n");
+    printf("Rank 1 accepted connection from rank 0 %d\n", getpid());
 
-    type |= NCCL_PTR_CUDA;
-    if(net->irecv(recvComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+    char *req;
+    type |= NCCL_PTR_HOST;
+    //if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+    if(net->irecv(recvComm, data, bytes, type, (void **)&req)){ failed=1; goto out; }
     type = 0;
-    printf("Rank 1 posted recv\n");
+    printf("Rank 1 posted recv %d\n", getpid());
 
     int done=0;
     do {
 	    int size = -1;
-	    if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
+	    //if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
+	    if(net->test(req, &done, &size)){ failed=1; goto out; }
     } while(!done);
 
     /*type |= NCCL_PTR_HOST;
@@ -141,7 +149,8 @@ int main(int argc, char *argv[]) {
     printf("net->name %s\n", net->name);
     printf("net->listen %p\n", net->listen);
     //net->listen(0,0,0);
-    tester(net, data, data_d, MAX_SIZE, rank, nranks);
+    failed = tester(net, data, data_d, MAX_SIZE, rank, nranks);
+    if(failed) { goto out; }
   }
   delete data;
   cudaFree(data_d);

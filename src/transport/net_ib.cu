@@ -15,6 +15,8 @@
 #include <stdlib.h>
 #include <poll.h>
 #include <ctype.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 //#include "infiniband/verbs.h"
 #include "ibvwrap.h"
@@ -508,10 +510,13 @@ ncclResult_t ncclRecvCheck(struct ncclIbRecvComm* comm) {
 
 int ncclIbTest(void* request, int* done, int* size) {
   struct ncclIbRequest *r = (struct ncclIbRequest*)request;
-
+  //INFO("Calling wrap_ibv_poll_cq %d", getpid());
   for (int wrDone = 1; wrDone;) {
     struct ibv_wc wc;
-    SYSCHECKVAL(wrap_ibv_poll_cq(r->verbs->cq, 1, &wc), "ibv_poll_cq", wrDone);
+    //SYSCHECKVAL(wrap_ibv_poll_cq(r->verbs->cq, 1, &wc), "ibv_poll_cq", wrDone);
+    wrDone = wrap_ibv_poll_cq(r->verbs->cq, 1, &wc);
+    if(wrDone<0){ WARN("wrap_ibv_poll_cq returned error %d", getpid()); }
+    else if(wrDone>0){ INFO("wrap_ibv_poll_cq returned %d items %d", wrDone, getpid()); }
     if (wrDone == 1) {
       //printf("Got completion opcode %d, status %d, wr_id %p, size %d\n", wc.opcode, wc.status, wc.wr_id, wc.byte_len);
       if (wc.status != IBV_WC_SUCCESS) {
@@ -597,8 +602,10 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 
   // Wait for receiver to have posted the recv
   volatile struct ncclIbSendFifo* slot = comm->fifo + (comm->fifoHead%MAX_REQUESTS);
-  while (slot->ready == 0) sched_yield();
+  INFO("Wait for slot->ready before wrap_ibv_post_send %d ready %d addr %p rkey %d size %ld", getpid(), slot->ready, slot->addr, slot->rkey, size);
+  while (slot->ready == 0) sched_yield(); /*XXX:if commented, ibv_post_send in ncclIbPostFifo should also be commented*/
 #ifdef USE_RDMA_WRITE
+  INFO("Received slot->ready %d ready %d addr %p rkey %d size %ld", getpid(), slot->ready, slot->addr, slot->rkey, size);
   wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
   wr.wr.rdma.remote_addr = slot->addr;
   wr.wr.rdma.rkey = slot->rkey;
@@ -609,6 +616,7 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 
 
   struct ibv_send_wr* bad_wr;
+  INFO("Calling wrap_ibv_post_send %d", getpid());
   SYSCHECK(wrap_ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
   comm->verbs.numRequests++;
   *request = req;
@@ -640,14 +648,19 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   }
 
   struct ibv_send_wr* bad_wr;
+  INFO("Calling wrap_ibv_post_send %d addr %p rkey %d", getpid(), addr, rkey);
   SYSCHECK(wrap_ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
   comm->verbs.numRequests++;
   comm->remFifoTail++;
-
+  
+  struct ncclIbRequest *r = (struct ncclIbRequest*)req;
+  INFO("%d : cq used %p", getpid(), r->verbs->cq);
+  INFO("Start poll on ncclIbTest %d", getpid());
   while (req->done == 0) {
     int done;
     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
   }
+  INFO("End poll on ncclIbTest %d", getpid());
   req->used = 0;
   
   return ncclSuccess;
@@ -688,12 +701,15 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
   }
 
   struct ibv_recv_wr* bad_wr;
+  INFO("Calling wrap_ibv_post_recv %d", getpid());
   SYSCHECK(wrap_ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");
   comm->verbs.numRequests++;
   *request = req;
 
+  INFO("Calling ncclIbPostFifo %d", getpid());
   // Post to FIFO to notify sender
   NCCLCHECK(ncclIbPostFifo(comm, req->mr->rkey, (uint64_t)data));
+  INFO("Returned from ncclIbPostFifo %d", getpid());
   return ncclSuccess;
 }
 

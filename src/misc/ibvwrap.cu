@@ -5,33 +5,34 @@
  ************************************************************************/
 
 #include "ibvwrap.h"
+#include <sys/types.h>
+#include <unistd.h>
 
-#ifndef IBV_DIRECT
 #include <dlfcn.h>
 #include "core.h"
 
 static enum { ibvUninitialized, ibvInitializing, ibvInitialized, ibvError } ibvState = ibvUninitialized;
 
-static struct ibv_device** (*ibv_internal_get_device_list)(int *num_devices); 
-static void (*ibv_internal_free_device_list)(struct ibv_device **list);
+struct ibv_device** (*ibv_internal_get_device_list)(int *num_devices); 
+void (*ibv_internal_free_device_list)(struct ibv_device **list);
 const char * (*ibv_internal_get_device_name)(struct ibv_device *device);
-static struct ibv_context* (*ibv_internal_open_device)(struct ibv_device* device);
-static int (*ibv_internal_close_device)(struct ibv_context *context);
-static int (*ibv_internal_get_async_event)(struct ibv_context *context, struct ibv_async_event *event);
-static void (*ibv_internal_ack_async_event)(struct ibv_async_event *event);
-static int (*ibv_internal_query_device)(struct ibv_context *context, struct ibv_device_attr *device_attr);
-static int (*ibv_internal_query_port)(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr);
-static struct ibv_pd * (*ibv_internal_alloc_pd)(struct ibv_context *context);
-static struct ibv_mr * (*ibv_internal_reg_mr)(struct ibv_pd *pd, void *addr, size_t length, int access);
-static int (*ibv_internal_dereg_mr)(struct ibv_mr *mr);
-static struct ibv_comp_channel * (*ibv_internal_create_comp_channel)(struct ibv_context *context);
-static struct ibv_cq * (*ibv_internal_create_cq)(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector);
-static int (*ibv_internal_poll_cq)(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc);
-static struct ibv_qp * (*ibv_internal_create_qp)(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr);
-static int (*ibv_internal_modify_qp)(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask);
-static int (*ibv_internal_post_send)(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr);
-static int (*ibv_internal_post_recv)(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr);
-static const char * (*ibv_internal_event_type_str)(enum ibv_event_type event);
+struct ibv_context* (*ibv_internal_open_device)(struct ibv_device* device);
+int (*ibv_internal_close_device)(struct ibv_context *context);
+int (*ibv_internal_get_async_event)(struct ibv_context *context, struct ibv_async_event *event);
+void (*ibv_internal_ack_async_event)(struct ibv_async_event *event);
+int (*ibv_internal_query_device)(struct ibv_context *context, struct ibv_device_attr *device_attr);
+int (*ibv_internal_query_port)(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr);
+struct ibv_pd * (*ibv_internal_alloc_pd)(struct ibv_context *context);
+struct ibv_mr * (*ibv_internal_reg_mr)(struct ibv_pd *pd, void *addr, size_t length, int access);
+int (*ibv_internal_dereg_mr)(struct ibv_mr *mr);
+struct ibv_comp_channel * (*ibv_internal_create_comp_channel)(struct ibv_context *context);
+struct ibv_cq * (*ibv_internal_create_cq)(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector);
+int (*ibv_internal_poll_cq)(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc);
+struct ibv_qp * (*ibv_internal_create_qp)(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr);
+int (*ibv_internal_modify_qp)(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask);
+int (*ibv_internal_post_send)(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr);
+int (*ibv_internal_post_recv)(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr);
+const char * (*ibv_internal_event_type_str)(enum ibv_event_type event);
 
 ncclResult_t wrap_ibv_symbols(void) {
   INFO("wrap_ibv_symbols");
@@ -72,7 +73,7 @@ ncclResult_t wrap_ibv_symbols(void) {
   LOAD_SYM(ibvhandle, "ibv_get_device_list", ibv_internal_get_device_list);
   LOAD_SYM(ibvhandle, "ibv_free_device_list", ibv_internal_free_device_list);
   LOAD_SYM(ibvhandle, "ibv_get_device_name", ibv_internal_get_device_name);
-  LOAD_SYM(ibvhandle, "ibv_opne_device", ibv_internal_open_device);
+  LOAD_SYM(ibvhandle, "ibv_open_device", ibv_internal_open_device);
   LOAD_SYM(ibvhandle, "ibv_close_device", ibv_internal_close_device);
   LOAD_SYM(ibvhandle, "ibv_get_async_event", ibv_internal_get_async_event);
   LOAD_SYM(ibvhandle, "ibv_ack_async_event", ibv_internal_ack_async_event);
@@ -83,11 +84,14 @@ ncclResult_t wrap_ibv_symbols(void) {
   LOAD_SYM(ibvhandle, "ibv_dereg_mr", ibv_internal_dereg_mr);
   LOAD_SYM(ibvhandle, "ibv_create_comp_channel", ibv_internal_create_comp_channel);
   LOAD_SYM(ibvhandle, "ibv_create_cq", ibv_internal_create_cq);
-  LOAD_SYM(ibvhandle, "ibv_poll_cq", ibv_internal_poll_cq);
+  //LOAD_SYM(ibvhandle, "ibv_poll_cq", ibv_internal_poll_cq);
+  //LOAD_SYM(ibvhandle, "ibv_cmd_poll_cq", ibv_internal_poll_cq);
   LOAD_SYM(ibvhandle, "ibv_create_qp", ibv_internal_create_qp);
   LOAD_SYM(ibvhandle, "ibv_modify_qp", ibv_internal_modify_qp);
-  LOAD_SYM(ibvhandle, "ibv_post_send", ibv_internal_post_send);
-  LOAD_SYM(ibvhandle, "ibv_post_recv", ibv_internal_post_recv);
+  //LOAD_SYM(ibvhandle, "ibv_post_send", ibv_internal_post_send);
+  //LOAD_SYM(ibvhandle, "ibv_cmd_post_send", ibv_internal_post_send);
+  //LOAD_SYM(ibvhandle, "ibv_post_recv", ibv_internal_post_recv);
+  //LOAD_SYM(ibvhandle, "ibv_cmd_post_recv", ibv_internal_post_recv);
   LOAD_SYM(ibvhandle, "ibv_event_type_str", ibv_internal_event_type_str);
 
   ibvState = ibvInitialized;
@@ -119,6 +123,7 @@ ncclResult_t wrap_ibv_symbols(void) {
   return ncclSystemError;
 }
 
+#ifndef IBV_DIRECT
 struct ibv_device **wrap_ibv_get_device_list(int *num_devices) {
   if (ibv_internal_get_device_list == NULL) {
      WARN("lib wrapper not initialized.");
@@ -144,6 +149,7 @@ const char *wrap_ibv_get_device_name(struct ibv_device *device) {
 }
 
 struct ibv_context *wrap_ibv_open_device(struct ibv_device *device) { /*returns 0 on success, -1 on failure*/
+  INFO("dynloaded ibv_open_device");
   if (ibv_internal_open_device == NULL) {
      WARN("lib wrapper not initialized.");
      exit(-1);
@@ -164,13 +170,13 @@ int wrap_ibv_close_device(struct ibv_context *context) { /*returns 0 on success,
   return ncclSuccess;
 }
 
-int wrap_ibv_get_async_event(struct ibv_context *context, struct ibv_async_event *event) {
+int wrap_ibv_get_async_event(struct ibv_context *context, struct ibv_async_event *event) { /*returns 0 on success, and -1 on error*/
   if (ibv_internal_get_async_event == NULL) {
      WARN("lib wrapper not initialized.");
      exit(-1);
   }
   int ret = ibv_internal_get_async_event(context, event);
-  if (ret != IBV_SUCCESS) {
+  if (ret < IBV_SUCCESS) {
     WARN("ibv_get_async_event() failed");
     return ncclSystemError; 
   }
@@ -253,17 +259,26 @@ struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq
      WARN("lib wrapper not initialized.");
      exit(-1);
   }
-  return ibv_internal_create_cq(context, cqe, cq_context, channel, comp_vector);
+  struct ibv_cq *cq_ret = ibv_internal_create_cq(context, cqe, cq_context, channel, comp_vector);
+  INFO("%d : cq created %p", getpid(), cq_ret);
+  return cq_ret;
 }
 
-int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) {
-  if (ibv_internal_poll_cq == NULL) {
+/*static inline*/ int ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) {
+  //INFO("ibv_poll_cq calls into libibverbs %d", getpid());
+  return cq->context->ops.poll_cq(cq, num_entries, wc);
+}
+
+int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) { /*returns 0 on success, and -1 on error*/
+  //INFO("Executing wrap_ibv_poll_cq");
+  /*if (ibv_internal_poll_cq == NULL) {
      WARN("lib wrapper not initialized.");
      exit(-1);
-  }
-  int ret = ibv_internal_poll_cq(cq, num_entries, wc);
-  if (ret != IBV_SUCCESS) {
-    WARN("ibv_poll_cq() failed");
+  }*/
+  //int ret = ibv_internal_poll_cq(cq, num_entries, wc);
+  int ret = ibv_poll_cq(cq, num_entries, wc);
+  if (ret < IBV_SUCCESS) {
+    WARN("ibv_poll_cq() failed returned %d wc.status %d wc.opcode %d wc.vendor_err %d", ret, wc->status, wc->opcode, wc->vendor_err);
     return ncclSystemError; 
   }
   return ncclSuccess;
@@ -290,13 +305,19 @@ int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mas
   return ncclSuccess;
 }
 
+/*static inline*/ int ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr) {
+  INFO("ibv_post_send calls into libibverbs %d", getpid());
+  return qp->context->ops.post_send(qp, wr, bad_wr);
+}
+
 int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
-  printf("wrap_ibv_post_send");
-  if (ibv_internal_post_send == NULL) {
+  INFO("Executing wrap_ibv_post_send %d qp %p send cq %p recv cq %p", getpid(), qp, qp->send_cq, qp->recv_cq);
+  /*if (ibv_internal_post_send == NULL) {
      WARN("lib wrapper not initialized.");
      exit(-1);
-  }
-  int ret = ibv_internal_post_send(qp, wr, bad_wr);
+  }*/
+  //int ret = ibv_internal_post_send(qp, wr, bad_wr);
+  int ret = ibv_post_send(qp, wr, bad_wr);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_post_send() failed");
     return ncclSystemError; 
@@ -304,13 +325,19 @@ int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_sen
   return ncclSuccess;
 }
 
+/*static inline*/ int ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr) {
+  INFO("ibv_post_recv calls into libibverbs %d", getpid());
+  return qp->context->ops.post_recv(qp, wr, bad_wr);
+}
+
 int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, struct ibv_recv_wr **bad_wr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
-  printf("wrap_ibv_post_recv");
-  if (ibv_internal_post_recv == NULL) {
+  INFO("Executing wrap_ibv_post_recv %d qp %p send cq %p recv cq %p", getpid(), qp, qp->send_cq, qp->recv_cq);
+  /*if (ibv_internal_post_recv == NULL) {
      WARN("lib wrapper not initialized.");
      exit(-1);
-  }
-  int ret = ibv_internal_post_recv(qp, wr, bad_wr);
+  }*/
+  //int ret = ibv_internal_post_recv(qp, wr, bad_wr);
+  int ret = ibv_post_recv(qp, wr, bad_wr);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_post_recv() failed");
     return ncclSystemError; 

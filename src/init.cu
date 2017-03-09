@@ -6,7 +6,7 @@
 
 #include "core.h"
 #include "nvmlwrap.h"
-#include "ibvwrap.h"
+//#include "ibvwrap.h"
 #include "rings.h"
 #include "bootstrap.h"
 #include "transport.h"
@@ -40,8 +40,8 @@ void initNet() {
   } else {
     char* str = getenv("NCCL_IB_DISABLE");
     int ibEnabled = (str && (atoi(str) == 1)) ? 0 : 1;
-    int ibLoaded = (wrap_ibv_symbols() == ncclSuccess) ? 1 : 0;
-    ncclNet = ibEnabled && ibLoaded && ncclIbSupport() ? &ncclNetIb : &ncclNetSocket;
+    //int ibLoaded = (wrap_ibv_symbols() == ncclSuccess) ? 1 : 0;
+    ncclNet = ibEnabled && /*ibLoaded &&*/ ncclIbSupport() ? &ncclNetIb : &ncclNetSocket;
     INFO("Using internal Network %s", ncclNetName());
   }
 }
