@@ -47,7 +47,7 @@ TYPED_TEST(ncclReduce_test, host_mem) {
         }
     }
 };
-TYPED_TEST(ncclReduce_test, DISABLED_pinned_mem) {
+TYPED_TEST(ncclReduce_test, pinned_mem) {
     for (ncclRedOp_t op : this->RedOps) {
         for (int root = 0; root < this->nVis; ++root) {
             ASSERT_EQ(ncclSuccess, ncclGroupStart());
@@ -82,7 +82,7 @@ TYPED_TEST(ncclReduce_test, sendbuf_null) {
 // recvbuff
 // root can't be null
 // non root can be null
-TYPED_TEST(ncclReduce_test, DISABLED_recvbuf_root_null) {
+TYPED_TEST(ncclReduce_test, recvbuf_root_null) {
     for (ncclRedOp_t op : this->RedOps) {
         for (int root = 0; root < this->nVis; ++root) {
             ASSERT_EQ(ncclSuccess, ncclGroupStart());
@@ -210,7 +210,8 @@ TYPED_TEST(ncclReduce_test, comm_wrong) {
 };
 // STREAM can be NULL.
 // stream on a diff device
-TYPED_TEST(ncclReduce_test, DISABLED_stream_wrong) {
+#if 0 // nccl can't handle this.
+TYPED_TEST(ncclReduce_test, stream_wrong) {
     int i = 0, j = 1, root = 0;
     ASSERT_EQ(ncclInvalidDevicePointer,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
@@ -218,3 +219,4 @@ TYPED_TEST(ncclReduce_test, DISABLED_stream_wrong) {
                          this->RedOps[0], root, this->comms[i],
                          this->streams[j]));
 };
+#endif
