@@ -31,7 +31,7 @@ NVCUFLAGS  := -ccbin $(CXX) $(NVCC_GENCODE) -lineinfo -std=c++11 -maxrregcount 9
 LDFLAGS    += -L${CUDA_LIB} -lcudart -lrt
 
 ########## GCOV ##########
-GCOV ?= 1 # enable by default.
+GCOV ?= 0 # disable by default.
 GCOV_FLAGS := $(if $(filter 0,${GCOV} ${DEBUG}),,--coverage) # only gcov=1 and debug =1
 CXXFLAGS  += ${GCOV_FLAGS}
 NVCUFLAGS += ${GCOV_FLAGS:%=-Xcompiler %}
