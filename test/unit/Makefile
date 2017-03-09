@@ -9,8 +9,8 @@ NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 NVCUFLAGS += -I$(MPI_HOME)/include
 # We need private functions. Include and link with src
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
-#LIBRARIES += cuda
-LIBRARIES += cuda ibverbs
+LIBRARIES += cuda
+#LIBRARIES += cuda ibverbs
 NVLDFLAGS += $(BUILDDIR)/obj/*.o $(BUILDDIR)/obj/*/*.o -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 ##
 DST_DIR := $(abspath ${BUILDDIR}/test/unit)

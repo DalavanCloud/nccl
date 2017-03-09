@@ -123,6 +123,7 @@ ncclResult_t wrap_ibv_symbols(void) {
   return ncclSystemError;
 }
 
+#if 0
 #ifndef IBV_DIRECT
 struct ibv_device **wrap_ibv_get_device_list(int *num_devices) {
   if (ibv_internal_get_device_list == NULL) {
@@ -353,4 +354,5 @@ const char *wrap_ibv_event_type_str(enum ibv_event_type event) {
   return ibv_internal_event_type_str(event);
 }
 
+#endif
 #endif
