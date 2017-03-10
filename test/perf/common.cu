@@ -520,7 +520,7 @@ void AllocateBuffs(void **sendbuff, size_t sendBytes, void **recvbuff, size_t re
 
 int main(int argc, char* argv[]) {
  int nThreads = 1, nGpus = 1;
- size_t minBytes = 32*1024*1024, maxBytes = 32*1024*1024, stepBytes = 0, stepFactor = 2;
+ size_t minBytes = 32*1024*1024, maxBytes = 32*1024*1024, stepBytes = 1*1024*1024, stepFactor = 1;
  size_t nbytes = maxBytes;
  int longindex;
  int nProcs = 1, proc = 0;
