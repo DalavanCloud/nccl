@@ -10,6 +10,8 @@
 #include "mpi.h"
 #include "nccl.h"
 #include "debug.h"
+#include <sys/types.h>
+#include <unistd.h>
 
 extern ncclNet_t ncclNetSocket; 
 extern ncclNet_t ncclNetIb; 
@@ -40,12 +42,12 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
 
     if(MPI_Recv(connectHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, 1/*rank*/, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE)){ failed=1; goto out; }
     if(net->connect(0, connectHandle, (void **)&sendComm)){ failed=1; goto out; }
-    printf("Rank 0 connected to rank 1\n");
+    printf("Rank 0 connected to rank 1 %d\n", getpid());
 
     type |= NCCL_PTR_HOST;
     if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
     type = 0;
-    printf("Rank 0 posted send\n");
+    printf("Rank 0 posted send %d\n", getpid());
 
     int done=0;
     do {
@@ -63,6 +65,12 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     type = 0;
     printf("Rank 0 posted send\n");*/
 
+    if(net->closeSend(sendComm)){ failed=1; goto out; }
+    printf("%d closeSend\n", rank);
+
+    if(net->closeRecv(recvComm)){ failed=1; goto out; }
+    printf("%d closeRecv\n", rank);
+
   }else{
     if(net->devices(&ndev, &scores)){failed=1; goto out; }
     printf("Rank 1 ndev %d scores : \n", ndev);
@@ -76,12 +84,12 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     if(net->listen(0, (void *)listenHandle, (void **)&listenComm)){ failed=1; goto out; }
     if(MPI_Send(listenHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, 0/*rank*/, 0, MPI_COMM_WORLD)){ failed=1; goto out; }
     if(net->accept(listenComm, (void **)&recvComm)){ failed=1; goto out; }
-    printf("Rank 1 accepted connection from rank 0\n");
+    printf("Rank 1 accepted connection from rank 0 %d\n", getpid());
 
     type |= NCCL_PTR_HOST;
     if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
     type = 0;
-    printf("Rank 1 posted recv\n");
+    printf("Rank 1 posted recv %d\n", getpid());
 
     int done=0;
     do {
@@ -98,6 +106,11 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
     type = 0;
     printf("Rank 0 posted send\n");*/
+    if(net->closeRecv(recvComm)){ failed=1; goto out; }
+    printf("%d closeRecv\n", rank);
+
+    if(net->closeSend(sendComm)){ failed=1; goto out; }
+    printf("%d closeSend\n", rank);
   }
   MPI_Barrier(MPI_COMM_WORLD);
 out:
