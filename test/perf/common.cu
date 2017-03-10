@@ -431,7 +431,7 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   cudaDeviceSynchronize();
 
   //probably this is not required as InitRecvResults can be a barrier in itself
-  Barrier(args);
+  //Barrier(args);
 
   // Benchmark
   auto start = std::chrono::high_resolution_clock::now();
@@ -520,7 +520,7 @@ void AllocateBuffs(void **sendbuff, size_t sendBytes, void **recvbuff, size_t re
 
 int main(int argc, char* argv[]) {
  int nThreads = 1, nGpus = 1;
- size_t minBytes = 32*1024*1024, maxBytes = 32*1024*1024, stepBytes = 0, stepFactor = 2;
+ size_t minBytes = 32*1024*1024, maxBytes = 32*1024*1024, stepBytes = 1*1024*1024, stepFactor = 1;
  size_t nbytes = maxBytes;
  int longindex;
  int nProcs = 1, proc = 0;
