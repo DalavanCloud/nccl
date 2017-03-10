@@ -285,7 +285,7 @@ static ncclResult_t buildRings(int nrings, int* rings, int rank, int nranks, int
       current = next[r*nranks+current];
     }
     sprintf(prefix, "[%d] Ring %d : ", rank, r);
-    dumpLine(rings+r*nranks, nranks, prefix);
+    if (rank == 0) dumpLine(rings+r*nranks, nranks, prefix);
     if (current != rank) {
       WARN("Error : ring %d does not loop back to start (%d != %d)", r, current, rank);
       return ncclInternalError;
@@ -331,12 +331,19 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   int next[nranks*MAXRINGS];
   NCCLCHECK(ncclGetRings(&nrings, &comm->nThreads, rank, nranks, connectTransport, connectValue, prev, next));
 
-  // Find min nrings across ranks
-  int allNrings[nranks];
-  allNrings[rank] = nrings;
-  NCCLCHECK(bootstrapAllGather(commState, allNrings, sizeof(int)));
+  // Find max nThreads
+  int allData[nranks];
+  allData[rank] = comm->nThreads;
+  NCCLCHECK(bootstrapAllGather(commState, allData, sizeof(int)));
   for (int i=0; i<nranks; i++)
-    nrings = min(allNrings[i], nrings);
+    comm->nThreads = max(allData[i], comm->nThreads);
+  if (rank == 0) INFO("Using %d threads", comm->nThreads);
+
+  // Find min nrings across ranks
+  allData[rank] = nrings;
+  NCCLCHECK(bootstrapAllGather(commState, allData, sizeof(int)));
+  for (int i=0; i<nranks; i++)
+    nrings = min(allData[i], nrings);
 
   // Exchange data with others to build complete rings
   comm->nRings = nrings;

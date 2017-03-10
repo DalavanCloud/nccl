@@ -58,7 +58,7 @@ int ncclSocketDevices(int* ndev, int** scores) {
   initDevices();
   *ndev = ncclNetIfs;
   int* sc = (int*)malloc(ncclNetIfs*sizeof(int));
-  for (int i=0; i<ncclNetIfs; i++) sc[i] = NCCL_MAX_SCORE;
+  for (int i=0; i<ncclNetIfs; i++) sc[i] = 1;
   *scores = sc;
   return ncclSuccess;
 }

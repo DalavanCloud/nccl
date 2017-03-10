@@ -153,8 +153,10 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
   } while (nringsTmp == 0 && minScore);
 
   if (*nrings == 0) {
-    WARN("Could not create rings");
-    return ncclInternalError;
+    WARN("Could not create rings, falling back on simple ring");
+    *nrings = 1;
+    prev[rank] = (rank-1+nranks) % nranks;
+    next[rank] = (rank+1)%nranks;
   }
   return ncclSuccess;
 }

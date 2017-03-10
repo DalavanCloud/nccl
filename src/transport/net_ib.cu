@@ -21,6 +21,7 @@
 #define USE_RDMA_WRITE 1
 #define MAX_IF_NAME_SIZE 16
 #define MAXPATHSIZE 1024
+#define MAXNAMESIZE 64
 static char ncclIbIfName[MAX_IF_NAME_SIZE];
 static struct in_addr ncclIbIfAddr;
 static int ncclNIbDevs = -1;
@@ -29,6 +30,7 @@ struct ncclIbDev {
   uint8_t port;
   ibv_context* context;
   char devPath[MAXPATHSIZE];
+  char devName[MAXNAMESIZE];
 };
 
 #define MAX_IB_DEVS 16
@@ -122,8 +124,8 @@ int pciDistance(char* path1, char* path2) {
     }
   }
   if (score == 3) return PATH_SOC;
-  if (score == 4) return PATH_PIX;
-  if (score == depth-1)     return PATH_PHB;
+  if (score == 4) return PATH_PHB;
+  if (score == depth-1)     return PATH_PIX;
   return PATH_PXB;
 }
 
@@ -166,7 +168,7 @@ static void initDevices() {
               ncclIbDevs[ncclNIbDevs].port = port;
               ncclIbDevs[ncclNIbDevs].context = context;
               strncpy(ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path, MAXPATHSIZE);
-              INFO("IB device %d : %s / port %d", d, ibv_get_device_name(devices[d]), port);
+              strncpy(ncclIbDevs[ncclNIbDevs].devName, devices[d]->name, MAXNAMESIZE);
               ncclNIbDevs++;
               found++;
               pthread_create(&ncclIbAsyncThread, NULL, ncclIbAsyncThreadMain, context);
@@ -193,14 +195,17 @@ int ncclIbDevices(int* ndev, int** scores) {
   char* cudaPath;
   getCudaPath(cudaDev, &cudaPath);
   int* sc = (int*)malloc(ncclNIbDevs*sizeof(int));
+  char line[1024];
+  sprintf(line, "CUDA Dev %d, IB Ports : ", cudaDev);
   for (int d=0; d<ncclNIbDevs; d++) {
     char* mlxPath;
     getMlxPath(ncclIbDevs[d].devPath, &mlxPath);
     int distance = (mlxPath == NULL || cudaPath == NULL) ? PATH_SOC : pciDistance(mlxPath, cudaPath);
-    INFO("IB device %d, distance from %d : %s", d, cudaDev, pathDists[distance]);
+    sprintf(line+strlen(line), "%s/%d(%s) ", ncclIbDevs[d].devName, ncclIbDevs[d].port, pathDists[distance]);
     sc[d] = 1+PATH_SOC-distance;
     free(mlxPath);
   }
+  INFO(line);
   free(cudaPath);
   *scores = sc;
   return ncclSuccess;
@@ -222,7 +227,7 @@ int ncclIbPtrSupport(int dev, int* supportedTypes) {
     getMlxPath(ncclIbDevs[dev].devPath, &mlxPath);
     int distance = (mlxPath == NULL || cudaPath == NULL) ? PATH_SOC : pciDistance(mlxPath, cudaPath);
     free(mlxPath); free(cudaPath);
-    if (distance <= PATH_PIX) ibGdrEnabled = 1;
+    if (distance <= PATH_PXB) ibGdrEnabled = 1;
   }
   int ibGdrPossible = (access("/sys/kernel/mm/memory_peers/nv_mem/version", F_OK) == -1) ? 0 : 1;
   if (ibGdrEnabled == 1 && ibGdrPossible == 0)
