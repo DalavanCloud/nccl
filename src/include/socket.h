@@ -32,7 +32,7 @@ static int findInterfaces(const char* ifNamePrefix, char* names, struct in_addr*
       // Store the IP address
       struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
       memcpy(addrs+found, &sa->sin_addr, sizeof(struct in_addr));
-      INFO("NET : Using interface %s, %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
+      //INFO("NET : Using interface %s, %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
       found++;
       if (found == maxIfs) break;
     }
