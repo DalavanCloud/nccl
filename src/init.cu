@@ -40,8 +40,7 @@ void initNet() {
   } else {
     char* str = getenv("NCCL_IB_DISABLE");
     int ibEnabled = (str && (atoi(str) == 1)) ? 0 : 1;
-    //int ibLoaded = (wrap_ibv_symbols() == ncclSuccess) ? 1 : 0;
-    ncclNet = ibEnabled && /*ibLoaded &&*/ ncclIbSupport() ? &ncclNetIb : &ncclNetSocket;
+    ncclNet = ibEnabled && ncclIbSupport() ? &ncclNetIb : &ncclNetSocket;
     INFO("Using internal Network %s", ncclNetName());
   }
 }

@@ -131,6 +131,8 @@ int pciDistance(char* path1, char* path2) {
 }
 
 static void initDevices() {
+  if(wrap_ibv_symbols() != ncclSuccess) { return; }
+  INFO("IB verbs symbols loaded");
   if (ncclNIbDevs == -1) {
     pthread_mutex_lock(&ncclIbLock);
     if (ncclNIbDevs == -1) {
@@ -150,8 +152,6 @@ static void initDevices() {
         }
       }
       INFO("NET/IB : Using interface %s for sideband communication", ncclIbIfName);
-      if(wrap_ibv_symbols() != ncclSuccess) { return; }
-      INFO("wrap_ibv_symbols executed");
       // Detect IB cards
       int nIbDevs;
       ncclNIbDevs = 0;
@@ -738,6 +738,8 @@ int ncclIbCloseSend(void* sendComm) {
     for (int i=0; i<MAX_REQUESTS; i++) {
       if (comm->verbs.mrPool[i] != NULL) SYSCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
     }
+    //if (comm->verbs.cq != NULL) SYSCHECK(wrap_ibv_destroy_cq(comm->verbs.cq), "ibv_destroy_cq");
+    //if (comm->verbs.pd != NULL) SYSCHECK(wrap_ibv_dealloc_pd(comm->verbs.pd), "ibv_dealloc_pd");
     free(comm);
   }
   return 0;
@@ -752,6 +754,8 @@ int ncclIbCloseRecv(void* recvComm) {
     for (int i=0; i<MAX_REQUESTS; i++) {
       if (comm->verbs.mrPool[i] != NULL) SYSCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
     }
+    //if (comm->verbs.cq != NULL) SYSCHECK(wrap_ibv_destroy_cq(comm->verbs.cq), "ibv_destroy_cq");
+    //if (comm->verbs.pd != NULL) SYSCHECK(wrap_ibv_dealloc_pd(comm->verbs.pd), "ibv_dealloc_pd");
     free(comm);
   }
   return 0;

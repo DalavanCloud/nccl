@@ -25,10 +25,12 @@ static void wrap_ibv_ack_async_event(struct ibv_async_event *event) { return ibv
 static int wrap_ibv_query_device(struct ibv_context *context, struct ibv_device_attr *device_attr) { return ibv_query_device(context, device_attr); }
 static int wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr) { return ibv_query_port(context, port_num, port_attr); }
 static struct ibv_pd *wrap_ibv_alloc_pd(struct ibv_context *context) { return ibv_alloc_pd(context); }
+static int wrap_ibv_dealloc_pd(struct ibv_pd *pd) { return ibv_dealloc_pd(pd); }
 static struct ibv_mr *wrap_ibv_reg_mr(struct ibv_pd *pd, void *addr, size_t length, int access) { return ibv_reg_mr(pd, addr, length, access); }
 static int wrap_ibv_dereg_mr(struct ibv_mr *mr) { return ibv_dereg_mr(mr); }
 static struct ibv_comp_channel *wrap_ibv_create_comp_channel(struct ibv_context *context) { return ibv_create_comp_channel(context); }
 static struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector) { return ibv_create_cq(context, cqe, cq_context, channel, comp_vector); }
+static int wrap_ibv_destroy_cq(struct ibv_cq *cq) { return ibv_destroy_cq(cq); }
 static int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) { return ibv_poll_cq(cq, num_entries, wc); }
 static struct ibv_qp *wrap_ibv_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr) { return ibv_create_qp(pd, qp_init_attr); }
 static int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask) { return ibv_modify_qp(qp, attr, attr_mask); }
@@ -1077,10 +1079,12 @@ void wrap_ibv_ack_async_event(struct ibv_async_event *event);
 int wrap_ibv_query_device(struct ibv_context *context, struct ibv_device_attr *device_attr);
 int wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr);
 struct ibv_pd *wrap_ibv_alloc_pd(struct ibv_context *context);
+int wrap_ibv_dealloc_pd(struct ibv_pd *pd);
 struct ibv_mr *wrap_ibv_reg_mr(struct ibv_pd *pd, void *addr, size_t length, int access);
 int wrap_ibv_dereg_mr(struct ibv_mr *mr);
 struct ibv_comp_channel *wrap_ibv_create_comp_channel(struct ibv_context *context);
 struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector);
+int wrap_ibv_destroy_cq(struct ibv_cq *cq);
 static inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) { /*returns 0 on success, and -1 on error*/
   int count = cq->context->ops.poll_cq(cq, num_entries, wc);//nccl_ibv_poll_cq(cq, num_entries, wc);
   if (count < IBV_SUCCESS) {

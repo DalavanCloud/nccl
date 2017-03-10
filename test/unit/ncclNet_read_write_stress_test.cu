@@ -65,6 +65,12 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     type = 0;
     printf("Rank 0 posted send\n");*/
 
+    if(net->closeSend(sendComm)){ failed=1; goto out; }
+    printf("%d closeSend\n", rank);
+
+    if(net->closeRecv(recvComm)){ failed=1; goto out; }
+    printf("%d closeRecv\n", rank);
+
   }else{
     if(net->devices(&ndev, &scores)){failed=1; goto out; }
     printf("Rank 1 ndev %d scores : \n", ndev);
@@ -100,6 +106,11 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
     type = 0;
     printf("Rank 0 posted send\n");*/
+    if(net->closeRecv(recvComm)){ failed=1; goto out; }
+    printf("%d closeRecv\n", rank);
+
+    if(net->closeSend(sendComm)){ failed=1; goto out; }
+    printf("%d closeSend\n", rank);
   }
   MPI_Barrier(MPI_COMM_WORLD);
 out:
