@@ -15,12 +15,12 @@
 extern ncclNet_t ncclNetSocket; 
 extern ncclNet_t ncclNetIb; 
 
-#define MAX_REQUESTS 64
+#define MAX_REQUESTS 62
 #define SOCKET 1
 #define IB 1
 //#define REQUEST_CHECK_EAGER 1
-//#define REQUEST_CHECK_BATCH 1
-#define REQUEST_CHECK_DELAY_BY_1 1
+#define REQUEST_CHECK_BATCH 1
+//#define REQUEST_CHECK_DELAY_BY_1 1
 
 typedef enum op {
   READ = 0,
@@ -63,20 +63,26 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
             } else if (type == NCCL_PTR_CUDA){
 	      if(net->isend(sendComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
             }
-	    INFO("Rank %d posted send", rank);
+	    INFO("Rank %d posted first send", rank);
 
 	    int done=0;
 	    do {
 		    int size = -1;
 		    if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
 	    } while(!done);
+	    INFO("Rank %d completed first send for %s type %d", rank, net->name, type);
 
             if(!strcmp(net->name, "IB")) {
               for(int i=0; i<MAX_REQUESTS; i++){
                  auto op = i%2;//uni(rng);
                  if(op == READ) {
-	            if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
-	            //INFO("Rank %d posted %dth op (recv) ", rank, i);
+	            INFO("Rank %d posting %dth op (recv), req %d", rank, i, cnt);
+                    if (type == NCCL_PTR_HOST) {
+	              if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+                    } else if (type == NCCL_PTR_CUDA){
+	              if(net->irecv(recvComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+                    }
+	            INFO("Rank %d posted %dth op (recv), req %d", rank, i, cnt-1);
 #ifdef REQUEST_CHECK_EAGER
 		    INFO("Rank %d request %d checking %p", rank, cnt-1, request[cnt-1]);
 		    int done=0;
@@ -87,8 +93,13 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
 		    INFO("Rank %d request %d done", rank, cnt-1);
 #endif
                  } else if (op == WRITE){
-	            if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
-	            //INFO("Rank %d posted %dth op (send) ", rank, i);
+	            INFO("Rank %d posting %dth op (send), req %d", rank, i, cnt);
+                    if (type == NCCL_PTR_HOST) {
+	              if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+                    } else if (type == NCCL_PTR_CUDA){
+	              if(net->isend(sendComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+                    }
+	            INFO("Rank %d posted %dth op (send), req %d", rank, i, cnt - 1);
 #ifdef REQUEST_CHECK_EAGER
 		    INFO("Rank %d request %d checking %p", rank, cnt-1, request[cnt-1]);
 		    int done=0;
@@ -102,28 +113,28 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
                     WARN("op outside range %d", op);
                  }
 #ifdef REQUEST_CHECK_DELAY_BY_1
-		 if(i%2 == 0){
-			 INFO("Rank %d request %d checking %p", rank, cnt-2, request[cnt-2]);
+		 if((i%2 == 0) && (i > 0)){
+			 INFO("Rank %d request %d checking", rank, cnt-3);
 			 int done=0;
+			 do {
+				 int size = -1;
+				 if(net->test(request[cnt-3], &done, &size)){ failed=1; goto out; }
+			 } while(!done);
+			 INFO("Rank %d request %d done", rank, cnt-3);
+			 INFO("Rank %d request %d checking", rank, cnt-2);
+			 done=0;
 			 do {
 				 int size = -1;
 				 if(net->test(request[cnt-2], &done, &size)){ failed=1; goto out; }
 			 } while(!done);
 			 INFO("Rank %d request %d done", rank, cnt-2);
-			 INFO("Rank %d request %d checking %p", rank, cnt-1, request[cnt-1]);
-			 done=0;
-			 do {
-				 int size = -1;
-				 if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
-			 } while(!done);
-			 INFO("Rank %d request %d done", rank, cnt-1);
 		 }
 #endif
               }
               INFO("Rank %d posted %d ops", rank, MAX_REQUESTS);
 #ifdef REQUEST_CHECK_BATCH
 	      for(int i=0; i<MAX_REQUESTS; i++) {
-                      INFO("Rank %d request %d checking %p", rank, i, request[i+1]);
+                      INFO("Rank %d request %d checking", rank, i);
 		      int done=0;
 		      do {
 			      int size = -1;
@@ -157,26 +168,36 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
     } else if (type == NCCL_PTR_CUDA){ 
       if(net->irecv(recvComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
     }
-    INFO("Rank %d posted recv", rank);
+    INFO("Rank %d posted first recv", rank);
 
     int done=0;
     do {
 	    int size = -1;
 	    if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
     } while(!done);
+    INFO("Rank %d completed first recv for %s type %d", rank, net->name, type);
 
     if(!strcmp(net->name, "IB")){
       for(int i=0; i<MAX_REQUESTS; i++){
         auto op = i%2;//uni(rng);
         if(op == READ) {
-#ifdef REQUEST_CHECK_DELAY_BY_1
-          if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
-          //INFO("Rank %d posted %dth op (recv) ", rank, i);
+#if defined(REQUEST_CHECK_DELAY_BY_1) || defined(REQUEST_CHECK_BATCH)
+          INFO("Rank %d posting %dth op (recv), req %d ", rank, i, cnt);
+	  if (type == NCCL_PTR_HOST) {
+            if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          } else if (type == NCCL_PTR_CUDA) {
+            if(net->irecv(recvComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          }
+          INFO("Rank %d posted %dth op (recv), req %d ", rank, i, cnt - 1);
 #endif
 #ifdef REQUEST_CHECK_EAGER
-          if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+	  if (type == NCCL_PTR_HOST) {
+            if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          } else if (type == NCCL_PTR_CUDA) {
+            if(net->isend(sendComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          }
           //INFO("Rank %d posted %dth op (send) ", rank, i);
-	  INFO("Rank %d request %d checking %p", rank, i, request[cnt-1]);
+	  INFO("Rank %d request %d checking", rank, i);
 	  int done=0;
 	  do {
 		  int size = -1;
@@ -185,14 +206,23 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
 	  INFO("Rank %d request %d done", rank, i);
 #endif
         } else if (op == WRITE){
-#ifdef REQUEST_CHECK_DELAY_BY_1
-          if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
-          //INFO("Rank %d posted %dth op (send) ", rank, i);
+#if defined(REQUEST_CHECK_DELAY_BY_1) || defined(REQUEST_CHECK_BATCH)
+          INFO("Rank %d posting %dth op (send), req %d ", rank, i, cnt);
+	  if (type == NCCL_PTR_HOST) {
+            if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          } else if (type == NCCL_PTR_CUDA) {
+            if(net->isend(sendComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          }
+          INFO("Rank %d posted %dth op (send), req %d ", rank, i, cnt - 1);
 #endif
 #ifdef REQUEST_CHECK_EAGER
-          if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          if (type == NCCL_PTR_HOST) {
+            if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          } else if (type == NCCL_PTR_CUDA) {
+            if(net->irecv(recvComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+          }
           //INFO("Rank %d posted %dth op (recv) ", rank, i);
-	  INFO("Rank %d request %d checking %p", rank, i, request[cnt-1]);
+	  INFO("Rank %d request %d checking", rank, i);
 	  int done=0;
 	  do {
 		  int size = -1;
@@ -203,29 +233,29 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
         } else {
           WARN("op outside range %d", op);
         }
-#ifdef REQUEST_CHECK_DELAY_BY_1
-        if(i%2 == 0){
-	  INFO("Rank %d request %d checking %p", rank, cnt-2, request[cnt-2]);
+#if defined(REQUEST_CHECK_DELAY_BY_1)
+        if((i%2 == 0) && (i > 0)){
+	  INFO("Rank %d request %d checking", rank, cnt-3);
 	  int done=0;
+	  do {
+		  int size = -1;
+		  if(net->test(request[cnt-3], &done, &size)){ failed=1; goto out; }
+	  } while(!done);
+	  INFO("Rank %d request %d done", rank, cnt-3);
+	  INFO("Rank %d request %d checking", rank, cnt-2);
+	  done=0;
 	  do {
 		  int size = -1;
 		  if(net->test(request[cnt-2], &done, &size)){ failed=1; goto out; }
 	  } while(!done);
 	  INFO("Rank %d request %d done", rank, cnt-2);
-	  INFO("Rank %d request %d checking %p", rank, cnt-1, request[cnt-1]);
-	  done=0;
-	  do {
-		  int size = -1;
-		  if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
-	  } while(!done);
-	  INFO("Rank %d request %d done", rank, cnt-1);
         }
 #endif
       }
       INFO("Rank %d posted %d ops", rank, MAX_REQUESTS);
 #ifdef REQUEST_CHECK_BATCH
       for(int i=0; i<MAX_REQUESTS; i++) {
-              INFO("Rank %d request %d checking %p", rank, i, request[i+1]);
+              INFO("Rank %d request %d checking", rank, i);
 	      int done=0;
 	      do {
 		      int size = -1;

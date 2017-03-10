@@ -237,7 +237,7 @@ static ncclResult_t GetIpAddr(struct in_addr* addr) {
   return ncclSuccess;
 }
 
-#define MAX_REQUESTS 64
+#define MAX_REQUESTS 64 /*XXX:Can support 62 outstanding requests*/
 
 struct ncclIbQpInfo {
   int lid;
@@ -394,7 +394,7 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   *sendComm = comm;
   
   // IB Setup
-  initDevices(); /*XXX:Anshuman added on 3/2/2017*/
+  initDevices(); /*XXX: Need this for ncclNet unit test that bypasses nccl initialization*/
   ibv_context* ctx = ncclIbDevs[dev].context;
   uint8_t ib_port = ncclIbDevs[dev].port;
   //printf("[ncclIbConnect] ncclIbCreateQp\n");
