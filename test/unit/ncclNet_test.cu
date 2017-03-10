@@ -16,33 +16,33 @@ extern ncclNet_t ncclNetIb;
 extern ncclNet_t ncclMpi; 
 
 int Socket_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int dev, int rank, int nranks, MPI_Comm comm){
-  if(!rank) printf("Socket tester\n");
+  if(!rank) INFO("Socket tester");
 
   int failed = 0;
   if(rank==0){
     for(int rnk=1; rnk<nranks; rnk++){
       char listenHandle[NCCL_NET_HANDLE_MAXSIZE];
       char *listenComm; 
-      //printf("%d listen\n", rank);
       if(net->listen(0, (void *)listenHandle, (void **)&listenComm)){ failed=1; goto out; }
-      //printf("%d MPI_Send\n", rank);
+      //INFO("%d listen", rank);
       if(MPI_Send(listenHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, rnk, 0, comm)){ failed=1; goto out; }
+      //INFO("%d MPI_Send", rank);
 
-      //printf("%d accept\n", rank);
       char *recvComm;
       if(net->accept(listenComm, (void **)&recvComm)){ failed=1; goto out; }
+      //INFO("%d accept", rank);
 
-      //printf("%d closeListen\n", rank);
       if(net->closeListen(listenComm)){ failed=1; goto out; }
+      //INFO("%d closeListen", rank);
 
       /*ping*/
       int type = 0;
       type |= NCCL_PTR_HOST;
       char *request;
-      //printf("%d recv\n", rank);
       struct timeval start, end;
       gettimeofday(&start, NULL);
       if(net->irecv(recvComm, data, bytes, type, (void **)&request)){ failed=1; goto out; }
+      //INFO("%d recv", rank);
 
       int done=0;
       do {
@@ -51,27 +51,27 @@ int Socket_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, in
       } while(!done);
       gettimeofday(&end, NULL);
       *duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
-      //printf("%d closeRecv\n", rank);
       if(net->closeRecv(recvComm)){ failed=1; goto out; }
+      //INFO("%d closeRecv", rank);
     }
   }else{
     char connectHandle[NCCL_NET_HANDLE_MAXSIZE];
     char *sendComm;
 
-    //printf("%d MPI_Recv\n", rank);
     if(MPI_Recv(connectHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, 0, 0, comm, MPI_STATUS_IGNORE)){ failed=1; goto out; }
+    //INFO("%d MPI_Recv", rank);
 
-    //printf("%d connect\n", rank);
     if(net->connect(0, connectHandle, (void **)&sendComm)){ failed=1; goto out; }
+    //INFO("%d connect", rank);
 
     /*pong*/  
     int type = 0;
     type |= NCCL_PTR_HOST;
     char *request;
-    //printf("%d send\n", rank);
     struct timeval start, end;
     gettimeofday(&start, NULL);
     if(net->isend(sendComm, data, bytes, type, (void **)&request)){ failed=1; goto out; };
+    //INFO("%d send", rank);
 
     int done=0;
     do {
@@ -80,8 +80,8 @@ int Socket_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, in
     } while(!done);
     gettimeofday(&end, NULL);
     *duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
-    //printf("%d closeSend\n", rank);
     if(net->closeSend(sendComm)){ failed=1; goto out; }
+    //INFO("%d closeSend", rank);
   } 
 
 out:
@@ -89,34 +89,34 @@ out:
 }
 
 int IB_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int dev, int rank, int nranks, MPI_Comm comm){
-  if(!rank) printf("IB tester\n");
+  if(!rank) INFO("IB tester");
 
   int failed = 0;
   if(rank==0){
     for(int rnk=1; rnk<nranks; rnk++){
       char listenHandle[NCCL_NET_HANDLE_MAXSIZE];
       char *listenComm; 
-      //printf("%d listen\n", rank);
       if(net->listen(0, (void *)listenHandle, (void **)&listenComm)){ failed=1; goto out; }
+      //INFO("%d listen", rank);
 
-      //printf("%d MPI_Send\n", rank);
       if(MPI_Send(listenHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, rnk, 0, comm)){ failed=1; goto out; }
+      //INFO("%d MPI_Send", rank);
 
-      //printf("%d accept\n", rank);
       char *recvComm;
       if(net->accept(listenComm, (void **)&recvComm)){ failed=1; goto out; }
+      //INFO("%d accept", rank);
 
-      //printf("%d closeListen\n", rank);
       if(net->closeListen(listenComm)){ failed=1; goto out; }
+      //INFO("%d closeListen", rank);
 
       /*ping*/
       int type = 0;
       type |= NCCL_PTR_HOST;
       char *request;
-      //printf("%d recv\n", rank);
       struct timeval start, end;
       gettimeofday(&start, NULL);
       if(net->irecv(recvComm, data, bytes, type, (void **)&request)){ failed=1; goto out; }
+      //INFO("%d recv", rank);
 
       int done=0;
       do {
@@ -125,27 +125,27 @@ int IB_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int de
       } while(!done);
       gettimeofday(&end, NULL);
       *duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
-      //printf("%d closeRecv\n", rank);
       if(net->closeRecv(recvComm)){ failed=1; goto out; }
+      //INFO("%d closeRecv", rank);
     }
   }else{
     char connectHandle[NCCL_NET_HANDLE_MAXSIZE];
     char *sendComm;
 
-    //printf("%d MPI_Recv\n", rank);
     if(MPI_Recv(connectHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, 0, 0, comm, MPI_STATUS_IGNORE)){ failed=1; goto out; }
+    //INFO("%d MPI_Recv", rank);
 
-    //printf("%d connect\n", rank);
     if(net->connect(0, connectHandle, (void **)&sendComm)){ failed=1; goto out; }
+    //INFO("%d connect", rank);
 
     /*pong*/  
     int type = 0;
     type |= NCCL_PTR_HOST;
     char *request;
-    //printf("%d send\n", rank);
     struct timeval start, end;
     gettimeofday(&start, NULL);
     if(net->isend(sendComm, data, bytes, type, (void **)&request)){ failed=1; goto out; };
+    //INFO("%d send", rank);
 
     int done=0;
     do {
@@ -154,8 +154,8 @@ int IB_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int de
     } while(!done);
     gettimeofday(&end, NULL);
     *duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
-    //printf("%d closeSend\n", rank);
     if(net->closeSend(sendComm)){ failed=1; goto out; }
+    //INFO("%d closeSend", rank);
   } 
 
 out:
@@ -166,7 +166,7 @@ extern "C"
 void ncclMpiHook(MPI_Comm comm);
 
 int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int dev, int rank, int nranks, MPI_Comm comm){
-  if(!rank) printf("MPI tester\n");
+  if(!rank) INFO("MPI tester");
 
   ncclMpiHook(MPI_COMM_WORLD);
   int failed = 0;
@@ -175,17 +175,17 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
       char listenHandle[NCCL_NET_HANDLE_MAXSIZE];
       char *listenComm; 
       if(net->listen(0, (void *)listenHandle, (void **)&listenComm)){ failed=1; goto out; }
-      printf("%d listen\n", rank);
+      INFO("%d listen", rank);
 
       if(MPI_Send(listenHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, rnk, 0, comm)){ failed=1; goto out; }
-      printf("%d MPI_Send\n", rank);
+      INFO("%d MPI_Send", rank);
 
       char *recvComm;
       if(net->accept(listenComm, (void **)&recvComm)){ failed=1; goto out; }
-      printf("%d accept\n", rank);
+      INFO("%d accept", rank);
 
       if(net->closeListen(listenComm)){ failed=1; goto out; }
-      printf("%d closeListen\n", rank);
+      INFO("%d closeListen", rank);
 
       /*ping*/
       int type = 0;
@@ -194,7 +194,7 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
       struct timeval start, end;
       gettimeofday(&start, NULL);
       if(net->irecv(recvComm, data, bytes, type, (void **)&request)){ failed=1; goto out; }
-      printf("%d recv\n", rank);
+      INFO("%d recv", rank);
 
       int done=0;
       do {
@@ -205,16 +205,16 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
       *duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
 
       if(net->closeRecv(recvComm)){ failed=1; goto out; }
-      printf("%d closeRecv\n", rank);
+      INFO("%d closeRecv", rank);
     }
   }else{
     char connectHandle[NCCL_NET_HANDLE_MAXSIZE];
     char *sendComm;
     if(MPI_Recv(connectHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, 0, 0, comm, MPI_STATUS_IGNORE)){ failed=1; goto out; }
-    printf("%d MPI_Recv\n", rank);
+    INFO("%d MPI_Recv", rank);
 
     if(net->connect(0, connectHandle, (void **)&sendComm)){ failed=1; goto out; }
-    printf("%d connect\n", rank);
+    INFO("%d connect", rank);
 
     /*pong*/  
     int type = 0;
@@ -223,7 +223,7 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
     struct timeval start, end;
     gettimeofday(&start, NULL);
     if(net->isend(sendComm, data, bytes, type, (void **)&request)){ failed=1; goto out; };
-    printf("%d send\n", rank);
+    INFO("%d send", rank);
 
     int done=0;
     do {
@@ -234,7 +234,7 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
     *duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
 
     if(net->closeSend(sendComm)){ failed=1; goto out; }
-    printf("%d closeSend\n", rank);
+    INFO("%d closeSend", rank);
   } 
 
 out:
@@ -253,7 +253,7 @@ int main(int argc, char *argv[]) {
   initDebug();
 
   MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &threadProvided);
-  printf("provided : %d\n", threadProvided);
+  INFO("provided : %d", threadProvided);
   MPI_Comm_size(MPI_COMM_WORLD, &nranks);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
@@ -266,17 +266,17 @@ int main(int argc, char *argv[]) {
   for(int i=0; i<sizeof(nets)/sizeof(nets[0]); i++){
     ncclNet_t *net = nets[i]; 
     if(!rank){
-      printf("ncclNet implementation %s found \n", net->name);
+      INFO("ncclNet implementation %s found ", net->name);
     }
     for(size_t bytes=1; bytes<=MAX_SIZE; bytes*=32){
-      if(!rank) {printf("Send/Recv %lld bytes\n", bytes);}
+      if(!rank) {INFO("Send/Recv %lld bytes", bytes);}
       size_t duration=0;
       struct timeval start, end;
       gettimeofday(&start, NULL);
       failed = testers[i](net, data, bytes, &duration, 0, rank, nranks, MPI_COMM_WORLD); /*TODO: when NIC is not dev0*/
       gettimeofday(&end, NULL);
       size_t tot_duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
-      if(!rank) {printf("Duration (total) %lld us duration (data transfer) %lld us Bandwidth %lld MB/s\n", tot_duration, duration, bytes/duration);}
+      if(!rank) {INFO("Duration (total) %lld us duration (data transfer) %lld us Bandwidth %lld MB/s", tot_duration, duration, bytes/duration);}
       if (failed) goto out;
     }
   }
