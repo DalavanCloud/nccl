@@ -45,6 +45,6 @@ TEST_F(ncclCommInitRank_test, rank_negative) {
     ASSERT_EQ(ncclSuccess, ncclCommInitRank(&comm, ndev, commId, rank));
 }
 TEST_F(ncclCommInitRank_test, DISABLED_dev_too_many) { // cause dead loop
-    ASSERT_EQ(ncclSuccess, ncclCommInitRank(&comm, 10, commId, rank));
+    ASSERT_EQ(ncclUnsupportedDeviceCount, ncclCommInitRank(&comm, 10, commId, rank));
     ASSERT_EQ(ncclSuccess, ncclCommInitRank(&comm, ndev, commId, rank));
 }

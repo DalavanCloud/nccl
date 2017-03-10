@@ -6,35 +6,57 @@
 
 #include "core.h"
 
-static void recFillCoords(int rank, int nranks, int* matrix, int* current, int* coords, int* idx, int* rankToIdx, int* idxToRank) {
-  for (int t=0; t<NTRANSPORTS; t++) {
-    coords[rank*NTRANSPORTS+t] = current[t];
-  }
-  rankToIdx[rank] = *idx;
-  idxToRank[*idx] = rank;
-  for (int t=0; t<NTRANSPORTS; t++) {
-    for (int r=0; r<nranks; r++) {
-      if (coords[r*NTRANSPORTS] != -1) continue;
-      if (matrix[rank*nranks+r] == t) {
-        current[t]++;
-        (*idx)++;
-        recFillCoords(r, nranks, matrix, current, coords, idx, rankToIdx, idxToRank);
-      }
+static int recIsConnected(int rank1, int rank2, int nranks, int* matrix, int transport, int* done) {
+  if (matrix[rank1*nranks+rank2] == transport) return 1;
+  done[rank1] = 1;
+  for (int r=0; r<nranks; r++) {
+    if (done[r] == 1) continue;
+    if (matrix[rank1*nranks+r] == transport) {
+      if (recIsConnected(r, rank2, nranks, matrix, transport, done)) return 1;
     }
-    current[t] = 0;
   }
+  return 0;
 }
 
-static void fillCoords(int nranks, int* matrix, int* coords, int* rankToIdx, int* idxToRank) {
-  // Set 0's coordinates to (0,0, ... 0)
+static int isConnected(int rank1, int rank2, int nranks, int* matrix, int transport) {
+  int done[nranks];
+  for (int r=0; r<nranks; r++) done[r] = 0;
+  return recIsConnected(rank1, rank2, nranks, matrix, transport, done);
+}
+
+#define NEW_IDX(rank) do { \
+  curRank = rank; \
+  rankToIdx[curRank] = idx; \
+  idxToRank[idx] = curRank; \
+  for (int t=0; t<NTRANSPORTS; t++) coords[curRank*NTRANSPORTS+t] = current[t]; \
+  transport = 0; \
+  idx++; \
+} while (0)
+
+static ncclResult_t fillCoords(int nranks, int* matrix, int* coords, int* rankToIdx, int* idxToRank) {
   int current[NTRANSPORTS];
   for (int i=0; i<NTRANSPORTS; i++) current[i] = 0;
-  int index = 0;
-  recFillCoords(0, nranks, matrix, current, coords, &index, rankToIdx, idxToRank);
+  int curRank, transport, idx = 0;
+  NEW_IDX(0);
+  while (transport < NTRANSPORTS) {
+    for (int rank=0; rank<nranks; rank++) {
+      if (coords[rank*NTRANSPORTS] != -1) continue;
+
+      if (isConnected(curRank, rank, nranks, matrix, transport)) {
+        current[transport]++;
+        NEW_IDX(rank);// Resets transport = 0
+        if (idx == nranks) return ncclSuccess;
+      }
+    }
+    current[transport] = 0;
+    transport++;
+  }
+  return ncclInternalError;
 }
 
-ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
+ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
   *nrings = 0;
+  *nthreads = 512;
   if (nranks == 1) return ncclSuccess;
 
   // Compute hierarchical topology groups, indexes, and rank<->index tables
@@ -42,7 +64,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
   int globalIdxToRank[nranks];
   int globalRankToIdx[nranks];
   for (int i=0; i<nranks*NTRANSPORTS; i++) coords[i] = -1;
-  fillCoords(nranks, transports, coords, globalRankToIdx, globalIdxToRank);
+  NCCLCHECK(fillCoords(nranks, transports, coords, globalRankToIdx, globalIdxToRank));
 
   int minScore = NCCL_MAX_SCORE;
   int nringsTmp;
@@ -55,6 +77,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
       int idxToRank[nranks];
       int rankToIdx[nranks];
       int groups[nranks];
+      int subgroups[nranks];
       for (int i=0; i<nranks; i++) idxToRank[i] = rankToIdx[i] = -1;
       
       int nidx = 0;
@@ -67,6 +90,7 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
         if (!sameLocal) continue;
 
         groups[nidx] = coords[r*NTRANSPORTS+t];
+        subgroups[nidx] = t ? coords[r*NTRANSPORTS+t-1] : nidx;
         rankToIdx[r] = nidx;
         idxToRank[nidx] = r;
         nidx++;
@@ -104,13 +128,17 @@ ncclResult_t ncclGetRings(int* nrings, int rank, int nranks, int* transports, in
           }
         }
         /* Get rings */
-        NCCLCHECK(ncclTransports[t].getRings(nidx, ngroups, groups, subvalues, &nringsTmp, subprev, subnext, minScore));
+        NCCLCHECK(ncclTransports[t].getRings(nidx, groups, subgroups, subvalues, &nringsTmp, subprev, subnext, minScore, nthreads));
         /* Merge prev/next */
         for (int r=0; r<nringsTmp; r++) {
           for (int i=0; i<nidx; i++) {
             if ((prevTmp[r*nranks+idxToRank[i]] == -1) && (subprev[r*nidx+i] != -1)) prevTmp[r*nranks+idxToRank[i]] = idxToRank[subprev[r*nidx+i]];
             if ((nextTmp[r*nranks+idxToRank[i]] == -1) && (subnext[r*nidx+i] != -1)) nextTmp[r*nranks+idxToRank[i]] = idxToRank[subnext[r*nidx+i]];
           }
+        }
+        for (int r=0; r<nringsTmp; r++) {
+        //printf("[%d] [%d] [%d] [%d] Prev ", rank, minScore, t, r); for (int i=0; i<nranks; i++) printf("%d ", prevTmp[r*nranks+i]); printf("\n");
+        //printf("[%d] [%d] [%d] [%d] Next ", rank, minScore, t, r); for (int i=0; i<nranks; i++) printf("%d ", nextTmp[r*nranks+i]); printf("\n");
         }
       }
     }

@@ -21,5 +21,5 @@ $(BUILDDIR)/test/gtes%.a :
 	$(AR) $(ARFLAGS) $@ $^
 
 .PHONY: gtest
-gtest : $(addprefix $(BUILDDIR)/test/,gtest_main.a gtest.a)
+gtest :$(addprefix $(BUILDDIR)/test/,gtest_main.a gtest.a)
 ###

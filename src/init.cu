@@ -331,7 +331,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   int nrings;
   int prev[nranks*MAXRINGS];
   int next[nranks*MAXRINGS];
-  NCCLCHECK(ncclGetRings(&nrings, rank, nranks, connectTransport, connectValue, prev, next));
+  NCCLCHECK(ncclGetRings(&nrings, &comm->nThreads, rank, nranks, connectTransport, connectValue, prev, next));
 
   // Find min nrings across ranks
   int allNrings[nranks];
@@ -460,7 +460,7 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   int next[nranks*MAXRINGS];
   int nextFinal[nranks*MAXRINGS];
   for (int rank=0; rank<nranks; rank++) {
-    NCCLCHECK(ncclGetRings(&nrings, rank, nranks, connectTransport, connectValue, prev, next));
+    NCCLCHECK(ncclGetRings(&nrings, &comms[rank]->nThreads, rank, nranks, connectTransport, connectValue, prev, next));
     nringsFinal = min(nrings, nringsFinal);
     for (int ring=0; ring<nrings; ring++) {
       int index = ring*nranks+rank;
@@ -512,7 +512,9 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   showVersion();
 
   NCCLCHECK(PtrCheck(comms, "CommInitAll", "comms"));
-  if (ndev < 1) {
+  int devcount=0;
+  cudaGetDeviceCount(&devcount);
+  if (ndev < 1 || ndev > devcount) {
     WARN("Invalid device count requested : %d", ndev);
     return ncclUnsupportedDeviceCount;
   }

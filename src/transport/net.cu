@@ -72,52 +72,70 @@ ncclResult_t netCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
   return ncclSuccess;
 }
 
-static inline void groupLastFirst(int nranks, int* groups, int group1, int group2, int* values, int ring, int* rank1, int* rank2, int minScore) {
-  // Find last of group1
-  for (int r1 = nranks-1; r1>=0; r1--) {
-    if (groups[r1] == group1) {
-      // Find first of group2
-      for (int r2 = 0; r2<nranks; r2++) {
-        if (groups[r2] == group2) {
-          // Check both can talk through that device = ring
-          if ((values[r1*nranks+r2] & (0x7<<(3*ring))) >= minScore &&
-              (values[r2*nranks+r1] & (0x7<<(3*ring))) >= minScore) {
-            *rank1 = r1;
-            *rank2 = r2;
-            return;
-          }
+static inline int groupBestScore(int nranks, int* groups, int group, int* subgroups, int subGroupToAvoid, int rankToAvoid, int* values, int card, int minScore) {
+  int bestRank = -1;
+  int bestScore = 0;
+  for (int rank=0; rank<nranks; rank++) {
+    for (int i=0; i<nranks; i++) {
+      if (groups[rank] != group) continue;
+      if (subGroupToAvoid != -1 && subGroupToAvoid == subgroups[rank]) continue;
+      if (rankToAvoid == rank) continue;
+      int netValue = values[rank*nranks+i];
+      if (netValue != 0) {
+        int score = (netValue>>(3*card)) & 0x7;
+        if (score >= minScore && score > bestScore) {
+          bestScore = score;
+          bestRank = rank;
         }
+        // All other values should be the same, stop here for this rank
+        break;
       }
     }
   }
-  *rank1 = -1;
-  *rank2 = -1;
+  return bestRank;
 }
 
-ncclResult_t netGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
-  for (int ring = 0; ring<*nringsRet; ring++) {
-    for (int group = 0; group<ngroups; group++) {
-      // Check if this group is already connected
-      int skip = 0;
-      for (int rank = 0; rank<nranks; rank++) {
-        if (groups[rank] == group && next[ring*nranks+rank] != -1) skip = 1;
-      }
-      if (skip) continue;
+ncclResult_t netGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore, int* nthreads) {
+  int nGroups = groups[nranks-1] + 1;
+  int cardUsed[NET_MAX_IFS*nGroups];
+  for (int c=0; c<NET_MAX_IFS*nGroups; c++) cardUsed[c] = 0;
 
-      int source = -1, destination = -1;
-      if (ring % 2 == 0) {
-        int nextGroup = (group+1)%ngroups;
-        groupLastFirst(nranks, groups, group, nextGroup, values, ring, &source, &destination, minScore);
-      } else {
-        int prevGroup = (group-1+ngroups)%ngroups;
-        groupLastFirst(nranks, groups, prevGroup, group, values, ring, &destination, &source, minScore);
+  for (int ring = 0; ring<*nringsRet; ring++) {
+    int starts[nGroups];
+    int ends[nGroups];
+    for (int group = 0; group<nGroups; group++) {
+      int nranksInGroup = 0;
+      int nsubGroups = 0;
+      for (int rank=0; rank<nranks; rank++) if (groups[rank] == group) {
+        nranksInGroup++;
+        nsubGroups = max(subgroups[rank], nsubGroups);
       }
-      if (source == -1 || destination == -1) {
+      starts[group] = ends[group] = -1;
+      // Receive on the rank closest to the NIC
+      for (int card=0; card<NET_MAX_IFS; card++) {
+        if (cardUsed[group*NET_MAX_IFS+card] == 1) continue;
+        int start = groupBestScore(nranks, groups, group, NULL, -1, -1, values, card, minScore);
+        // Send from any rank, but best on a different subgroup and close to the NIC also.
+        int end = (nranksInGroup == 1) ? start 
+          : groupBestScore(nranks, groups, group, subgroups, nsubGroups ? subgroups[start] : -1, start, values, card, minScore);
+        //printf("Ring %d, Minscore %d, Card %d, group %d, start = %d, end = %d\n", ring, minScore, card, group, start, end);
+        if (start != -1 && end != -1) {
+          cardUsed[group*NET_MAX_IFS+card] = 1;
+          starts[group] = start;
+          ends[group] = end;
+          break;
+        }
+      }
+      if (starts[group] == -1 || ends[group] == -1) {
         *nringsRet = ring;
         return ncclSuccess;
       }
-      next[ring*nranks+source] = destination;
-      prev[ring*nranks+destination] = source;
+    }
+    // Link groups together
+    for (int group = 0; group<nGroups; group++) {
+      int nextGroup = (group+1)%nGroups;
+      next[ring*nranks+ends[group]] = starts[nextGroup];
+      prev[ring*nranks+starts[nextGroup]] = ends[group];
     }
   }
   return ncclSuccess;

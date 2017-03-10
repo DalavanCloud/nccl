@@ -17,10 +17,8 @@ extern ncclNet_t ncclNetSocket;
 extern ncclNet_t ncclNetIb; 
 
 #define MAX_REQUESTS 1024
-//#define SOCKET 1
+#define SOCKET 1
 #define IB 1
-//#define RECV_0_SEND_1 1
-//#define RECV_1_SEND_0 1
 
 int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int nranks){
   int failed = 0;
@@ -29,7 +27,7 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
   char listenHandle[NCCL_NET_HANDLE_MAXSIZE], connectHandle[NCCL_NET_HANDLE_MAXSIZE];
   char *listenComm, *sendComm, *recvComm; 
   int type = 0, cnt = 0;
-  //char *request[MAX_REQUESTS];
+  char *request[MAX_REQUESTS];
   MPI_Barrier(MPI_COMM_WORLD);
   if(rank==0){
     if(net->devices(&ndev, &scores)){failed=1; goto out; }
@@ -46,18 +44,15 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     if(net->connect(0, connectHandle, (void **)&sendComm)){ failed=1; goto out; }
     printf("Rank 0 connected to rank 1 %d\n", getpid());
 
-    char *req;
     type |= NCCL_PTR_HOST;
-    //if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
-    if(net->isend(sendComm, data, bytes, type, (void **)&req)){ failed=1; goto out; };
+    if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; };
     type = 0;
     printf("Rank 0 posted send %d\n", getpid());
 
     int done=0;
     do {
 	    int size = -1;
-	    //if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
-	    if(net->test(req, &done, &size)){ failed=1; goto out; }
+	    if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
     } while(!done);
 
     /*type |= NCCL_PTR_HOST;
@@ -85,18 +80,15 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int rank, int
     if(net->accept(listenComm, (void **)&recvComm)){ failed=1; goto out; }
     printf("Rank 1 accepted connection from rank 0 %d\n", getpid());
 
-    char *req;
     type |= NCCL_PTR_HOST;
-    //if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
-    if(net->irecv(recvComm, data, bytes, type, (void **)&req)){ failed=1; goto out; }
+    if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
     type = 0;
     printf("Rank 1 posted recv %d\n", getpid());
 
     int done=0;
     do {
 	    int size = -1;
-	    //if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
-	    if(net->test(req, &done, &size)){ failed=1; goto out; }
+	    if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
     } while(!done);
 
     /*type |= NCCL_PTR_HOST;
@@ -145,13 +137,11 @@ int main(int argc, char *argv[]) {
 #endif
   for(int i=0; i<sizeof(nets)/sizeof(nets[0]); i++){
     ncclNet_t *net = nets[i]; 
-    printf("net %p\n", net);
-    printf("net->name %s\n", net->name);
-    printf("net->listen %p\n", net->listen);
-    //net->listen(0,0,0);
+    if(!rank) {printf("net->name %s\n", net->name);}
     failed = tester(net, data, data_d, MAX_SIZE, rank, nranks);
-    if(failed) { goto out; }
+    if (failed) goto out;
   }
+  printf("[%d] : Test successful\n", rank);
   delete data;
   cudaFree(data_d);
   MPI_Finalize();
@@ -159,8 +149,9 @@ int main(int argc, char *argv[]) {
 out:
   if(failed){
     printf("[%d] Test failed\n", rank);
-  }else{
-    printf("[%d] : Test successful\n", rank);
+    delete data;
+    cudaFree(data_d);
+    MPI_Finalize();
   }
   return failed;
 }

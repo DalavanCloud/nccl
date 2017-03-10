@@ -72,6 +72,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
 
   for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
+    ALIGN_SIZE(chunkSize, THREADS*UNROLL*sizeof(uint64_t)/sizeof(T));
     int chunkOffset = gridOffset + bid*chunkSize;
 
     /////////////// begin AllGather steps ///////////////
@@ -86,7 +87,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
 
     if (thisInput + chunkOffset == thisOutput + offset) { // In place
       Prims::Copy(
-          thisInput  + offset,
+          thisInput  + chunkOffset,
 	  nextdirect ? (sharedNextOutput + offset) : (nextOutput + noffset),
           sliceSize, maxOffset,
           step,
@@ -172,8 +173,6 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   }
 }
 
-#define PCIE_THREADS 512
-#define NVLINK_THREADS 128
 #define UNROLL 8
 
 template<class FUNC, typename T>
@@ -186,11 +185,7 @@ ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
     NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
-    if (comm->nRings > 1) {
-      LAUNCH_KERNEL(AllGatherKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
-    } else {
-      LAUNCH_KERNEL(AllGatherKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
-    }
+    LAUNCH_KERNEL(AllGatherKernel, comm->nThreads, UNROLL, FUNC, T, args, stream);
   }
 
   return ncclSuccess;

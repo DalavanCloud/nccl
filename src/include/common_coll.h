@@ -86,14 +86,28 @@ void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
   comm->opCount++;
 }
 
-#define LAUNCH_KERNEL(K, THREADS, UNROLL, FUNC, T, \
+#define LAUNCH_KERNEL(K, threads, UNROLL, FUNC, T, \
 		args, stream) do { \
   dim3 grid(args.nRings, 1, 1); \
-  dim3 block(THREADS+1, 1, 1); \
+  dim3 block(threads+1, 1, 1); \
   void* argptrs[] = {&args}; \
-  CUDACHECK(cudaLaunchKernel( \
-            (void*)K<THREADS, UNROLL, FUNC, T>, \
-            grid, block, argptrs, 0, stream)); \
+  /* Generate code for the 3 possible sizes */ \
+  if (threads == 128) { \
+    CUDACHECK(cudaLaunchKernel( \
+          (void*)K<128, UNROLL, FUNC, T>, \
+          grid, block, argptrs, 0, stream)); \
+  } else if (threads == 256) { \
+    CUDACHECK(cudaLaunchKernel( \
+          (void*)K<256, UNROLL, FUNC, T>, \
+          grid, block, argptrs, 0, stream)); \
+  } else if (threads == 512) { \
+    CUDACHECK(cudaLaunchKernel( \
+          (void*)K<512, UNROLL, FUNC, T>, \
+          grid, block, argptrs, 0, stream)); \
+  } else { \
+    WARN("Error : forbidden number of threads %d", threads); \
+    return ncclInternalError; \
+  } \
 } while (0)
 
 #endif

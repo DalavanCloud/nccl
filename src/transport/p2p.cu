@@ -192,7 +192,7 @@ static inline int findConnect(int nranks, int* ranks) {
   return -1;
 }
 
-int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int oversubscribe) {
+int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int oversubscribe, int* nthreads) {
   // Find existing constraints / connections
   int connect = 0;
   for (int r=0; r<nrings; r++) {
@@ -216,11 +216,12 @@ int p2pComputeRingsFromPrevNext(int* values, int nranks, int* rings, int nrings,
       for (int i=0; i<nranks; i++) rings[(r+nringsRet)*nranks+i] = rings[r*nranks+i];
     }
     nringsRet *= 2;
+    *nthreads = 128;
   }
   return nringsRet;
 }
 
-ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int* nringsRet, int* prev, int* next, int minScore) {
+ncclResult_t p2pGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore, int* nthreads) {
   if (*nringsRet == 0) return ncclSuccess;
   int rings[MAXRINGS*nranks];
   for (int i=0; i<MAXRINGS*nranks; i++) rings[i] = -1;
@@ -237,12 +238,12 @@ ncclResult_t p2pGetRings(int nranks, int ngroups, int* groups, int* values, int*
   nrings = min(nrings, *nringsRet);
 
   if (nrings) {
-    int comp_nrings = p2pComputeRingsFromPrevNext(values, nranks, rings, nrings, prev, next, 0);
+    int comp_nrings = p2pComputeRingsFromPrevNext(values, nranks, rings, nrings, prev, next, 0, nthreads);
     if (comp_nrings && comp_nrings < nrings*2 && nranks <= 4) {
       // Try to oversubscribe to get a better result
       int rings2[MAXRINGS*nranks];
       for (int i=0; i<MAXRINGS*nranks; i++) rings2[i] = -1;
-      int comp2_nrings = p2pComputeRingsFromPrevNext(values, nranks, rings2, nrings*2, prev, next, 1);
+      int comp2_nrings = p2pComputeRingsFromPrevNext(values, nranks, rings2, nrings*2, prev, next, 1, nthreads);
       if (comp2_nrings > comp_nrings*2) {
         // Oversubscription worked.
         for (int i=0; i<comp2_nrings*nranks; i++) rings[i] = rings2[i];

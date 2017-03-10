@@ -223,22 +223,43 @@ int QPU16_tr[] =
     2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 1, 0, 1, 0, 0, 1,
     2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 1, 0, 1, 1, 0 };
 int QPU16_vl[] =
-  {   1,   1,   1,   1,   1,   1,   1,   1, 012, 012, 012, 012, 012, 012, 012, 012,
-      1,   1,   1,   1,   1,   1,   1,   1, 012, 012, 012, 012, 012, 012, 012, 012,
-      1,   1,   1,   1,   1,   1,   1,   1, 012, 012, 012, 012, 012, 012, 012, 012,
-      1,   1,   1,   1,   1,   1,   1,   1, 012, 012, 012, 012, 012, 012, 012, 012,
-      1,   1,   1,   1,   1,   1,   1,   1, 021, 021, 021, 021, 021, 021, 021, 021,
-      1,   1,   1,   1,   1,   1,   1,   1, 021, 021, 021, 021, 021, 021, 021, 021,
-      1,   1,   1,   1,   1,   1,   1,   1, 021, 021, 021, 021, 021, 021, 021, 021,
-      1,   1,   1,   1,   1,   1,   1,   1, 021, 021, 021, 021, 021, 021, 021, 021,
-    012, 012, 012, 012, 012, 012, 012, 012,   1,   1,   1,   1,   1,   1,   1,   1,
-    012, 012, 012, 012, 012, 012, 012, 012,   1,   1,   1,   1,   1,   1,   1,   1,
-    012, 012, 012, 012, 012, 012, 012, 012,   1,   1,   1,   1,   1,   1,   1,   1,
-    012, 012, 012, 012, 012, 012, 012, 012,   1,   1,   1,   1,   1,   1,   1,   1,
-    021, 021, 021, 021, 021, 021, 021, 021,   1,   1,   1,   1,   1,   1,   1,   1,
-    021, 021, 021, 021, 021, 021, 021, 021,   1,   1,   1,   1,   1,   1,   1,   1,
-    021, 021, 021, 021, 021, 021, 021, 021,   1,   1,   1,   1,   1,   1,   1,   1,
-    021, 021, 021, 021, 021, 021, 021, 021,   1,   1,   1,   1,   1,   1,   1,   1 };
+  {   1,   1,   1,   1,   1,   1,   1,   1, 033, 033, 033, 033, 033, 033, 033, 033,
+      1,   1,   1,   1,   1,   1,   1,   1, 033, 033, 033, 033, 033, 033, 033, 033,
+      1,   1,   1,   1,   1,   1,   1,   1, 033, 033, 033, 033, 033, 033, 033, 033,
+      1,   1,   1,   1,   1,   1,   1,   1, 011, 011, 011, 011, 011, 011, 011, 011,
+      1,   1,   1,   1,   1,   1,   1,   1, 033, 033, 033, 033, 033, 033, 033, 033,
+      1,   1,   1,   1,   1,   1,   1,   1, 011, 011, 011, 011, 011, 011, 011, 011,
+      1,   1,   1,   1,   1,   1,   1,   1, 011, 011, 011, 011, 011, 011, 011, 011,
+      1,   1,   1,   1,   1,   1,   1,   1, 033, 033, 033, 033, 033, 033, 033, 033,
+    003, 003, 003, 003, 003, 003, 003, 003,   1,   1,   1,   1,   1,   1,   1,   1,
+    003, 003, 003, 003, 003, 003, 003, 003,   1,   1,   1,   1,   1,   1,   1,   1,
+    003, 003, 003, 003, 003, 003, 003, 003,   1,   1,   1,   1,   1,   1,   1,   1,
+    001, 001, 001, 001, 001, 001, 001, 001,   1,   1,   1,   1,   1,   1,   1,   1,
+    003, 003, 003, 003, 003, 003, 003, 003,   1,   1,   1,   1,   1,   1,   1,   1,
+    001, 001, 001, 001, 001, 001, 001, 001,   1,   1,   1,   1,   1,   1,   1,   1,
+    001, 001, 001, 001, 001, 001, 001, 001,   1,   1,   1,   1,   1,   1,   1,   1,
+    003, 003, 003, 003, 003, 003, 003, 003,   1,   1,   1,   1,   1,   1,   1,   1 };
+
+int QPX9_tr[] = 
+  { 0, 0, 0, 1, 1, 2, 2, 2, 2,
+    0, 0, 0, 1, 1, 2, 2, 2, 2,
+    0, 0, 0, 1, 1, 2, 2, 2, 2,
+    1, 1, 1, 0, 0, 2, 2, 2, 2,
+    1, 1, 1, 0, 0, 2, 2, 2, 2,
+    2, 2, 2, 2, 2, 0, 0, 1, 1,
+    2, 2, 2, 2, 2, 0, 0, 1, 1,
+    2, 2, 2, 2, 2, 1, 1, 0, 0,
+    2, 2, 2, 2, 2, 1, 1, 0, 0 };
+int QPX9_vl[] =
+  {   1,   1,   1,   1,   1, 022, 022, 022, 022,
+      1,   1,   1,   1,   1, 022, 022, 022, 022,
+      1,   1,   1,   1,   1, 044, 044, 044, 044,
+      1,   1,   1,   1,   1, 011, 011, 011, 011,
+      1,   1,   1,   1,   1, 011, 011, 011, 011,
+    022, 022, 022, 022, 022,   1,   1,   1,   1,
+    022, 022, 022, 022, 022,   1,   1,   1,   1,
+    011, 011, 011, 011, 011,   1,   1,   1,   1,
+    011, 011, 011, 011, 011,   1,   1,   1,   1, };
 
 int NVL4_tr[] = 
   { 0, 0, 0, 0,
@@ -261,6 +282,21 @@ int NVH4_vl[] =
     2, 1, 2, 2,
     2, 2, 1, 2,
     2, 2, 2, 1 };
+
+int NVL6_tr[] = 
+  { 0, 0, 0, 0, 0, 1,
+    0, 0, 0, 0, 1, 0,
+    0, 0, 0, 0, 1, 1,
+    0, 0, 0, 0, 1, 1,
+    0, 1, 1, 1, 0, 0,
+    1, 0, 1, 1, 0, 0 };
+int NVL6_vl[] =
+  { 1, 2, 2, 2, 2, 1,
+    2, 1, 2, 2, 1, 2,
+    2, 2, 1, 2, 1, 1,
+    2, 2, 2, 1, 1, 1,
+    2, 1, 1, 1, 1, 2,
+    1, 2, 1, 1, 2, 1 };
 
 int NVL8_tr[] = 
   { 0, 0, 0, 0, 0, 1, 1, 1,
@@ -299,6 +335,25 @@ int NVV8_vl[] =
     1, 4, 1, 1, 4, 1, 2, 2,
     1, 1, 2, 1, 4, 2, 1, 4,
     1, 1, 1, 4, 2, 2, 4, 1 };
+
+int NVLX8_tr[] = 
+  { 0, 0, 0, 0, 2, 2, 2, 2,
+    0, 0, 0, 0, 2, 2, 2, 2,
+    0, 0, 0, 0, 2, 2, 2, 2,
+    0, 0, 0, 0, 2, 2, 2, 2,
+    2, 2, 2, 2, 0, 0, 0, 0,
+    2, 2, 2, 2, 0, 0, 0, 0,
+    2, 2, 2, 2, 0, 0, 0, 0,
+    2, 2, 2, 2, 0, 0, 0, 0 };
+int NVLX8_vl[] =
+  {     1,     2,     2,     2, 02411, 02411, 02411, 02411,
+        2,     1,     2,     2, 02411, 02411, 02411, 02411,
+        2,     2,     1,     2, 04211, 04211, 04211, 04211,
+        2,     2,     2,     1, 04211, 04211, 04211, 04211,
+    02411, 02411, 02411, 02411,     1,     2,     2,     2,
+    02411, 02411, 02411, 02411,     2,     1,     2,     2,
+    04211, 04211, 04211, 04211,     2,     2,     1,     2,
+    04211, 04211, 04211, 04211,     2,     2,     2,     1 };
 
 int NVL16_tr[] = 
   { 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2,
@@ -502,9 +557,9 @@ static void dumpRings(int nrings, int *rings, int nranks, const char* toponame, 
 }
 
 /*=========== Main test function =============*/
-static ncclResult_t getRings(int nranks, int* transports, int* values, const char* toponame, int expectedNrings) {
-  int nrings = MAXRINGS;
+static ncclResult_t getRings(int nranks, int* transports, int* values, const char* toponame, int expectedNrings, int expectedNthreads) {
   int nrings_final = -1;
+  int nthreads_final = -1;
   int prev[MAXRINGS*nranks];
   int next[MAXRINGS*nranks];
   int next_final[MAXRINGS*nranks];
@@ -514,7 +569,9 @@ static ncclResult_t getRings(int nranks, int* transports, int* values, const cha
   int rings[MAXRINGS*nranks];
 
   for (int rank=0; rank<nranks; rank++) {
-    ncclResult_t ret = ncclGetRings(&nrings, rank, nranks, transports, values, prev, next);
+    int nrings = MAXRINGS;
+    int nthreads;
+    ncclResult_t ret = ncclGetRings(&nrings, &nthreads, rank, nranks, transports, values, prev, next);
     if (ret != ncclSuccess) {
       sprintf(errortext, "Error : getRings returned %s", ncclGetErrorString(ret));
       errormsg = errortext;
@@ -534,6 +591,12 @@ static ncclResult_t getRings(int nranks, int* transports, int* values, const cha
       errormsg = errortext;
       goto end;
     }
+    if (nthreads_final == -1) nthreads_final = nthreads;
+    if (nthreads_final != nthreads) {
+      sprintf(errortext, "Error : got %d threads for rank %d instead of %d", nthreads, rank, nthreads_final);
+      errormsg = errortext;
+      goto end;
+    }
     for (int ring=0; ring<nrings; ring++) {
       next_final[ring*nranks+rank] = next[ring*nranks+rank];
     }
@@ -541,7 +604,7 @@ static ncclResult_t getRings(int nranks, int* transports, int* values, const cha
   {
     int in_ring[nranks];
     for (int rank = 0; rank < nranks; rank++) in_ring[rank] = 0;
-    for (int ring=0; ring<nrings; ring++) {
+    for (int ring=0; ring<nrings_final; ring++) {
       int currank = 0;
       for (int index=0; index<nranks; index++) {
         in_ring[currank] = 1;
@@ -562,12 +625,15 @@ static ncclResult_t getRings(int nranks, int* transports, int* values, const cha
       }
     }
   }
-end:
-  if (nrings != expectedNrings) {
-    sprintf(errortext, "Error : got only %d rings instead of %d", nrings, expectedNrings);
+  if (nrings_final != expectedNrings) {
+    sprintf(errortext, "Error : got %d rings instead of %d", nrings_final, expectedNrings);
+    errormsg = errortext;
+  } else if (nthreads_final != expectedNthreads) {
+    sprintf(errortext, "Error : got %d threads instead of %d", nthreads_final, expectedNthreads);
     errormsg = errortext;
   }
-  dumpRings(nrings, rings, nranks, toponame, errormsg);
+end:
+  dumpRings(nrings_final, rings, nranks, toponame, errormsg);
   return errormsg ? ncclInternalError : ncclSuccess;
 }
 
@@ -576,26 +642,29 @@ end:
 int main() {
   int err = 0;
   writeHeader();
-  CHECK(getRings(2, PCI2_tr, PCI2_vl, "PCI  2", 1));
-  CHECK(getRings(4, PCI4_tr, PCI4_vl, "PCI  4", 1));
-  CHECK(getRings(8, PCI8_tr, PCI8_vl, "PCI  8", 1));
-  CHECK(getRings(16, PCI16_tr, PCI16_vl, "PCI 16", 1));
-  CHECK(getRings(4, QPI4_tr, QPI4_vl, "QPI  4", 1));
-  CHECK(getRings(8, QPI8_tr, QPI8_vl, "QPI  8", 1));
-  CHECK(getRings(16, QPI16_tr, QPI16_vl, "QPI 16", 2));
-  CHECK(getRings(4, QPU4_tr, QPU4_vl, "QPU  4", 1));
-  CHECK(getRings(6, QPI6_tr, QPI6_vl, "QPI  6", 1));
-  CHECK(getRings(6, QPU6_tr, QPU6_vl, "QPU  6", 1));
-  CHECK(getRings(8, QPU8_tr, QPU8_vl, "QPU  8", 1));
-  CHECK(getRings(16, QPU16_tr, QPU16_vl, "QPU 16", 1));
-  CHECK(getRings(4, NVL4_tr, NVL4_vl, "NVL  4", 8));
-  CHECK(getRings(4, NVH4_tr, NVH4_vl, "NVH  4", 12));
-  CHECK(getRings(8, NVL8_tr, NVL8_vl, "NVL  8", 8));
-  CHECK(getRings(16, NVL16_tr, NVL16_vl, "NVL 16", 4));
-  CHECK(getRings(32, NVL32_tr, NVL32_vl, "NVL 32", 4));
-  CHECK(getRings(8, NVG8_tr, NVG8_vl, "NVG  8", 8));
-  CHECK(getRings(16, NVG16_tr, NVG16_vl, "NVG 16", 1));
-  CHECK(getRings(8, NVV8_tr, NVV8_vl, "NVV  8", 12));
+  CHECK(getRings(2, PCI2_tr, PCI2_vl, "PCI  2", 1, 512));
+  CHECK(getRings(4, PCI4_tr, PCI4_vl, "PCI  4", 1, 512));
+  CHECK(getRings(8, PCI8_tr, PCI8_vl, "PCI  8", 1, 512));
+  CHECK(getRings(16, PCI16_tr, PCI16_vl, "PCI 16", 1, 512));
+  CHECK(getRings(4, QPI4_tr, QPI4_vl, "QPI  4", 1, 512));
+  CHECK(getRings(8, QPI8_tr, QPI8_vl, "QPI  8", 1, 512));
+  CHECK(getRings(16, QPI16_tr, QPI16_vl, "QPI 16", 1, 512));
+  CHECK(getRings(4, QPU4_tr, QPU4_vl, "QPU  4", 1, 512));
+  CHECK(getRings(6, QPI6_tr, QPI6_vl, "QPI  6", 1, 512));
+  CHECK(getRings(6, QPU6_tr, QPU6_vl, "QPU  6", 1, 512));
+  CHECK(getRings(8, QPU8_tr, QPU8_vl, "QPU  8", 1, 512));
+  CHECK(getRings(16, QPU16_tr, QPU16_vl, "QPU 16", 1, 512));
+  CHECK(getRings(9, QPX9_tr, QPX9_vl, "QPX  9", 2, 512));
+  CHECK(getRings(4, NVL4_tr, NVL4_vl, "NVL  4", 8, 128));
+  CHECK(getRings(6, NVL6_tr, NVL6_vl, "NVL  6", 4, 128));
+  CHECK(getRings(4, NVH4_tr, NVH4_vl, "NVH  4", 12, 128));
+  CHECK(getRings(8, NVL8_tr, NVL8_vl, "NVL  8", 8, 128));
+  CHECK(getRings(8, NVLX8_tr, NVLX8_vl, "NVL X8", 2, 512));
+  CHECK(getRings(16, NVL16_tr, NVL16_vl, "NVL 16", 4, 512));
+  CHECK(getRings(32, NVL32_tr, NVL32_vl, "NVL 32", 4, 512));
+  CHECK(getRings(8, NVG8_tr, NVG8_vl, "NVG  8", 8, 128));
+  CHECK(getRings(16, NVG16_tr, NVG16_vl, "NVG 16", 1, 512));
+  CHECK(getRings(8, NVV8_tr, NVV8_vl, "NVV  8", 12, 128));
   writeFooter(err);
   return err;
 }

@@ -1,9 +1,13 @@
 include ../../makefiles/common.mk
 ##
-BUILDDIR := $(abspath ../../build)
-NVCUFLAGS += -I../../build/include/ -I../include
+BUILDDIR ?= $(abspath ../../build)
+NVCUFLAGS += -I${BUILDDIR}/include/ -I../include
 LIBRARIES += cuda curand nvToolsExt nccl
-NVLDFLAGS   += -L../../build/lib $(LIBRARIES:%=-l%)
+ifeq ($(MPI), 1)
+NVCUFLAGS += -DMPI_SUPPORT -I$(MPI_HOME)/include
+NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
+endif
+NVLDFLAGS   += -L${BUILDDIR}/lib $(LIBRARIES:%=-l%)
 ##
 DST_DIR := $(abspath ${BUILDDIR}/test/single)
 CU_FILES := $(wildcard *.cu)

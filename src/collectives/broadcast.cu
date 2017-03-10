@@ -75,9 +75,9 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
 
   for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
-    ALIGN_SIZE(chunkSize, THREADS*UNROLL);
+    ALIGN_SIZE(chunkSize, THREADS*UNROLL*sizeof(uint64_t)/sizeof(T));
     int offset = gridOffset + bid*chunkSize;
-    int maxOffset = size-offset;
+    int maxOffset = min(chunkSize, size-offset);
 
     if (rank == root) {
       if (thisInput == thisOutput) {
@@ -142,8 +142,6 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
   }
 }
 
-#define PCIE_THREADS 256
-#define NVLINK_THREADS 128
 #define UNROLL 8
 
 template<class FUNC, typename T>
@@ -156,11 +154,7 @@ ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const size_t co
     NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm));
     KernelArgs<T> args;
     ArgsSetup(&args, sendbuff, recvbuff, root, count, comm);
-    if (comm->nRings > 1) {
-      LAUNCH_KERNEL(BroadcastKernel, NVLINK_THREADS, UNROLL, FUNC, T, args, stream);
-    } else {
-      LAUNCH_KERNEL(BroadcastKernel, PCIE_THREADS, UNROLL, FUNC, T, args, stream);
-    }
+    LAUNCH_KERNEL(BroadcastKernel, comm->nThreads, UNROLL, FUNC, T, args, stream);
   }
 
   return ncclSuccess;

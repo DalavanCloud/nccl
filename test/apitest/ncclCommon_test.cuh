@@ -32,18 +32,22 @@ class ncclCommon_test : public ::testing::Test {
     void TearDown() {
         int done[nVis];
         int total = 0;
-        for (int i = 0; i < this->nVis; ++i) done[i] = 0;
+        for (int i = 0; i < this->nVis; ++i)
+            done[i] = 0;
         while (total < nVis) {
-          for (int i = 0; i < this->nVis; ++i) {
-            EXPECT_EQ(cudaSuccess, cudaSetDevice(i));
-            if (done[i]) continue;
-            cudaError_t err = cudaStreamQuery(this->streams[i]);
-            if (err != cudaErrorNotReady) {
-              EXPECT_EQ(cudaSuccess, err) << "Rank : " << i << std::endl;
-              done[i] = 1;
-              total++;
+            for (int i = 0; i < this->nVis; ++i) {
+                EXPECT_EQ(cudaSuccess, cudaSetDevice(i));
+                if (done[i])
+                    continue;
+                cudaError_t err = cudaStreamQuery(this->streams[i]);
+                if (err != cudaErrorNotReady) {
+                    EXPECT_EQ(cudaSuccess, err)
+                        << "Rank : " << i << ". Error: " << cudaGetErrorName(err)
+                        << "(" << cudaGetErrorString(err) << ")" << std::endl;
+                    done[i] = 1;
+                    total++;
+                }
             }
-          }
         }
     };
 };

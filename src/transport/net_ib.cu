@@ -105,13 +105,13 @@ ncclResult_t getMlxPath(char* ibdevPath, char** path) {
 }
 
 enum ncclIbPathDist {
-  PATH_PHB = 0,
+  PATH_PIX = 0,
   PATH_PXB = 1,
-  PATH_PIX = 2,
+  PATH_PHB = 2,
   PATH_SOC = 3
 };
 
-static const char* pathDists[] = { "PHB", "PXB", "PIX", "SOC" };
+static const char* pathDists[] = { "PIX", "PXB", "PHB", "SOC" };
 
 int pciDistance(char* path1, char* path2) {
   int score = 0;
@@ -170,7 +170,6 @@ static void initDevices() {
               ncclIbDevs[ncclNIbDevs].port = port;
               ncclIbDevs[ncclNIbDevs].context = context;
               strncpy(ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path, MAXPATHSIZE);
-              printf("-%s\n+%s\n", ncclIbDevs[ncclNIbDevs].devPath, devices[d]->ibdev_path);
               INFO("IB device %d : %s / port %d", d, wrap_ibv_get_device_name(devices[d]), port);
               ncclNIbDevs++;
               found++;
@@ -216,8 +215,8 @@ int ncclIbPtrSupport(int dev, int* supportedTypes) {
   *supportedTypes = NCCL_PTR_HOST;
   int ibGdrEnabled = 0;
   char* str = getenv("NCCL_IB_CUDA_SUPPORT");
-  if (str && atoi(str) > 0) {
-    ibGdrEnabled = 1;
+  if (str && strlen(str) > 0) {
+    ibGdrEnabled = atoi(str);
   } else { // auto detect
     int cudaDev;
     cudaGetDevice(&cudaDev);
@@ -229,7 +228,10 @@ int ncclIbPtrSupport(int dev, int* supportedTypes) {
     free(mlxPath); free(cudaPath);
     if (distance <= PATH_PIX) ibGdrEnabled = 1;
   }
-  if (ibGdrEnabled == 1) *supportedTypes |= NCCL_PTR_CUDA;
+  int ibGdrPossible = (access("/sys/kernel/mm/memory_peers/nv_mem/version", F_OK) == -1) ? 0 : 1;
+  if (ibGdrEnabled == 1 && ibGdrPossible == 0)
+    WARN("No module present for GPU Direct RDMA.");
+  if (ibGdrEnabled == 1 && ibGdrPossible == 1) *supportedTypes |= NCCL_PTR_CUDA;
   return 0;
 }
 
@@ -548,17 +550,31 @@ int ncclIbTest(void* request, int* done, int* size) {
   return 0;
 }
 
+#define REG_ALIGN (4096)
+
 // Cache previous MRs to avoid registering/unregistering for each Isend/Irecv
 ncclResult_t ncclIbGetMr(struct ncclIbVerbs* verbs, void* data, int size, struct ibv_mr** mrRet) {
+  uint64_t addr = (uint64_t)data;
+  int elem = (verbs->mrRotation++)%MAX_REQUESTS;
   for (int i=0; i<MAX_REQUESTS;i++) {
-    if (verbs->mrPool[i] && verbs->mrPool[i]->addr == data && verbs->mrPool[i]->length == size) { 
-      *mrRet = verbs->mrPool[i];
-      return ncclSuccess;
+    if (verbs->mrPool[i] == NULL) continue;
+    uint64_t regAddr = (uint64_t)verbs->mrPool[i]->addr;
+    uint64_t regSize = (uint64_t)verbs->mrPool[i]->length;
+    if (regAddr <= addr && addr < regAddr + regSize) {
+      if (addr+size <= regAddr + regSize) {
+        *mrRet = verbs->mrPool[i];
+        return ncclSuccess;
+      } else { // Size to small, delete the area (and recreate it, larger)
+        elem = i;
+        break;
+      }
     }
   }
-  int elem = (verbs->mrRotation++)%MAX_REQUESTS;
+  uint64_t regAddr = addr & (~(REG_ALIGN-1));
+  uint64_t regSize = addr+size - regAddr;
+  regSize = ((regSize + REG_ALIGN-1) / REG_ALIGN ) * REG_ALIGN;
   if (verbs->mrPool[elem]) SYSCHECK(wrap_ibv_dereg_mr(verbs->mrPool[elem]), "ibv_dereg_mr");
-  NULLCHECK(verbs->mrPool[elem] = wrap_ibv_reg_mr(verbs->pd, data, size, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE));
+  NULLCHECK(verbs->mrPool[elem] = wrap_ibv_reg_mr(verbs->pd, (void*)regAddr, regSize, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE));
   *mrRet = verbs->mrPool[elem];
   return ncclSuccess;
 }

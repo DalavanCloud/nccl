@@ -61,23 +61,28 @@ struct ncclAsyncArgs {
 
 thread_local struct ncclAsyncArgs ncclGroupArgs[MAX_ASYNC_OPS];
 
+ncclResult_t ncclSetDevice(int cudaDev) {
+  CUDACHECK(cudaSetDevice(cudaDev));
+  return ncclSuccess;
+}
+
+#define CHECK(a) do { \
+  if ((args->ret = (a)) != ncclSuccess) { \
+    WARN("< ... > [Async thread]"); \
+    return args; \
+  } \
+} while(0)
+
 void* ncclAsyncThreadMain(void* args_) {
   struct ncclAsyncArgs* args = (struct ncclAsyncArgs*)args_;
   if (args->funcType == ASYNC_FUNC_INIT) {
-    if (cudaSetDevice(args->init.cudaDev) != cudaSuccess) {
-      args->ret = ncclUnhandledCudaError;
-      return args;
-    }
-    args->ret = args->init.func(args->init.newcomm, args->init.ndev, args->init.commId, args->init.myrank);
+    CHECK(ncclSetDevice(args->init.cudaDev));
+    CHECK(args->init.func(args->init.newcomm, args->init.ndev, args->init.commId, args->init.myrank));
   } else { // Coll
     assert(args->funcType == ASYNC_FUNC_COLL);
-    if (cudaSetDevice(args->coll.comm->cudaDev != cudaSuccess)) {
-      args->ret = ncclUnhandledCudaError;
-      return args;
-    }
-    args->ret = ncclCpuBarrierWait(args->coll.comm);
-    if (args->ret != ncclSuccess) return args;
-    args->ret = args->coll.func(args->coll.sendbuff, args->coll.recvbuff, args->coll.count, args->coll.type, args->coll.op, args->coll.root, args->coll.comm, args->coll.stream);
+    CHECK(ncclSetDevice(args->init.cudaDev));
+    CHECK(ncclCpuBarrierWait(args->coll.comm));
+    CHECK(args->coll.func(args->coll.sendbuff, args->coll.recvbuff, args->coll.count, args->coll.type, args->coll.op, args->coll.root, args->coll.comm, args->coll.stream));
   }
   return args;
 }

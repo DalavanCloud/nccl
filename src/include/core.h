@@ -90,6 +90,7 @@ struct ncclComm {
   // Rings for collectives 
   int nRings;
   struct ncclRing rings[MAXRINGS];
+  int nThreads;
   
   // Device copy of the communicator
   struct ncclComm *devComm;
@@ -105,7 +106,7 @@ struct ncclComm {
 #define CUDACHECK(cmd) do {                                 \
     cudaError_t e = cmd;                                    \
     if( e != cudaSuccess ) {                                \
-        WARN("Cuda failure '%s'\n", cudaGetErrorString(e)); \
+        WARN("Cuda failure '%s'", cudaGetErrorString(e)); \
         return ncclUnhandledCudaError;                      \
     }                                                       \
 } while(false)

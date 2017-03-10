@@ -1,7 +1,7 @@
 #### PACKAGING ####
 include ../makefiles/common.mk
 include ../makefiles/version.mk
-BUILDDIR := $(abspath ../build)
+BUILDDIR ?= $(abspath ../build)
 DEBIANDIR  := $(BUILDDIR)/debian
 
 DEBGEN_IN  := $(wildcard *.in)
