@@ -431,7 +431,7 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   cudaDeviceSynchronize();
 
   //probably this is not required as InitRecvResults can be a barrier in itself
-  Barrier(args);
+  //Barrier(args);
 
   // Benchmark
   auto start = std::chrono::high_resolution_clock::now();

@@ -11,6 +11,8 @@
 #include "mpi.h"
 #include "nccl.h"
 #include "debug.h"
+#include <sys/types.h>
+#include <unistd.h>
 
 extern ncclNet_t ncclNetSocket; 
 extern ncclNet_t ncclNetIb; 
@@ -265,7 +267,6 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
       }
 #endif
     }
-
   }
   MPI_Barrier(MPI_COMM_WORLD);
 out:
