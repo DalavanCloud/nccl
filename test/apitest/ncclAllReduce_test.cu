@@ -30,7 +30,7 @@ TYPED_TEST(ncclAllReduce_test, host_mem) {
                                                      << std::endl;
             ASSERT_EQ(
                 ncclInvalidDevicePointer,
-                ncclAllReduce(this->sendbuffs_host[i], this->recvbuffs_host[i],
+                ncclAllReduce(this->sendbuffs_pinned[i], this->recvbuffs_pinned[i],
                               std::min(this->N, 1024 * 1024), this->DataType(),
                               op, this->comms[i], this->streams[i]))
                 << "op: " << op << ", "
@@ -46,9 +46,16 @@ TYPED_TEST(ncclAllReduce_test, DISABLED_pinned_mem) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "op: " << op << ", "
                                                      << "i" << i << ", "
                                                      << std::endl;
+            void *sendbuffs_device, *recvbuffs_device;
+            ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&sendbuffs_device, this->sendbuffs_pinned[i], 0)) << "op: " << op << ", "
+                                                                                                           << "i" << i << ", "
+                                                                                                           << std::endl;
+            ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&recvbuffs_device, this->recvbuffs_pinned[i], 0)) << "op: " << op << ", "
+                                                                                                           << "i" << i << ", "
+                                                                                                           << std::endl;
             ASSERT_EQ(ncclSuccess,
                       ncclAllReduce(
-                          this->sendbuffs_pinned[i], this->recvbuffs_pinned[i],
+                          sendbuffs_device, recvbuffs_device,
                           std::min(this->N, 1024 * 1024), this->DataType(), op,
                           this->comms[i], this->streams[i]))
                 << "op: " << op << ", "

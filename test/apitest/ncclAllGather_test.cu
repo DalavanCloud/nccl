@@ -34,8 +34,13 @@ TYPED_TEST(ncclAllGather_test, DISABLED_pinned_mem) {
     for (int i = 0; i < this->nVis; ++i) {
         ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "i" << i << ", "
                                                  << std::endl;
+	void *sendbuffs_device, *recvbuffs_device;
+	ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&sendbuffs_device, this->sendbuffs_pinned[i], 0)) << "op: " << "i" << i << ", "
+	      << std::endl;
+	ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&recvbuffs_device, this->recvbuffs_pinned[i], 0)) << "op: " << "i" << i << ", "
+	      << std::endl;
         EXPECT_EQ(ncclSuccess,
-                  ncclAllGather(this->sendbuffs_pinned[i], this->recvbuffs_pinned[i],
+                  ncclAllGather(sendbuffs_device, recvbuffs_device,
                                 std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
