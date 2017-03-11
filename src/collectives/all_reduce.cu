@@ -24,6 +24,8 @@
 #define ALIGN_SIZE(size, align) \
   size = ((size + (align) - 1) / (align)) * (align);
 
+/* XXX: Ugly workaround to solve corruption bug between nodes */
+#define WA
 template<int THREADS, int UNROLL, class FUNC, typename T>
 __launch_bounds__(THREADS+WARP_SIZE, 1)
 __global__ void AllReduceKernel(const KernelArgs<T> args) {
@@ -35,7 +37,11 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   int prevdirect = ring->recv.conn.direct;
   int nextdirect = ring->send.conn.direct;
 
+#ifdef WA
+  WaitFlag waitDoneFromNext(ring->send.conn.head, -(NUM_BUFCHUNKS-1)*NUM_SUBSTEPS);
+#else
   WaitFlag waitDoneFromNext(ring->send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
+#endif
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, -1*NUM_SUBSTEPS);
   PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS, NULL, 0);
   PostFlag postReadyToNext(ring->send.conn.tail, 0, ring->send.conn.fifo, NUM_BUFCHUNKS*NUM_SUBSTEPS);
@@ -63,7 +69,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     }
   }
   __syncthreads();
-  
+
   int step = 0;
   int poffset, noffset = 0;
 
@@ -193,7 +199,11 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
   if (tid == 0) {
     // Wait for next to have consumed all data before we reset the flag
+#ifdef WA
+    waitDoneFromNext.wait(NUM_SUBSTEPS*(step + (NUM_BUFCHUNKS-1)));
+#else
     waitDoneFromNext.wait(NUM_SUBSTEPS*(step + NUM_BUFCHUNKS));
+#endif
     *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
     __threadfence_system();
