@@ -230,6 +230,7 @@ int main(int argc, char* argv[]) {
     printf("       BYTES ERROR       MSEC  ALGBW  BUSBW\n");
   }
 
+  int failed = 0;
   for(int n=n_min; n<=n_max; n+=delta) {
     size_t bytes = word * n;
 
@@ -257,7 +258,12 @@ int main(int argc, char* argv[]) {
       printf("%12lu %5.0le %10.3lf %6.2lf %6.2lf\n",
           n*word, *error, ms, algbw, busbw);
     }
+    if (*error > deltaMaxValue(type, 1)) failed++;
   }
+
+  MPICHECK(MPI_Allreduce(MPI_IN_PLACE, &failed, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD));
+
+  if (globalRank == 0) printf("\n Out of bounds values : %d %s\n\n", failed, failed ? "FAILED" : "OK");
 
   CUDACHECK(cudaStreamDestroy(stream));
   ncclCommDestroy(comm);
@@ -266,6 +272,6 @@ int main(int argc, char* argv[]) {
   CUDACHECK(cudaFreeHost(error));
   CUDACHECK(cudaFreeHost(refout));
   MPICHECK(MPI_Finalize());
-  exit(EXIT_SUCCESS);
+  exit(failed ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 

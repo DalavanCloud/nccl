@@ -59,6 +59,15 @@ double absDiff<half>(half a, half b) {
   return fabs((double)(y-x));
 }
 
+template<typename T> __device__
+float toFloat(T a) {
+  return (float)a;
+}
+template<> __device__ 
+float toFloat(half a) {
+  return __half2float(a);
+}
+
 
 template<typename T, int BSIZE> __global__
 void deltaKern(void* A_, void* B_, int count, double* max) {
@@ -72,6 +81,7 @@ void deltaKern(void* A_, void* B_, int count, double* max) {
     double delta = absDiff(A[i], B[i]);
     if( delta > locmax ) {
       locmax = delta;
+      if (delta > .1) printf("Error at %d : %f != %f\n", i, toFloat(A[i]), toFloat(B[i]));
     }
   }
 
