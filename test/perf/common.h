@@ -32,6 +32,10 @@
 
 struct threadArgs_t {
   size_t nbytes;
+  size_t minbytes;
+  size_t maxbytes;
+  size_t stepbytes;
+  size_t stepfactor;
 
   int nProcs;
   int proc;

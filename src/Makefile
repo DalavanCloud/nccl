@@ -4,7 +4,7 @@ include ../makefiles/version.mk
 ##### src files
 INCEXPORTS  := nccl.h
 LIBSRCFILES := init.cu bootstrap.cu transport.cu misc/group.cu \
-		misc/nvmlwrap.cu misc/crc32.cu misc/rings.cu misc/utils.cu misc/gdcopy.cu \
+		misc/nvmlwrap.cu misc/ibvwrap.cu misc/crc32.cu misc/rings.cu misc/utils.cu misc/gdcopy.cu \
 		transport/p2p.cu transport/shm.cu transport/net.cu transport/net_socket.cu transport/net_ib.cu \
 		collectives/all_gather.cu collectives/all_reduce.cu collectives/broadcast.cu \
 		collectives/reduce.cu collectives/reduce_scatter.cu
@@ -41,10 +41,11 @@ nccl.h : nccl.h.in
 	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
 	    $< > $@
 
+#$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ) -libverbs
 $(LIBDIR)/$(LIBTARGET):
 	@printf "Linking    %-35s > %s\n" $(LIBTARGET) $@
 	mkdir -p $(LIBDIR)
-	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ) -libverbs
+	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ)
 	ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
 	ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
 

@@ -11,7 +11,7 @@ NVCUFLAGS += -I$(MPI_HOME)/include
 endif
 # We need private functions. Include and link with src
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
-LIBRARIES += cuda ibverbs
+LIBRARIES += cuda #ibverbs loaded dynamically
 LIBOBJS := $(BUILDDIR)/obj/*.o $(BUILDDIR)/obj/*/*.o
 NVLDFLAGS += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 ##

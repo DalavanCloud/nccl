@@ -7,6 +7,7 @@
 #include "common.h"
 #include <pthread.h>
 #include <cstdio>
+#include <getopt.h>
 
 #ifdef MPI_TRANSPORT
 extern "C" {
@@ -440,7 +441,7 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   cudaDeviceSynchronize();
 
   //probably this is not required as InitRecvResults can be a barrier in itself
-  Barrier(args);
+  //Barrier(args);
 
   // Benchmark
   auto start = std::chrono::high_resolution_clock::now();
@@ -477,12 +478,26 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
 }
 
 void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName, int root, int inPlace) {
-  size_t count = args->nbytes / wordSize(type);
-  print_line_header((count*wordSize(type)), count, typeName, opName, root);
+  size_t size;
+  int nranks = args->nProcs*args->nGpus*args->nThreads; 
+  size_t count, sendBytes, recvBytes, sendInplaceOffset, recvInplaceOffset, procSharedBytes;
+  int sameExpected;
+  for (size = args->minbytes; size<=args->maxbytes; size = ((args->stepfactor > 1) ? size*args->stepfactor : size+args->stepbytes)) { 
+      getCollByteCount(&sendBytes, &recvBytes, &sendInplaceOffset, &recvInplaceOffset, &procSharedBytes, &sameExpected, (size_t)size, (size_t)nranks);
 
-  BenchTime(args, type, op, root, 0);
-  if (inPlace) BenchTime(args, type, op, root, 1);
-  PRINT("\n");
+      args->nbytes = size; 
+      args->sendBytes = sendBytes; 
+      args->expectedBytes = recvBytes;
+      args->sendInplaceOffset = sendInplaceOffset;
+      args->recvInplaceOffset = recvInplaceOffset;
+
+      count = args->nbytes / wordSize(type);
+      print_line_header((count*wordSize(type)), count, typeName, opName, root);
+
+      BenchTime(args, type, op, root, 0);
+      if (inPlace) BenchTime(args, type, op, root, 1);
+      PRINT("\n");
+  }
 }
 
 void* threadRunTests(void* args) {
@@ -514,22 +529,62 @@ void AllocateBuffs(void **sendbuff, size_t sendBytes, void **recvbuff, size_t re
 
 
 int main(int argc, char* argv[]) {
-  int nbytes = 0;
-  if (argc > 1) {
-    int t = sscanf(argv[1], "%d", &nbytes);
-    if (t == 0) {
-      printf("Error: %s is not an integer!\n\n", argv[1]);
-      exit(EXIT_FAILURE);
-    }
-  } else {
-    printf("Error: must specify data size in bytes!\n\n");
-    exit(EXIT_FAILURE);
+ int nThreads = 1, nGpus = 1;
+ size_t minBytes = 32*1024*1024, maxBytes = 32*1024*1024, stepBytes = 1*1024*1024, stepFactor = 1;
+ size_t nbytes = maxBytes;
+ int longindex;
+ int nProcs = 1, proc = 0;
+ int localRank = 0;
+ char hostname[1024];
+ getHostName(hostname, 1024);
+
+ static struct option longopts[] = {
+    {"nthreads", required_argument, 0, 0}, 
+    {"ngpus", required_argument, 0, 0}, 
+    {"minbytes", required_argument, 0, 0}, 
+    {"maxbytes", required_argument, 0, 0}, 
+    {"stepbytes", required_argument, 0, 0},
+    {"stepfactor", required_argument, 0, 0}
+ };
+
+ while(1) {
+      int c;
+      c = getopt_long(argc, argv, "t:g:b:e:i:f:h", longopts, &longindex);
+
+      if (c == -1)
+         break;
+
+      switch(c) {
+         case 't':
+             nThreads = strtol(optarg, NULL, 0);
+             break;
+         case 'g':
+             nGpus = strtol(optarg, NULL, 0);
+             break;
+         case 'b':
+             minBytes = strtol(optarg, NULL, 0);
+             break;
+         case 'e':
+             maxBytes = strtol(optarg, NULL, 0);
+             break;
+         case 'i':
+             stepBytes = strtol(optarg, NULL, 0);
+             break;
+         case 'f':
+             stepFactor = strtol(optarg, NULL, 0);
+             break;
+         case 'h':
+	     printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
+	     " [-f,--stepfactor <increment factor>] \n");
+	     return 0;
+	 default: 
+	     printf("invalid option \n");
+	     printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
+	     " [-f,--stepfactor <increment factor>] \n");
+	     return 0;
+      }
   }
 
-  int nProcs = 1, proc = 0;
-  int localRank = 0;
-  char hostname[1024];
-  getHostName(hostname, 1024);
 #ifdef MPI_SUPPORT
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
@@ -546,13 +601,6 @@ int main(int argc, char* argv[]) {
   ncclMpiHook(MPI_COMM_WORLD);
 #endif
   is_main_thread = (proc == 0) ? 1 : 0;
-
-  int nThreads = 1;
-  char* strenv = getenv("NCCL_TESTS_NTHREADS");
-  if (strenv) nThreads = atoi(strenv);
-  int nGpus = 1;
-  strenv = getenv("NCCL_TESTS_GPUSPERTHREAD");
-  if (strenv) nGpus = atoi(strenv);
 
   ncclUniqueId ncclId;
   if (proc == 0) {
@@ -627,7 +675,10 @@ int main(int argc, char* argv[]) {
   pthread_t threads[nThreads-1];
   struct threadArgs_t args[nThreads];
   for (int t=nThreads-1; t>=0; t--) {
-    args[t].nbytes=nbytes;
+    args[t].minbytes=minBytes;
+    args[t].maxbytes=maxBytes;
+    args[t].stepbytes=stepBytes;
+    args[t].stepfactor=stepFactor;
 
     args[t].nProcs=nProcs;
     args[t].proc=proc;
@@ -636,15 +687,11 @@ int main(int argc, char* argv[]) {
     args[t].nGpus=nGpus;
     args[t].sendbuffs = sendbuffs+t*nGpus;
     args[t].recvbuffs = recvbuffs+t*nGpus;
-    args[t].sendInplaceOffset = sendInplaceOffset;
-    args[t].recvInplaceOffset = recvInplaceOffset;
-    args[t].sendBytes = sendBytes;
     args[t].comms=comms+t*nGpus;
     args[t].streams=streams+t*nGpus;
 
     args[t].expectedHost = expectedHost + t*nGpus;
     args[t].expected = expected + t*nGpus;
-    args[t].expectedBytes = recvBytes;
     args[t].procSharedHost = procSharedHost; 
     args[t].procShared = procShared; 
     args[t].sync = (volatile int*)sync;
@@ -666,6 +713,10 @@ int main(int argc, char* argv[]) {
     bw[0] += bw[t];
     bw_count[0] += bw_count[t];
   }
+
+#ifdef MPI_SUPPORT
+    MPI_Allreduce(MPI_IN_PLACE, &errors[0], 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+#endif
 
   for(int i=0; i<nGpus*nThreads; ++i)
     ncclCommDestroy(comms[i]);
