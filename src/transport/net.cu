@@ -281,6 +281,7 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
   volatile int* prevTail = &resources->hostMem->tail;
   int* prevHead = resources->hostDevMem ? &resources->hostDevMem->head : &resources->hostMem->head;
   char* localBuff = resources->cudaSupport ? resources->devNetMem->buff : resources->hostMem->buff;
+  int ptrType = resources->cudaSupport ? NCCL_PTR_CUDA : NCCL_PTR_HOST;
   int* sizesFifo = resources->hostMem->sizesFifo;
   int buffSize = ring->buffSize;
   int sliceSize = buffSize / args->substeps;
@@ -293,22 +294,22 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
 
   int idle = 0;
   void* requests[args->substeps];
-  while (tail < args->nsteps) {
+  while (head < args->nsteps) {
     idle++;
-    while (head != *prevTail) {
+    while (tail < *prevTail) {
       // Send through network
-      int slot = head%args->substeps;
-      NCCLCHECK(ncclNetIsend(resources->netSendComm, localBuff+slot*sliceSize, sizesFifo[slot], NCCL_PTR_HOST, requests+slot));
-      head++;
+      int slot = tail%args->substeps;
+      NCCLCHECK(ncclNetIsend(resources->netSendComm, localBuff+slot*sliceSize, sizesFifo[slot], ptrType, requests+slot));
+      tail++;
       idle = 0;
     }
-    if (tail < head) {
+    if (head < tail) {
       int done;
-      int slot = tail%args->substeps;
+      int slot = head%args->substeps;
       NCCLCHECK(ncclNetTest(requests[slot], &done, NULL));
       if (done) {
-        tail++;
-        *prevHead = tail;
+        head++;
+        *prevHead = head;
         idle = 0;
       }
       if (idle) transportProxyIdle(idle);
@@ -329,9 +330,9 @@ ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
   transportProxyWait([=] { return *nextOpCount >= args->opCount; });
 
   volatile int* nextHead = &resources->hostMem->head;
-  int ptrType = resources->cudaSupport ? NCCL_PTR_CUDA : NCCL_PTR_HOST;
   char* localBuff = resources->cudaSupport ? ring->devMem->buff : resources->hostMem->buff;
   char* nextBuff = (resources->cudaSupport == false && resources->hostDevMem) ? resources->hostDevMem->buff : NULL;
+  int ptrType = resources->cudaSupport ? NCCL_PTR_CUDA : NCCL_PTR_HOST;
   int* nextTail = resources->hostDevMem ? &resources->hostDevMem->tail : &resources->hostMem->tail;
 
   int buffSize = ring->buffSize;
