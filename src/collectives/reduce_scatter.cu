@@ -60,7 +60,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
   for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
-    ALIGN_SIZE(chunkSize, THREADS*UNROLL*sizeof(uint64_t)/sizeof(T));
+    ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
     int chunkOffset = gridOffset + bid*chunkSize;
 
     /////////////// begin ReduceScatter steps ///////////////

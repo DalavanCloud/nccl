@@ -62,7 +62,7 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
 
   for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
-    ALIGN_SIZE(chunkSize, THREADS*UNROLL*sizeof(uint64_t)/sizeof(T));
+    ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
     int offset = gridOffset + bid*chunkSize;
     int maxOffset = min(chunkSize, size-offset);
     if (prevRank == root) {

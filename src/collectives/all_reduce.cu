@@ -85,7 +85,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
     int maxOffset;
     int slice;
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,nranks*gridDim.x));
-    ALIGN_SIZE(chunkSize, THREADS*UNROLL*sizeof(uint64_t)/sizeof(T));
+    ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
     int chunkOffset = gridOffset + bid*nranks*chunkSize;
 
     // step 0: push data to next GPU
