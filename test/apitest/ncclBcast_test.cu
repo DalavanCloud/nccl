@@ -44,11 +44,8 @@ TYPED_TEST(ncclBcast_test, pinned_mem) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "root: " << root << ", "
                                                      << "i" << i << ", "
                                                      << std::endl;
-	    void *sendbuffs_device;
-	    ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&sendbuffs_device, this->sendbuffs_pinned[i], 0)) << "op: " << "i" << i << ", "
-		    << std::endl;
             ASSERT_EQ(ncclSuccess,
-                      ncclBcast(sendbuffs_device,
+                      ncclBcast(this->sendbuffs_pinned_device[i],
                                 std::min(this->N, 32 * 1024), this->DataType(),
                                 root, this->comms[i], this->streams[i]))
                 << "root: " << root << ", "

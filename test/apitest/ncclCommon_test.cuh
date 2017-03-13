@@ -19,7 +19,8 @@ class ncclCommon_test : public ::testing::Test {
     static ncclComm_t* comms;
     static DT **sendbuffs, **recvbuffs, //
         **sendbuffs_host, **recvbuffs_host, //
-        **sendbuffs_pinned, **recvbuffs_pinned;
+        **sendbuffs_pinned, **recvbuffs_pinned,
+        **sendbuffs_pinned_device, **recvbuffs_pinned_device;
     static cudaStream_t* streams;
     static ncclDataType_t DataType();
     static void SetUpTestCase();
@@ -73,6 +74,10 @@ DT** ncclCommon_test<DT>::sendbuffs_pinned = NULL;
 template <typename DT>
 DT** ncclCommon_test<DT>::recvbuffs_pinned = NULL;
 template <typename DT>
+DT** ncclCommon_test<DT>::sendbuffs_pinned_device = NULL;
+template <typename DT>
+DT** ncclCommon_test<DT>::recvbuffs_pinned_device = NULL;
+template <typename DT>
 cudaStream_t* ncclCommon_test<DT>::streams = NULL;
 template <typename DT>
 void ncclCommon_test<DT>::SetUpTestCase() {
@@ -87,6 +92,8 @@ void ncclCommon_test<DT>::SetUpTestCase() {
     recvbuffs_host = (DT**)calloc(nVis, sizeof(DT**));
     sendbuffs_pinned = (DT**)calloc(nVis, sizeof(DT**));
     recvbuffs_pinned = (DT**)calloc(nVis, sizeof(DT**));
+    sendbuffs_pinned_device = (DT**)calloc(nVis, sizeof(DT**));
+    recvbuffs_pinned_device = (DT**)calloc(nVis, sizeof(DT**));
     for (int i = 0; i < nVis; ++i) {
         ASSERT_EQ(cudaSuccess, cudaSetDevice(i));
         ASSERT_EQ(cudaSuccess, cudaMalloc(&sendbuffs[i], N * sizeof(DT)));
@@ -100,10 +107,14 @@ void ncclCommon_test<DT>::SetUpTestCase() {
         ASSERT_EQ(cudaSuccess,
                   cudaHostRegister(sendbuffs_pinned[i], N * sizeof(DT),
                                    cudaHostRegisterDefault));
+        ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&sendbuffs_pinned_device[i], 
+				   sendbuffs_pinned[i], 0));
         recvbuffs_pinned[i] = (DT*)calloc(N, sizeof(DT));
         ASSERT_EQ(cudaSuccess,
                   cudaHostRegister(recvbuffs_pinned[i], N * sizeof(DT),
                                    cudaHostRegisterDefault));
+        ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&recvbuffs_pinned_device[i], 
+				   recvbuffs_pinned[i], 0));
     }
     comms = (ncclComm_t*)calloc(nVis, sizeof(ncclComm_t));
     ASSERT_EQ(ncclSuccess, ncclCommInitAll(comms, nVis, NULL));

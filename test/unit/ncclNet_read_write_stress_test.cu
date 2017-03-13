@@ -273,7 +273,7 @@ out:
   return failed;
 }
 
-#define MAX_SIZE 8//(1024*1024*1024)
+#define MAX_SIZE (1024*1024)
 
 int main(int argc, char *argv[]) {
   int nranks, rank;

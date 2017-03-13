@@ -57,8 +57,8 @@ TYPED_TEST(ncclReduce_test, pinned_mem) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
                 ASSERT_EQ(ncclSuccess,
-                          ncclReduce(this->sendbuffs_pinned[i],
-                                     this->recvbuffs_pinned[i],
+                          ncclReduce(this->sendbuffs_pinned_device[i],
+                                     this->recvbuffs_pinned_device[i],
                                      std::min(this->N, 1024 * 1024),
                                      this->DataType(), op, root, this->comms[i],
                                      this->streams[i]))
