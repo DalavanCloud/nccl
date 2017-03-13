@@ -160,7 +160,7 @@ int wrap_ibv_close_device(struct ibv_context *context) { /*returns 0 on success,
   int ret = ibv_internal_close_device(context);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_close_device() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
@@ -173,7 +173,7 @@ int wrap_ibv_get_async_event(struct ibv_context *context, struct ibv_async_event
   int ret = ibv_internal_get_async_event(context, event);
   if (ret < IBV_SUCCESS) {
     WARN("ibv_get_async_event() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
@@ -194,7 +194,7 @@ int wrap_ibv_query_device(struct ibv_context *context, struct ibv_device_attr *d
   int ret = ibv_internal_query_device(context, device_attr);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_query_device() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
@@ -207,7 +207,7 @@ int wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ib
   int ret = ibv_internal_query_port(context, port_num, port_attr);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_query_port() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
@@ -228,7 +228,7 @@ int wrap_ibv_dealloc_pd(struct ibv_pd *pd) { /*returns 0 on success, or the valu
   int ret = ibv_internal_dealloc_pd(pd);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_internal_dealloc_pd() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
@@ -249,7 +249,7 @@ int wrap_ibv_dereg_mr(struct ibv_mr *mr) { /*returns 0 on success, or the value 
   int ret = ibv_internal_dereg_mr(mr);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_dereg_mr() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
@@ -267,9 +267,7 @@ struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq
      WARN("lib wrapper not initialized.");
      exit(-1);
   }
-  struct ibv_cq *cq_ret = ibv_internal_create_cq(context, cqe, cq_context, channel, comp_vector);
-  INFO("%d : cq created %p", getpid(), cq_ret);
-  return cq_ret;
+  return ibv_internal_create_cq(context, cqe, cq_context, channel, comp_vector);
 }
 
 int wrap_ibv_destroy_cq(struct ibv_cq *cq) {
@@ -280,7 +278,7 @@ int wrap_ibv_destroy_cq(struct ibv_cq *cq) {
   int ret = ibv_internal_destroy_cq(cq);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_destroy_cq() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
@@ -301,7 +299,7 @@ int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mas
   int ret = ibv_internal_modify_qp(qp, attr, attr_mask);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_modify_qp() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }

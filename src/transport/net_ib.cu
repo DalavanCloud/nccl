@@ -134,7 +134,6 @@ int pciDistance(char* path1, char* path2) {
 
 static void initDevices() {
   if(wrap_ibv_symbols() != ncclSuccess) { return; }
-  //printf("IB verbs symbols loaded\n");
   if (ncclNIbDevs == -1) {
     pthread_mutex_lock(&ncclIbLock);
     if (ncclNIbDevs == -1) {
@@ -395,7 +394,6 @@ int ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {
 }
 
 int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
-  //printf("ncclIbConnect\n");
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)malloc(sizeof(struct ncclIbSendComm));
   memset(comm, 0, sizeof(struct ncclIbSendComm));
   struct ncclIbHandle* handle = (struct ncclIbHandle*) opaqueHandle;
@@ -406,12 +404,10 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   initDevices(); /*XXX: Need this for ncclNet unit test that bypasses nccl initialization*/
   ibv_context* ctx = ncclIbDevs[dev].context;
   uint8_t ib_port = ncclIbDevs[dev].port;
-  //printf("[ncclIbConnect] ncclIbCreateQp\n");
   NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &comm->verbs));
 
   // Send my QP Info to receiver through the socket. Hope this won't block.
   struct ibv_port_attr portAttr;
-  //printf("[ncclIbConnect] ibv_query_port\n");
   SYSCHECK(wrap_ibv_query_port(ctx, ib_port, &portAttr), "ibv_query_port");
   struct ncclIbQpInfo qpInfo;
   qpInfo.lid = portAttr.lid;
@@ -428,7 +424,6 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
 }
 
 int ncclIbAccept(void* listenComm, void** recvComm) {
-  //printf("ncclIbAccept\n");
   struct ncclIbListenComm* lComm = (struct ncclIbListenComm*)listenComm;
   struct ncclIbRecvComm* rComm = (struct ncclIbRecvComm*)malloc(sizeof(struct ncclIbRecvComm));
   memset(rComm, 0, sizeof(struct ncclIbRecvComm));
@@ -442,10 +437,8 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
   // IB setup
   ibv_context* ctx = ncclIbDevs[lComm->dev].context;
   uint8_t ib_port = ncclIbDevs[lComm->dev].port;
-  //printf("[ncclIbAccept] ncclIbCreateQp\n");
   NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &rComm->verbs));
 
-  //printf("[ncclIbAccept] ncclIbRtrQp\n");
   struct ibv_qp* qp = rComm->verbs.qp;
   NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn, remQpInfo.lid, remQpInfo.ib_port));
   NCCLCHECK(ncclIbRtsQp(qp));
@@ -517,15 +510,12 @@ ncclResult_t ncclRecvCheck(struct ncclIbRecvComm* comm) {
 
 int ncclIbTest(void* request, int* done, int* size) {
   struct ncclIbRequest *r = (struct ncclIbRequest*)request;
-  //printf("Calling wrap_ibv_poll_cq %d\n", getpid());
   for (int wrDone = 1; wrDone;) {
     struct ibv_wc wc;
     //SYSCHECKVAL(wrap_ibv_poll_cq(r->verbs->cq, 1, &wc), "ibv_poll_cq", wrDone);
     wrDone = wrap_ibv_poll_cq(r->verbs->cq, 1, &wc);
     if(wrDone<0){ WARN("wrap_ibv_poll_cq returned error %d", getpid()); }
-    //else if(wrDone>0){ printf("wrap_ibv_poll_cq returned %d items %d\n", wrDone, getpid()); }
     if (wrDone == 1) {
-      //printf("Got completion opcode %d, status %d, wr_id %p, size %d\n", wc.opcode, wc.status, wc.wr_id, wc.byte_len);
       if (wc.status != IBV_WC_SUCCESS) {
         WARN("NET/IB : Got completion with error %d, opcode %d, vendor err %d", wc.status, wc.opcode, wc.vendor_err);
         return 1;
@@ -623,10 +613,8 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 
   // Wait for receiver to have posted the recv
   volatile struct ncclIbSendFifo* slot = comm->fifo + (comm->fifoHead%MAX_REQUESTS);
-  //printf("Wait for slot->ready before wrap_ibv_post_send %d ready %d addr %p rkey %d size %ld\n", getpid(), slot->ready, slot->addr, slot->rkey, size);
   while (slot->ready == 0) sched_yield(); /*XXX:if commented, ibv_post_send in ncclIbPostFifo should also be commented*/
 #ifdef USE_RDMA_WRITE
-  //printf("Received slot->ready %d ready %d addr %p rkey %d size %ld\n", getpid(), slot->ready, slot->addr, slot->rkey, size);
   wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
   wr.wr.rdma.remote_addr = slot->addr;
   wr.wr.rdma.rkey = slot->rkey;
@@ -637,7 +625,6 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 
 
   struct ibv_send_wr* bad_wr;
-  //printf("Calling wrap_ibv_post_send %d\n", getpid());
   SYSCHECK(wrap_ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
   comm->verbs.numRequests++;
   *request = req;
@@ -669,19 +656,15 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   }
 
   struct ibv_send_wr* bad_wr;
-  //printf("Calling wrap_ibv_post_send %d addr %p rkey %d\n", getpid(), addr, rkey);
   SYSCHECK(wrap_ibv_post_send(comm->verbs.qp, &wr, &bad_wr), "ibv_post_send");
   comm->verbs.numRequests++;
   comm->remFifoTail++;
   
   struct ncclIbRequest *r = (struct ncclIbRequest*)req;
-  //printf("%d : cq used %p\n", getpid(), r->verbs->cq);
-  //printf("Start poll on ncclIbTest %d\n", getpid());
   while (req->done == 0) {
     int done;
     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
   }
-  //printf("End poll on ncclIbTest %d\n", getpid());
   req->used = 0;
   
   return ncclSuccess;
@@ -722,15 +705,12 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
   }
 
   struct ibv_recv_wr* bad_wr;
-  //printf("Calling wrap_ibv_post_recv %d\n", getpid());
   SYSCHECK(wrap_ibv_post_recv(comm->verbs.qp, &wr, &bad_wr), "ibv_post_recv");
   comm->verbs.numRequests++;
   *request = req;
 
-  //printf("Calling ncclIbPostFifo %d\n", getpid());
   // Post to FIFO to notify sender
   NCCLCHECK(ncclIbPostFifo(comm, req->mr->rkey, (uint64_t)data));
-  //printf("Returned from ncclIbPostFifo %d\n", getpid());
   return ncclSuccess;
 }
 
@@ -743,8 +723,6 @@ int ncclIbCloseSend(void* sendComm) {
     for (int i=0; i<MAX_REQUESTS; i++) {
       if (comm->verbs.mrPool[i] != NULL) SYSCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
     }
-    //if (comm->verbs.cq != NULL) SYSCHECK(wrap_ibv_destroy_cq(comm->verbs.cq), "ibv_destroy_cq");
-    //if (comm->verbs.pd != NULL) SYSCHECK(wrap_ibv_dealloc_pd(comm->verbs.pd), "ibv_dealloc_pd");
     free(comm);
   }
   return 0;
@@ -759,8 +737,6 @@ int ncclIbCloseRecv(void* recvComm) {
     for (int i=0; i<MAX_REQUESTS; i++) {
       if (comm->verbs.mrPool[i] != NULL) SYSCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i]), "ibv_dereg_mr");
     }
-    //if (comm->verbs.cq != NULL) SYSCHECK(wrap_ibv_destroy_cq(comm->verbs.cq), "ibv_destroy_cq");
-    //if (comm->verbs.pd != NULL) SYSCHECK(wrap_ibv_dealloc_pd(comm->verbs.pd), "ibv_dealloc_pd");
     free(comm);
   }
   return 0;

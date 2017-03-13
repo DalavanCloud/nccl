@@ -1089,14 +1089,12 @@ static inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ib
   int count = cq->context->ops.poll_cq(cq, num_entries, wc);//nccl_ibv_poll_cq(cq, num_entries, wc);
   if (count < IBV_SUCCESS) {
     WARN("ibv_poll_cq() failed");
-    return ncclSystemError; 
   }
   return count;
 }
 struct ibv_qp *wrap_ibv_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr);
 int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask);
 static inline int ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr) {
-  INFO("ibv_post_send calls into libibverbs %d", getpid());
   return qp->context->ops.post_send(qp, wr, bad_wr);
 }
 
@@ -1104,7 +1102,7 @@ static inline int wrap_ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, 
   int ret = qp->context->ops.post_send(qp, wr, bad_wr);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_post_send() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
@@ -1113,7 +1111,7 @@ static inline int wrap_ibv_post_recv(struct ibv_qp *qp, struct ibv_recv_wr *wr, 
   int ret = qp->context->ops.post_recv(qp, wr, bad_wr);
   if (ret != IBV_SUCCESS) {
     WARN("ibv_post_recv() failed");
-    return ncclSystemError; 
+    return ret; 
   }
   return ncclSuccess;
 }
