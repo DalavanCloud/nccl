@@ -29,7 +29,7 @@ TYPED_TEST(ncclAllGather_test, host_mem) {
     }
     ASSERT_EQ(ncclSuccess, ncclGroupEnd());
 };
-TYPED_TEST(ncclAllGather_test, DISABLED_pinned_mem) {
+TYPED_TEST(ncclAllGather_test, pinned_mem) {
     ASSERT_EQ(ncclSuccess, ncclGroupStart());
     for (int i = 0; i < this->nVis; ++i) {
         ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "i" << i << ", "

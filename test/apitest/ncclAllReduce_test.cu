@@ -30,7 +30,7 @@ TYPED_TEST(ncclAllReduce_test, host_mem) {
                                                      << std::endl;
             ASSERT_EQ(
                 ncclInvalidDevicePointer,
-                ncclAllReduce(this->sendbuffs_pinned[i], this->recvbuffs_pinned[i],
+                ncclAllReduce(this->sendbuffs_host[i], this->recvbuffs_host[i],
                               std::min(this->N, 1024 * 1024), this->DataType(),
                               op, this->comms[i], this->streams[i]))
                 << "op: " << op << ", "
@@ -39,7 +39,7 @@ TYPED_TEST(ncclAllReduce_test, host_mem) {
         ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
-TYPED_TEST(ncclAllReduce_test, DISABLED_pinned_mem) {
+TYPED_TEST(ncclAllReduce_test, pinned_mem) {
     for (ncclRedOp_t op : this->RedOps) {
         ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
@@ -53,7 +53,11 @@ TYPED_TEST(ncclAllReduce_test, DISABLED_pinned_mem) {
             ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&recvbuffs_device, this->recvbuffs_pinned[i], 0)) << "op: " << op << ", "
                                                                                                            << "i" << i << ", "
                                                                                                            << std::endl;
+            printf("Calling ncclAllReduce %d %d\n", i, this->nVis);
             ASSERT_EQ(ncclSuccess,
+                  /*ncclAllGather(sendbuffs_device, recvbuffs_device,
+                                std::min(this->N/this->nVis, 1024 * 1024),
+                                this->DataType(), this->comms[i], this->streams[i])*/
                       ncclAllReduce(
                           sendbuffs_device, recvbuffs_device,
                           std::min(this->N, 1024 * 1024), this->DataType(), op,

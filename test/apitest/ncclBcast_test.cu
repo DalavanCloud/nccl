@@ -37,15 +37,18 @@ TYPED_TEST(ncclBcast_test, host_mem) {
         ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
-TYPED_TEST(ncclBcast_test, DISABLED_pinned_mem) {
+TYPED_TEST(ncclBcast_test, pinned_mem) {
     for (int root = 0; root < this->nVis; ++root) {
         ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "root: " << root << ", "
                                                      << "i" << i << ", "
                                                      << std::endl;
+	    void *sendbuffs_device;
+	    ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&sendbuffs_device, this->sendbuffs_pinned[i], 0)) << "op: " << "i" << i << ", "
+		    << std::endl;
             ASSERT_EQ(ncclSuccess,
-                      ncclBcast(this->sendbuffs_pinned[i],
+                      ncclBcast(sendbuffs_device,
                                 std::min(this->N, 32 * 1024), this->DataType(),
                                 root, this->comms[i], this->streams[i]))
                 << "root: " << root << ", "

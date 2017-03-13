@@ -39,16 +39,21 @@ TYPED_TEST(ncclReduceScatter_test, host_mem) {
         ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
-TYPED_TEST(ncclReduceScatter_test, DISABLED_pinned_mem) {
+TYPED_TEST(ncclReduceScatter_test, pinned_mem) {
     for (ncclRedOp_t op : this->RedOps) {
         ASSERT_EQ(ncclSuccess, ncclGroupStart());
         for (int i = 0; i < this->nVis; ++i) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "op: " << op << ", "
                                                      << "i" << i << ", "
                                                      << std::endl;
+	    void *sendbuffs_device, *recvbuffs_device;
+	    ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&sendbuffs_device, this->sendbuffs_pinned[i], 0)) << "op: " << "i" << i << ", "
+		    << std::endl;
+	    ASSERT_EQ(cudaSuccess, cudaHostGetDevicePointer(&recvbuffs_device, this->recvbuffs_pinned[i], 0)) << "op: " << "i" << i << ", "
+		    << std::endl;
             ASSERT_EQ(ncclSuccess,
                       ncclReduceScatter(
-                          this->sendbuffs_pinned[i], this->recvbuffs_pinned[i],
+                          sendbuffs_device, recvbuffs_device,
                           std::min(this->N/this->nVis, 1024 * 1024), this->DataType(), op,
                           this->comms[i], this->streams[i]))
                 << "op: " << op << ", "
