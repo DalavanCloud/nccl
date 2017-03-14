@@ -27,7 +27,7 @@ TYPED_TEST(ncclAllGather_test, host_mem) {
                                 this->DataType(), this->comms[i], this->streams[i]))
             << "i" << i << ", " << std::endl;
     }
-    ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+    ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
 };
 TYPED_TEST(ncclAllGather_test, pinned_mem) {
     ASSERT_EQ(ncclSuccess, ncclGroupStart());
