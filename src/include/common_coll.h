@@ -13,11 +13,11 @@ static ncclResult_t PointerCheck(const void* pointer, struct ncclComm* comm, con
   cudaPointerAttributes attr;
   cudaError_t err = cudaPointerGetAttributes(&attr, pointer);
   if (err != cudaSuccess || attr.devicePointer == NULL) {
-    WARN("%s : %s is not a valid pointer\n", opname, ptrname);
+    WARN("%s : %s is not a valid pointer", opname, ptrname);
     return ncclInvalidDevicePointer;
   }
   if (attr.memoryType == cudaMemoryTypeDevice && attr.device != comm->cudaDev) {
-    WARN("%s : %s allocated on device %d mismatchs with NCCL device %d \n", opname, ptrname, attr.device, comm->cudaDev);
+    WARN("%s : %s allocated on device %d mismatchs with NCCL device %d", opname, ptrname, attr.device, comm->cudaDev);
     return ncclInvalidDevicePointer;
   }
   return ncclSuccess;
@@ -35,15 +35,15 @@ static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, size_t
   NCCLCHECK(PtrCheck(comm, opname, "comm"));
   // First, the easy ones
   if (root < 0 || root >= comm->nRanks) {
-    WARN("%s : invalid root %d (root should be in the 0..%d range)\n", opname, root, comm->nRanks);
+    WARN("%s : invalid root %d (root should be in the 0..%d range)", opname, root, comm->nRanks);
     return ncclInvalidRank;
   }
   if (type < 0 || type >= ncclNumTypes) {
-    WARN("%s : invalid type %d\n", opname, type);
+    WARN("%s : invalid type %d", opname, type);
     return ncclInvalidType;
   }
   if (op < 0 || op >= ncclNumOps) {
-    WARN("%s : invalid reduction operation %d\n", opname, op);
+    WARN("%s : invalid reduction operation %d", opname, op);
     return ncclInvalidOperation;
   }
 
