@@ -60,7 +60,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
     }
   }
   __syncthreads();
-  
+
   int step = 0;
   int poffset, noffset = 0;
 

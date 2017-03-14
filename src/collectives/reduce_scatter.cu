@@ -78,7 +78,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
         nextOutput + noffset,
         sliceSize, maxOffset,
         step,
-        waitDoneFromNext, 
+        waitDoneFromNext,
         postReadyToNext);
 
     NEXT_STEP; // Increases step, poffset, noffset
