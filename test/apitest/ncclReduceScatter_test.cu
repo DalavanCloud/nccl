@@ -28,7 +28,7 @@ TYPED_TEST(ncclReduceScatter_test, host_mem) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "op: " << op << ", "
                                                      << "i" << i << ", "
                                                      << std::endl;
-            ASSERT_EQ(ncclInvalidDevicePointer,
+            ASSERT_EQ(ncclInvalidArgument,
                       ncclReduceScatter(
                           this->sendbuffs_host[i], this->recvbuffs_host[i],
                           std::min(this->N/this->nVis, 1024 * 1024), this->DataType(), op,
@@ -36,7 +36,7 @@ TYPED_TEST(ncclReduceScatter_test, host_mem) {
                 << "op: " << op << ", "
                 << "i" << i << ", " << std::endl;
         }
-        ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
+        ASSERT_EQ(ncclInvalidArgument, ncclGroupEnd());
     }
 };
 TYPED_TEST(ncclReduceScatter_test, pinned_mem) {
@@ -60,7 +60,7 @@ TYPED_TEST(ncclReduceScatter_test, pinned_mem) {
 // sendbuff
 TYPED_TEST(ncclReduceScatter_test, sendbuf_null) {
     int i = 0;
-    EXPECT_EQ(ncclInvalidDevicePointer,
+    EXPECT_EQ(ncclInvalidArgument,
               ncclReduceScatter(NULL, this->recvbuffs[i],
                                 std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
@@ -69,7 +69,7 @@ TYPED_TEST(ncclReduceScatter_test, sendbuf_null) {
 // recvbuff
 TYPED_TEST(ncclReduceScatter_test, recvbuf_null) {
     int i = 0;
-    EXPECT_EQ(ncclInvalidDevicePointer,
+    EXPECT_EQ(ncclInvalidArgument,
               ncclReduceScatter(this->sendbuffs[i], NULL,
                                 std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
@@ -78,7 +78,7 @@ TYPED_TEST(ncclReduceScatter_test, recvbuf_null) {
 // sendbuff and recvbuff not on the same device
 TYPED_TEST(ncclReduceScatter_test, sendbuff_recvbuff_diff_device) {
     int i = 0, j = 1;
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[j],
                                 std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
@@ -105,7 +105,7 @@ TYPED_TEST(ncclReduceScatter_test, N_zero) {
 // data type
 TYPED_TEST(ncclReduceScatter_test, DataType_wrong) {
     int i = 0;
-    ASSERT_EQ(ncclInvalidType,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
                                 std::min(this->N/this->nVis, 1024 * 1024), ncclNumTypes,
                                 this->RedOps[0], this->comms[i],
@@ -114,7 +114,7 @@ TYPED_TEST(ncclReduceScatter_test, DataType_wrong) {
 // op
 TYPED_TEST(ncclReduceScatter_test, op_wrong) {
     int i = 0;
-    ASSERT_EQ(ncclInvalidOperation,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
                                 std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), ncclNumOps, this->comms[i],
@@ -131,7 +131,7 @@ TYPED_TEST(ncclReduceScatter_test, comm_null) {
 };
 TYPED_TEST(ncclReduceScatter_test, comm_wrong) {
     int i = 0, j = 1;
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
                                 std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],
@@ -141,7 +141,7 @@ TYPED_TEST(ncclReduceScatter_test, comm_wrong) {
 // stream on a diff device
 TYPED_TEST(ncclReduceScatter_test, DISABLED_stream_wrong) {
     int i = 0, j = 1;
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduceScatter(this->sendbuffs[i], this->recvbuffs[i],
                                 std::min(this->N/this->nVis, 1024 * 1024),
                                 this->DataType(), this->RedOps[0],

@@ -29,18 +29,9 @@ typedef enum { ncclSuccess                 =  0,
                ncclUnhandledCudaError      =  1,
                ncclSystemError             =  2,
                ncclInternalError           =  3,
-               ncclInvalidDevicePointer    =  4,
-               ncclInvalidRank             =  5,
-               ncclUnsupportedDeviceCount  =  6,
-               ncclDeviceNotFound          =  7,
-               ncclInvalidDeviceIndex      =  8,
-               ncclLibWrapperNotSet        =  9,
-               ncclCudaMallocFailed        = 10,
-               ncclRankMismatch            = 11,
-               ncclInvalidArgument         = 12,
-               ncclInvalidType             = 13,
-               ncclInvalidOperation        = 14,
-               ncclNumResults              = 15 } ncclResult_t;
+               ncclInvalidArgument         =  4,
+               ncclInvalidUsage            =  5,
+               ncclNumResults              =  6 } ncclResult_t;
 
 /* Generates a unique Id with each call. Used to generate commId for
  * ncclCommInitAll. uniqueId will be created in such a way that it is

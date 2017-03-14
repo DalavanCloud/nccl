@@ -27,14 +27,14 @@ TYPED_TEST(ncclBcast_test, host_mem) {
             ASSERT_EQ(cudaSuccess, cudaSetDevice(i)) << "root: " << root << ", "
                                                      << "i" << i << ", "
                                                      << std::endl;
-            ASSERT_EQ(ncclInvalidDevicePointer,
+            ASSERT_EQ(ncclInvalidArgument,
                       ncclBcast(this->sendbuffs_host[i],
                                 std::min(this->N, 32 * 1024), this->DataType(),
                                 root, this->comms[i], this->streams[i]))
                 << "root: " << root << ", "
                 << "i" << i << ", " << std::endl;
         }
-        ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
+        ASSERT_EQ(ncclInvalidArgument, ncclGroupEnd());
     }
 };
 TYPED_TEST(ncclBcast_test, pinned_mem) {
@@ -58,14 +58,14 @@ TYPED_TEST(ncclBcast_test, pinned_mem) {
 TYPED_TEST(ncclBcast_test, sendbuf_null) {
     int i = 0, root = 0;
     ASSERT_EQ(cudaSuccess, cudaSetDevice(i));
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclBcast(NULL, std::min(this->N, 32 * 1024), this->DataType(),
                         root, this->comms[i], this->streams[i]));
 };
 TYPED_TEST(ncclBcast_test, sendbuf_wrong) {
     int i = 0, j = 1, root = 0;
     ASSERT_EQ(cudaSuccess, cudaSetDevice(i));
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclBcast(this->sendbuffs[j], std::min(this->N, 32 * 1024),
                         this->DataType(), root, this->comms[i],
                         this->streams[i]));
@@ -90,7 +90,7 @@ TYPED_TEST(ncclBcast_test, N_zero) {
 // data type
 TYPED_TEST(ncclBcast_test, DataType_wrong) {
     int i = 0, root = 0;
-    ASSERT_EQ(ncclInvalidType,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclBcast(this->sendbuffs[i], std::min(this->N, 32 * 1024),
                         ncclNumTypes, root, this->comms[i],
                         this->streams[i]));
@@ -98,14 +98,14 @@ TYPED_TEST(ncclBcast_test, DataType_wrong) {
 // root
 TYPED_TEST(ncclBcast_test, root_minus1) {
     int i = 0, root = -1;
-    ASSERT_EQ(ncclInvalidRank,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclBcast(this->sendbuffs[i], std::min(this->N, 32 * 1024),
                         this->DataType(), root, this->comms[i],
                         this->streams[i]));
 };
 TYPED_TEST(ncclBcast_test, root_toobig) {
     int i = 0, root = 1000;
-    ASSERT_EQ(ncclInvalidRank,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclBcast(this->sendbuffs[i], std::min(this->N, 32 * 1024),
                         this->DataType(), root, this->comms[i],
                         this->streams[i]));
@@ -119,7 +119,7 @@ TYPED_TEST(ncclBcast_test, comm_null) {
 };
 TYPED_TEST(ncclBcast_test, comm_wrong) {
     int i = 0, j = 1, root = 0;
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclBcast(this->sendbuffs[i], std::min(this->N, 32 * 1024),
                         this->DataType(), root, this->comms[j],
                         this->streams[i]));
@@ -128,7 +128,7 @@ TYPED_TEST(ncclBcast_test, comm_wrong) {
 // stream on a diff device
 TYPED_TEST(ncclBcast_test, DISABLED_stream_wrong) {
     int i = 0, j = 1, root = 0;
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclBcast(this->sendbuffs[i], std::min(this->N, 32 * 1024),
                         this->DataType(), root, this->comms[i],
                         this->streams[j]));

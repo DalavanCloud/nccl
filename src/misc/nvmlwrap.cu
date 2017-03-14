@@ -105,7 +105,7 @@ ncclResult_t wrapNvmlSymbols(void) {
 ncclResult_t wrapNvmlInit(void) {
   if (nvmlInternalInit == NULL) {
     WARN("lib wrapper not initialized.");
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalInit();
   if (ret != NVML_SUCCESS) {
@@ -119,7 +119,7 @@ ncclResult_t wrapNvmlInit(void) {
 ncclResult_t wrapNvmlShutdown(void) {
   if (nvmlInternalShutdown == NULL) {
     WARN("lib wrapper not initialized.");
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalShutdown();
   if (ret != NVML_SUCCESS) {
@@ -133,7 +133,7 @@ ncclResult_t wrapNvmlShutdown(void) {
 ncclResult_t wrapNvmlDeviceGetHandleByPciBusId(const char* pciBusId, nvmlDevice_t* device) {
   if (nvmlInternalDeviceGetHandleByPciBusId == NULL) {
     WARN("lib wrapper not initialized.");
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetHandleByPciBusId(pciBusId, device);
   if (ret != NVML_SUCCESS) {
@@ -147,7 +147,7 @@ ncclResult_t wrapNvmlDeviceGetHandleByPciBusId(const char* pciBusId, nvmlDevice_
 ncclResult_t wrapNvmlDeviceGetIndex(nvmlDevice_t device, unsigned* index) {
   if (nvmlInternalDeviceGetIndex == NULL) {
     WARN("lib wrapper not initialized.");
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetIndex(device, index);
   if (ret != NVML_SUCCESS) {
@@ -161,7 +161,7 @@ ncclResult_t wrapNvmlDeviceGetIndex(nvmlDevice_t device, unsigned* index) {
 ncclResult_t wrapNvmlDeviceSetCpuAffinity(nvmlDevice_t device) {
   if (nvmlInternalDeviceSetCpuAffinity == NULL) {
     WARN("lib wrapper not initialized.");
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalDeviceSetCpuAffinity(device);
   if (ret != NVML_SUCCESS) {
@@ -175,7 +175,7 @@ ncclResult_t wrapNvmlDeviceSetCpuAffinity(nvmlDevice_t device) {
 ncclResult_t wrapNvmlDeviceClearCpuAffinity(nvmlDevice_t device) {
   if (nvmlInternalInit == NULL) {
     WARN("lib wrapper not initialized.");
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalDeviceClearCpuAffinity(device);
   if (ret != NVML_SUCCESS) {
@@ -189,7 +189,7 @@ ncclResult_t wrapNvmlDeviceClearCpuAffinity(nvmlDevice_t device) {
 ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t* device) {
   if (nvmlInternalDeviceGetHandleByIndex == NULL) {
     WARN("lib wrapper not initialized.");
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetHandleByIndex(index, device);
   if (ret != NVML_SUCCESS) {
@@ -203,7 +203,7 @@ ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t* de
 ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive) {
   if (nvmlInternalDeviceGetNvLinkState == NULL) {
     /* Do not warn, this symbol is optional. */
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkState(device, link, isActive);
   if (ret != NVML_SUCCESS) {
@@ -217,7 +217,7 @@ ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link
 ncclResult_t wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDevice_t device, unsigned int link, nvmlPciInfo_t *pci) {
   if (nvmlInternalDeviceGetNvLinkRemotePciInfo == NULL) {
     /* Do not warn, this symbol is optional. */
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkRemotePciInfo(device, link, pci);
   if (ret != NVML_SUCCESS) {
@@ -232,7 +232,7 @@ ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int
 		nvmlNvLinkCapability_t capability, unsigned int *capResult) {
   if (nvmlInternalDeviceGetNvLinkCapability == NULL) {
     /* Do not warn, this symbol is optional. */
-    return ncclLibWrapperNotSet;
+    return ncclInternalError;
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkCapability(device, link, capability, capResult);
   if (ret != NVML_SUCCESS) {

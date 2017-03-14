@@ -35,7 +35,7 @@ TYPED_TEST(ncclReduce_test, host_mem) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
                 ASSERT_EQ(
-                    ncclInvalidDevicePointer,
+                    ncclInvalidArgument,
                     ncclReduce(this->sendbuffs_host[i], this->recvbuffs_host[i],
                                std::min(this->N, 1024 * 1024), this->DataType(),
                                op, root, this->comms[i], this->streams[i]))
@@ -43,7 +43,7 @@ TYPED_TEST(ncclReduce_test, host_mem) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
-            ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
+            ASSERT_EQ(ncclInvalidArgument, ncclGroupEnd());
         }
     }
 };
@@ -73,7 +73,7 @@ TYPED_TEST(ncclReduce_test, pinned_mem) {
 // sendbuff
 TYPED_TEST(ncclReduce_test, sendbuf_null) {
     int i = 0, root = 0;
-    EXPECT_EQ(ncclInvalidDevicePointer,
+    EXPECT_EQ(ncclInvalidArgument,
               ncclReduce(NULL, this->recvbuffs[i],
                          std::min(this->N, 1024 * 1024), this->DataType(),
                          this->RedOps[0], root, this->comms[i],
@@ -91,7 +91,7 @@ TYPED_TEST(ncclReduce_test, recvbuf_root_null) {
                     << "op: " << op << ", "
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
-                ASSERT_EQ(root != i ? ncclSuccess : ncclInvalidDevicePointer,
+                ASSERT_EQ(root != i ? ncclSuccess : ncclInvalidArgument,
                           ncclReduce(this->sendbuffs[i], NULL,
                                      std::min(this->N, 1024 * 1024),
                                      this->DataType(), this->RedOps[0], root,
@@ -100,7 +100,7 @@ TYPED_TEST(ncclReduce_test, recvbuf_root_null) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
-            ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
+            ASSERT_EQ(ncclInvalidArgument, ncclGroupEnd());
         }
     }
 };
@@ -130,7 +130,7 @@ TYPED_TEST(ncclReduce_test, recvbuff_nonroot_null) {
 // root device, sendbuff and recvbuff not on the same device
 TYPED_TEST(ncclReduce_test, root_sendbuff_recvbuff_diff_device) {
     int i = 0, j = 1, root = 0;
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[j],
                          std::min(this->N, 1024 * 1024), this->DataType(),
                          this->RedOps[0], root, this->comms[i],
@@ -161,7 +161,7 @@ TYPED_TEST(ncclReduce_test, N_zero) {
 // data type
 TYPED_TEST(ncclReduce_test, DataType_wrong) {
     int i = 0, root = 0;
-    ASSERT_EQ(ncclInvalidType,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
                          std::min(this->N, 1024 * 1024), ncclNumTypes,
                          this->RedOps[0], root, this->comms[i],
@@ -170,7 +170,7 @@ TYPED_TEST(ncclReduce_test, DataType_wrong) {
 // op
 TYPED_TEST(ncclReduce_test, op_wrong) {
     int i = 0, root = 0;
-    ASSERT_EQ(ncclInvalidOperation,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
                          std::min(this->N, 1024 * 1024), this->DataType(),
                          ncclNumOps, root, this->comms[i], this->streams[i]));
@@ -178,7 +178,7 @@ TYPED_TEST(ncclReduce_test, op_wrong) {
 // root
 TYPED_TEST(ncclReduce_test, root_minus1) {
     int i = 0, root = -1;
-    ASSERT_EQ(ncclInvalidRank,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
                          std::min(this->N, 1024 * 1024), this->DataType(),
                          this->RedOps[0], root, this->comms[i],
@@ -186,7 +186,7 @@ TYPED_TEST(ncclReduce_test, root_minus1) {
 };
 TYPED_TEST(ncclReduce_test, root_toobig) {
     int i = 0, root = 1000;
-    ASSERT_EQ(ncclInvalidRank,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
                          std::min(this->N, 1024 * 1024), this->DataType(),
                          this->RedOps[0], root, this->comms[i],
@@ -202,7 +202,7 @@ TYPED_TEST(ncclReduce_test, comm_null) {
 };
 TYPED_TEST(ncclReduce_test, comm_wrong) {
     int i = 0, j = 1, root = 0;
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
                          std::min(this->N, 1024 * 1024), this->DataType(),
                          this->RedOps[0], root, this->comms[j],
@@ -213,7 +213,7 @@ TYPED_TEST(ncclReduce_test, comm_wrong) {
 #if 0 // nccl can't handle this.
 TYPED_TEST(ncclReduce_test, stream_wrong) {
     int i = 0, j = 1, root = 0;
-    ASSERT_EQ(ncclInvalidDevicePointer,
+    ASSERT_EQ(ncclInvalidArgument,
               ncclReduce(this->sendbuffs[i], this->recvbuffs[i],
                          std::min(this->N, 1024 * 1024), this->DataType(),
                          this->RedOps[0], root, this->comms[i],

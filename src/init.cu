@@ -92,11 +92,11 @@ static ncclResult_t commFree(ncclComm_t comm) {
 static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
   if (ndev < 1) {
     WARN("invalid device count (%d) requested", ndev);
-    return ncclUnsupportedDeviceCount;
+    return ncclInvalidArgument;
   }
   if (rank >= ndev || rank < 0) {
     WARN("rank %d exceeds ndev=%d", rank, ndev);
-    return ncclInvalidRank;
+    return ncclInvalidArgument;
   }
 
   // Try to create a CUDA object right away. If there is something wrong with
@@ -122,15 +122,9 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
 
 static ncclResult_t devCommSetup(ncclComm_t comm) {
   // Fully duplicate the comm on the device
-  if (cudaMalloc(&comm->devComm, sizeof(struct ncclComm)) != cudaSuccess) {
-    WARN("failed to allocated device comm");
-    return ncclCudaMallocFailed;
-  }
+  CUDACHECK(cudaMalloc(&comm->devComm, sizeof(struct ncclComm)));
   // Copy the comm on the device
-  if (cudaMemcpy(comm->devComm, comm, sizeof(struct ncclComm), cudaMemcpyHostToDevice) != cudaSuccess) {
-    WARN("failed to copy device comm");
-    return ncclUnhandledCudaError;
-  }
+  CUDACHECK(cudaMemcpy(comm->devComm, comm, sizeof(struct ncclComm), cudaMemcpyHostToDevice));
   // Copy userRanks
   for (int r=0; r<comm->nRings; r++) {
     CUDACHECK(cudaMemcpy(comm->rings[r].devUserRanks, comm->rings[r].userRanks, comm->nRanks*sizeof(int), cudaMemcpyHostToDevice));
@@ -436,7 +430,7 @@ ncclResult_t ncclCommInitRank(ncclComm_t* newcomm, int ndev, ncclUniqueId commId
   NCCLCHECK(PtrCheck(newcomm, "CommInitRank", "newcomm"));
   if (ndev < 1) {
     WARN("Invalid device count requested : %d", ndev);
-    return ncclUnsupportedDeviceCount;
+    return ncclInvalidArgument;
   }
 
   if (ncclAsyncMode()) {
@@ -523,7 +517,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   cudaGetDeviceCount(&devcount);
   if (ndev < 1 || ndev > devcount) {
     WARN("Invalid device count requested : %d", ndev);
-    return ncclUnsupportedDeviceCount;
+    return ncclInvalidArgument;
   }
 
   ncclResult_t res;
@@ -551,7 +545,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
     cudaDev = ncclDevList[rank];
     if (cudaSetDevice(cudaDev) != cudaSuccess) {
       WARN("rank %d failed to set cuda device %d", rank, cudaDev);
-      res = ncclInvalidDeviceIndex;
+      res = ncclUnhandledCudaError;
       goto cleanup;
     }
 
@@ -599,7 +593,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
     cudaDev = ncclDevList[rank];
     if (cudaSetDevice(cudaDev) != cudaSuccess) {
       WARN("rank %d failed to set cuda device %d", rank, cudaDev);
-      res = ncclInvalidDeviceIndex;
+      res = ncclUnhandledCudaError;
       goto cleanup;
     }
     res = devCommSetup(comms[rank]);
@@ -655,19 +649,10 @@ const char* ncclGetErrorString(ncclResult_t code) {
   switch (code) {
   case ncclSuccess                : return "no error";
   case ncclUnhandledCudaError     : return "unhandled cuda error";
-  case ncclSystemError            : return "system error";
+  case ncclSystemError            : return "unhandled system error";
   case ncclInternalError          : return "internal error";
-  case ncclInvalidDevicePointer   : return "invalid device pointer";
-  case ncclInvalidRank            : return "invalid rank";
-  case ncclUnsupportedDeviceCount : return "unsupported device count";
-  case ncclDeviceNotFound         : return "device not found";
-  case ncclInvalidDeviceIndex     : return "invalid device index";
-  case ncclLibWrapperNotSet       : return "lib wrapper not initialized";
-  case ncclCudaMallocFailed       : return "cuda malloc failed";
-  case ncclRankMismatch           : return "parameter mismatch between ranks";
   case ncclInvalidArgument        : return "invalid argument";
-  case ncclInvalidType            : return "invalid data type";
-  case ncclInvalidOperation       : return "invalid reduction operations";
+  case ncclInvalidUsage           : return "invalid usage";
   }
   return "unknown result code";
 }

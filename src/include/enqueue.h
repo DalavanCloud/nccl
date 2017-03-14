@@ -91,7 +91,7 @@ ncclResult_t enqueue(const void* sendbuff,
     return enqueue<ColFunc, uint64_t, Op>(sendbuff, recvbuff, count, root, comm, stream);
   default:
     WARN("Invalid ncclType %d", type);
-    return ncclInvalidType;
+    return ncclInvalidArgument;
   }
 }
 
@@ -117,7 +117,7 @@ ncclResult_t enqueue(const void* sendbuff,
     return enqueue<ColFunc, FuncMin>(sendbuff, recvbuff, count, type, root, comm, stream);
   default:
     WARN("Invalid ncclRedOp: %d", op);
-    return ncclInvalidOperation;
+    return ncclInvalidArgument;
   }
 }
 
