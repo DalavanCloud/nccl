@@ -543,8 +543,9 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   for(rank=0; rank<ndev; ++rank)
     comms[rank] = NULL;
 
-  int* intraBarrier = (int*)malloc(sizeof(int));
+  int* intraBarrier = (int*)malloc(2*sizeof(int));
   intraBarrier[0] = 0;
+  intraBarrier[1] = 0;
 
   for (rank=0; rank<ndev; ++rank) {
     cudaDev = ncclDevList[rank];
