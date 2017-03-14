@@ -175,7 +175,6 @@ ncclResult_t ncclGroupEnd() {
         assert(args->funcType == ASYNC_FUNC_COLL);
         CUDACHECK(cudaSetDevice(args->coll.comm->cudaDev));
         NCCLCHECK(ncclCpuBarrierWait(args->coll.comm));
-        printf("Launch on %d\n", args->coll.comm->cudaDev);
         args->ret = args->coll.func(args->coll.sendbuff, args->coll.recvbuff, args->coll.count, args->coll.type, args->coll.op, args->coll.root, args->coll.comm, args->coll.stream);
       }
       if (args->ret != ncclSuccess) { ret = args->ret; goto end; }
