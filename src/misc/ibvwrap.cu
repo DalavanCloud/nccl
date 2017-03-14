@@ -144,7 +144,6 @@ const char *wrap_ibv_get_device_name(struct ibv_device *device) {
 }
 
 struct ibv_context *wrap_ibv_open_device(struct ibv_device *device) { /*returns 0 on success, -1 on failure*/
-  INFO("dynloaded ibv_open_device");
   if (ibv_internal_open_device == NULL) {
      WARN("lib wrapper not initialized.");
      exit(-1);

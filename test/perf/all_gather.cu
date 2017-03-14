@@ -71,10 +71,10 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
 }
 
 void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw, int nranks) {
-  double baseBw = (double)(count * typesize * nranks) / 1.0E9 / sec;
+  double baseBw = (double)(count * typesize * (nranks - 1)) / 1.0E9 / sec;
 
   *algBw = baseBw;
-  double factor = ((double)(nranks - 1))/((double)nranks);
+  double factor = 1;
   *busBw = baseBw * factor;
 }
 
