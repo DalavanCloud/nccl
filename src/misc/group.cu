@@ -12,9 +12,15 @@
 thread_local pthread_t ncclGroupThreads[MAX_ASYNC_OPS];
 thread_local int ncclGroupIndex = 0;
 thread_local bool ncclGroupMode = false;
+thread_local ncclResult_t ncclGroupError = ncclSuccess;
 
 bool ncclAsyncMode() {
   return ncclGroupMode;
+}
+
+ncclResult_t ncclAsyncErrCheck(ncclResult_t ret) {
+  if (ncclGroupError == ncclSuccess) ncclGroupError = ret;
+  return ret;
 }
 
 struct ncclInitArgs {
@@ -151,6 +157,10 @@ ncclResult_t ncclGroupEnd() {
   CUDACHECK(cudaGetDevice(&savedDev));
   int done = ncclGroupIndex;
   int doneArray[ncclGroupIndex];
+
+  ncclResult_t ret = ncclGroupError;
+  if (ret != ncclSuccess) goto end;
+
   for (int i=0; i<ncclGroupIndex; i++) doneArray[i] = 0;
   while (done) {
     for (int i=0; i<ncclGroupIndex; i++) {
@@ -165,16 +175,20 @@ ncclResult_t ncclGroupEnd() {
         assert(args->funcType == ASYNC_FUNC_COLL);
         CUDACHECK(cudaSetDevice(args->coll.comm->cudaDev));
         NCCLCHECK(ncclCpuBarrierWait(args->coll.comm));
+        printf("Launch on %d\n", args->coll.comm->cudaDev);
         args->ret = args->coll.func(args->coll.sendbuff, args->coll.recvbuff, args->coll.count, args->coll.type, args->coll.op, args->coll.root, args->coll.comm, args->coll.stream);
       }
-      if (args->ret != ncclSuccess) return args->ret;
+      if (args->ret != ncclSuccess) { ret = args->ret; goto end; }
       doneArray[i] = 1;
       done--;
     }
   }
+end:
+  CUDACHECK(cudaSetDevice(savedDev));
+  ncclGroupError = ncclSuccess;
   ncclGroupIndex = 0;
   ncclGroupMode = false;
-  return ncclSuccess;
+  return ret;
 }
 
 

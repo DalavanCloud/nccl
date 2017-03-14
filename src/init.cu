@@ -377,8 +377,9 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   char hostname[1024];
   getHostName(hostname, 1024);
   rankInfos[rank].hostHash=getHostHash(hostname);
-  rankInfos[rank].bar = (int*)malloc(sizeof(int));
+  rankInfos[rank].bar = (int*)malloc(2*sizeof(int));
   rankInfos[rank].bar[0] = 0;
+  rankInfos[rank].bar[1] = 0;
   NCCLCHECK(bootstrapAllGather(commState, rankInfos, sizeof(struct rankInfo)));
   comm->intraPhase = 0;
   comm->intraRanks = 0;

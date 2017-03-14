@@ -36,7 +36,7 @@ TYPED_TEST(ncclAllReduce_test, host_mem) {
                 << "op: " << op << ", "
                 << "i" << i << ", " << std::endl;
         }
-        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+        ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
     }
 };
 TYPED_TEST(ncclAllReduce_test, pinned_mem) {

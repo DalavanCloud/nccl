@@ -148,9 +148,10 @@ static ncclResult_t enqueueCheck(ncclFunc_t func, const char* primName, const vo
     int cudaDev;
     NCCLCHECK(ncclCommCuDevice(comm, &cudaDev));
     CUDACHECK(cudaSetDevice(cudaDev));
-    // Check arguments
-    NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName));
     NCCLCHECK(ncclCpuBarrierCheckin(comm));
+    // Check arguments
+    ncclResult_t ret = ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName);
+    NCCLCHECK(ncclAsyncErrCheck(ret));
     NCCLCHECK(ncclAsyncColl(func, sendbuff, recvbuff, count, type, op, root, comm, stream));
     CUDACHECK(cudaSetDevice(savedDev));
     return ncclSuccess;

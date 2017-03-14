@@ -34,7 +34,7 @@ TYPED_TEST(ncclBcast_test, host_mem) {
                 << "root: " << root << ", "
                 << "i" << i << ", " << std::endl;
         }
-        ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+        ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
     }
 };
 TYPED_TEST(ncclBcast_test, pinned_mem) {

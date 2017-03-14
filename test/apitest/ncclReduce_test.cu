@@ -43,7 +43,7 @@ TYPED_TEST(ncclReduce_test, host_mem) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
-            ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+            ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
         }
     }
 };
@@ -100,7 +100,7 @@ TYPED_TEST(ncclReduce_test, recvbuf_root_null) {
                     << "root: " << root << ", "
                     << "i" << i << ", " << std::endl;
             }
-            ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+            ASSERT_EQ(ncclInvalidDevicePointer, ncclGroupEnd());
         }
     }
 };

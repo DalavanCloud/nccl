@@ -11,6 +11,7 @@
 #include "core.h"
 
 bool ncclAsyncMode();
+ncclResult_t ncclAsyncErrCheck(ncclResult_t ret);
 
 typedef ncclResult_t(*ncclInitFunc_t)(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank);
 
@@ -23,22 +24,22 @@ ncclResult_t ncclAsyncColl(ncclCollFunc_t func, const void* sendbuff, void* recv
     ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
 
 static ncclResult_t ncclCpuBarrierCheckin(ncclComm_t comm) {
-  volatile int* ptr = (volatile int*)(comm->intraBarrier);
+  volatile int* ptr = (volatile int*)(comm->intraBarrier+comm->intraPhase);
   int val = *ptr;
-  if (comm->intraPhase == 0) {
-    while (__sync_bool_compare_and_swap(ptr, val, val+1) == false) val++;
-  } else {
-    while (__sync_bool_compare_and_swap(ptr, val, val-1) == false) val--;
+  bool done = false;
+  // Reset other barrier if I'm the last
+  while (done == false) {
+    if (val+1 == comm->nRanks) {
+      comm->intraBarrier[comm->intraPhase^1] = 0;
+    }
+    done = __sync_bool_compare_and_swap(ptr, val, val+1);
+    val++;
   }
   return ncclSuccess;
 }
 static ncclResult_t ncclCpuBarrierWait(ncclComm_t comm) {
-  volatile int* ptr = (volatile int*)(comm->intraBarrier);
-  if (comm->intraPhase == 0) {
-    while (*ptr < comm->intraRanks) pthread_yield();
-  } else {
-    while (*ptr > 0) pthread_yield();
-  }
+  volatile int* ptr = (volatile int*)(comm->intraBarrier+comm->intraPhase);
+  while (*ptr < comm->intraRanks) pthread_yield();
   comm->intraPhase ^= 1;
   return ncclSuccess;
 }
