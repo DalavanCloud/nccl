@@ -47,10 +47,8 @@ static void initDebug() {
     ncclDebugLevel = WARN;
   } else if (strcmp(nccl_debug, "INFO") == 0) {
     ncclDebugLevel = INFO;
-    INFO("NCCL debug level set to INFO");
   } else if (strcmp(nccl_debug, "ABORT") == 0) {
     ncclDebugLevel = ABORT;
-    INFO("NCCL debug level set to ABORT");
   }
 
   const char* nccl_crc = getenv("NCCL_CRC");
