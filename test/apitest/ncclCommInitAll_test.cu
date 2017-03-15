@@ -73,7 +73,7 @@ TEST_F(ncclCommInitAll_test, devList_nonexist) {
     for (int i = 0; i < nVis; ++i) {
         badDevList[i] = 1000 + i;
     }
-    ASSERT_EQ(ncclInvalidArgument, ncclCommInitAll(comms, nVis, badDevList));
+    ASSERT_EQ(ncclUnhandledCudaError, ncclCommInitAll(comms, nVis, badDevList));
     free(badDevList);
 };
 // EOF
