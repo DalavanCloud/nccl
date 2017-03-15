@@ -6,6 +6,7 @@
 
 #include "group.h"
 #include "debug.h"
+#include "enqueue.h"
 #include <assert.h>
 
 #define MAX_ASYNC_OPS 128
