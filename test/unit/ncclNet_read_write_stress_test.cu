@@ -18,8 +18,8 @@ extern ncclNet_t ncclNetSocket;
 extern ncclNet_t ncclNetIb; 
 
 #define MAX_REQUESTS 62
-#define SOCKET 1
-#define IB 1
+#define USE_SOCKET 1
+#define USE_IB 1
 //#define REQUEST_CHECK_EAGER 1
 #define REQUEST_CHECK_BATCH 1
 //#define REQUEST_CHECK_DELAY_BY_1 1
@@ -293,18 +293,18 @@ int main(int argc, char *argv[]) {
   char *data = new char[MAX_SIZE];
   char *data_d;
   cudaMalloc(&data_d, MAX_SIZE);
-#if defined(SOCKET) &&  defined(IB)
+#if defined(USE_SOCKET) &&  defined(USE_IB)
   ncclNet_t *nets[] = {&ncclNetSocket, &ncclNetIb};
 #endif
-#if defined(SOCKET) && !defined(IB)
+#if defined(USE_SOCKET) && !defined(USE_IB)
   ncclNet_t *nets[] = {&ncclNetSocket};
 #endif
-#if defined(IB) && !defined(SOCKET)
+#if !defined(USE_SOCKET) && defined(USE_IB)
   ncclNet_t *nets[] = {&ncclNetIb};
 #endif
   for(int i=0; i<sizeof(nets)/sizeof(nets[0]); i++){
     ncclNet_t *net = nets[i]; 
-    if(!rank) {INFO("net->name %s", net->name);}
+    if(!rank) INFO("net->name %s", net->name);
     if (!strcmp(net->name, "Socket")) {
       int type = NCCL_PTR_HOST;
       failed = tester(net, data, data_d, MAX_SIZE, type, rank, nranks);
@@ -318,14 +318,14 @@ int main(int argc, char *argv[]) {
       if (failed) goto out;
     }
   }
-  printf("[%d] : Test successful\n", rank);
+  INFO("[%d] : Test successful", rank);
   delete data;
   cudaFree(data_d);
   MPI_Finalize();
 
 out:
   if(failed){
-    printf("[%d] Test failed\n", rank);
+    INFO("[%d] Test failed", rank);
     delete data;
     cudaFree(data_d);
     MPI_Finalize();
