@@ -664,7 +664,6 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   comm->verbs.numRequests++;
   comm->remFifoTail++;
   
-  struct ncclIbRequest *r = (struct ncclIbRequest*)req;
   while (req->done == 0) {
     int done;
     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));

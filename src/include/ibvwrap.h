@@ -41,7 +41,8 @@ union ibv_gid {
 
 #define vext_field_avail(type, fld, sz) (offsetof(type, fld) < (sz))
 
-static void *__VERBS_ABI_IS_EXTENDED = ((uint8_t *)NULL) - 1;
+/*XXX:__VERBS_ABI_IS_EXTENDED produces warning "integer operation result is out of range" with g++ 4.8.2*/
+//static void *__VERBS_ABI_IS_EXTENDED = ((uint8_t *)NULL) - 1;
 
 enum ibv_node_type {
 	IBV_NODE_UNKNOWN	= -1,
@@ -1014,7 +1015,8 @@ struct verbs_context {
 	struct ibv_context context;/* Must be last field in the struct */
 };
 
-static inline struct verbs_context *verbs_get_ctx(struct ibv_context *ctx)
+/*XXX:__VERBS_ABI_IS_EXTENDED produces warning "integer operation result is out of range" with g++ 4.8.2*/
+/*static inline struct verbs_context *verbs_get_ctx(struct ibv_context *ctx)
 {
 	return (!ctx || (ctx->abi_compat != __VERBS_ABI_IS_EXTENDED)) ?
 		NULL : container_of(ctx, struct verbs_context, context);
@@ -1023,7 +1025,7 @@ static inline struct verbs_context *verbs_get_ctx(struct ibv_context *ctx)
 #define verbs_get_ctx_op(ctx, op) ({ \
 	struct verbs_context *_vctx = verbs_get_ctx(ctx); \
 	(!_vctx || (_vctx->sz < sizeof(*_vctx) - offsetof(struct verbs_context, op)) || \
-	!_vctx->op) ? NULL : _vctx; })
+	!_vctx->op) ? NULL : _vctx; })*/
 
 #define verbs_set_ctx_op(_vctx, op, ptr) ({ \
 	struct verbs_context *vctx = _vctx; \
