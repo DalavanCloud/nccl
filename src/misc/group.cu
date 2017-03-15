@@ -162,6 +162,13 @@ ncclResult_t ncclGroupEnd() {
   ncclResult_t ret = ncclGroupError;
   if (ret != ncclSuccess) goto end;
 
+  for (int i=0; i<ncclGroupIndex; i++) {
+    struct ncclAsyncArgs* args = ncclGroupArgs+i;
+    if (args->mode == ASYNC_MODE_SEQ) {
+      NCCLCHECK(ncclCpuBarrierCheckin(args->coll.comm));
+    }
+  }
+
   for (int i=0; i<ncclGroupIndex; i++) doneArray[i] = 0;
   while (done) {
     for (int i=0; i<ncclGroupIndex; i++) {

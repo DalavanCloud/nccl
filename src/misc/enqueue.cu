@@ -42,7 +42,6 @@ ncclResult_t ncclEnqueueCheck(ncclFunc_t func, const char* primName, const void*
     int cudaDev;
     NCCLCHECK(ncclCommCuDevice(comm, &cudaDev));
     CUDACHECK(cudaSetDevice(cudaDev));
-    NCCLCHECK(ncclCpuBarrierCheckin(comm));
     // Check arguments
     ncclResult_t ret = ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName);
     NCCLCHECK(ncclAsyncErrCheck(ret));
