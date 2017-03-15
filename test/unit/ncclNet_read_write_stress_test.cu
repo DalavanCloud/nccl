@@ -9,7 +9,7 @@
 #include <sys/time.h>
 #include <random>
 #include "mpi.h"
-#include "nccl.h"
+#include "nccl_net.h"
 #include "debug.h"
 #include <sys/types.h>
 #include <unistd.h>

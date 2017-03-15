@@ -5,6 +5,7 @@
  ************************************************************************/
 
 #include "core.h"
+#include "net.h"
 
 #define MAX_ENV_RANKS 512
 static ncclResult_t parseRings(const char* str, int* nringsRet, int nranks, int* prev, int* next) {

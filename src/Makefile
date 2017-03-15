@@ -2,7 +2,7 @@ include ../makefiles/common.mk
 include ../makefiles/version.mk
 
 ##### src files
-INCEXPORTS  := nccl.h
+INCEXPORTS  := nccl.h nccl_net.h
 LIBSRCFILES := init.cu bootstrap.cu transport.cu misc/group.cu \
 		misc/nvmlwrap.cu misc/ibvwrap.cu misc/crc32.cu misc/rings.cu misc/utils.cu misc/gdcopy.cu misc/enqueue.cu \
 		transport/p2p.cu transport/shm.cu transport/net.cu transport/net_socket.cu transport/net_ib.cu \

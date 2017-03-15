@@ -4,10 +4,11 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-#ifndef NCCL_NET_H_
-#define NCCL_NET_H_
+#ifndef NCCL_INT_NET_H_
+#define NCCL_INT_NET_H_
 
 #include "nccl.h"
+#include "nccl_net.h"
 
 typedef char ncclNetHandle_t[NCCL_NET_HANDLE_MAXSIZE];
 

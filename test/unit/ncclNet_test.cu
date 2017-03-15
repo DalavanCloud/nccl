@@ -8,7 +8,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include "mpi.h"
-#include "nccl.h"
+#include "nccl_net.h"
 #include "debug.h"
 
 extern ncclNet_t ncclNetSocket; 

@@ -28,7 +28,7 @@
  ************************************************************************/
 
 #include "mpi.h"
-#include "nccl.h"
+#include "nccl_net.h"
 
 /************************************************************************
  * This is an example using the NCCL network API to use MPI for
