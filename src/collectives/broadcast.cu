@@ -178,7 +178,7 @@ NCCL_API(ncclResult_t, ncclBcast, void* buff, size_t count, ncclDataType_t datat
     ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclBcast(void* buff, size_t count, ncclDataType_t datatype, int root,
     ncclComm_t comm, cudaStream_t stream) {
-  return enqueueCheck(ncclBroadcastFunc, "Bcast", buff, buff, count, datatype,
+  return ncclEnqueueCheck(ncclBroadcastFunc, "Bcast", buff, buff, count, datatype,
      ncclSum, root, comm, stream);
 }
 

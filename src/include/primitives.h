@@ -184,8 +184,8 @@ class Primitives {
         }
       } else {
         if (AnyAre<PostFlag>(flags...)) {
-          PostSizeToFlags(SUBSTEPS*step+sub, realSize*sizeof(T), flags...);
           __syncthreads();
+          PostSizeToFlags(SUBSTEPS*step+sub, realSize*sizeof(T), flags...);
           __threadfence_system();
           PostToFlags(SUBSTEPS*step + sub + 1, flags...);
         }

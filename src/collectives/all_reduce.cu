@@ -24,8 +24,6 @@
 #define ALIGN_SIZE(size, align) \
   size = ((size + (align) - 1) / (align)) * (align);
 
-/* XXX: Ugly workaround to solve corruption bug between nodes */
-#define WA
 template<int THREADS, int UNROLL, class FUNC, typename T>
 __launch_bounds__(THREADS+WARP_SIZE, 1)
 __global__ void AllReduceKernel(const KernelArgs<T> args) {
@@ -37,11 +35,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   int prevdirect = ring->recv.conn.direct;
   int nextdirect = ring->send.conn.direct;
 
-#ifdef WA
-  WaitFlag waitDoneFromNext(ring->send.conn.head, -(NUM_BUFCHUNKS-1)*NUM_SUBSTEPS);
-#else
   WaitFlag waitDoneFromNext(ring->send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
-#endif
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, -1*NUM_SUBSTEPS);
   PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS, NULL, 0);
   PostFlag postReadyToNext(ring->send.conn.tail, 0, ring->send.conn.fifo, NUM_BUFCHUNKS*NUM_SUBSTEPS);
@@ -80,13 +74,14 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
   for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*nranks*sliceSize) {
+    int chunkSize = min(sliceSize, DIVUP(size-gridOffset,nranks*gridDim.x));
+    ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
+    int chunkOffset = gridOffset + bid*nranks*chunkSize;
+
     /////////////// begin AllReduce steps ///////////////
     int offset;
     int maxOffset;
     int slice;
-    int chunkSize = min(sliceSize, DIVUP(size-gridOffset,nranks*gridDim.x));
-    ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
-    int chunkOffset = gridOffset + bid*nranks*chunkSize;
 
     // step 0: push data to next GPU
     slice = ring->devUserRanks[nranks-1];
@@ -199,11 +194,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
   if (tid == 0) {
     // Wait for next to have consumed all data before we reset the flag
-#ifdef WA
-    waitDoneFromNext.wait(NUM_SUBSTEPS*(step + (NUM_BUFCHUNKS-1)));
-#else
     waitDoneFromNext.wait(NUM_SUBSTEPS*(step + NUM_BUFCHUNKS));
-#endif
     *ring->send.conn.head = 0;
     *ring->recv.conn.tail = 0;
     __threadfence_system();
@@ -247,7 +238,7 @@ NCCL_API(ncclResult_t, ncclAllReduce, const void* sendbuff, void* recvbuff, size
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream);
 ncclResult_t ncclAllReduce(const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream) {
-  return enqueueCheck(ncclAllReduceFunc, "AllReduce", sendbuff, recvbuff, count, datatype,
+  return ncclEnqueueCheck(ncclAllReduceFunc, "AllReduce", sendbuff, recvbuff, count, datatype,
       op, 0, comm, stream);
 }
 

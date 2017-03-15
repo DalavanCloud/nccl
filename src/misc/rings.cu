@@ -6,6 +6,54 @@
 
 #include "core.h"
 
+#define MAX_ENV_RANKS 512
+static ncclResult_t parseRings(const char* str, int* nringsRet, int nranks, int* prev, int* next) {
+  int ranks[MAX_ENV_RANKS];
+  int nrings = 0;
+  int rank = 0;
+  int offset = 0;
+  int status = 0;
+  do {
+    int digit = str[offset] - '0';
+    if (digit >= 0 && digit <= 9) {
+      if (status == 0) {
+        ranks[rank] = digit;
+        status = 1;
+      } else {
+        ranks[rank]= ranks[rank]*10+digit;
+      }
+    } else {
+      if (status == 1) {
+        rank++;
+        if (rank == MAX_ENV_RANKS) goto end;
+      }
+      status = 0;
+      if (str[offset] == '|' || str[offset] == '\0') {
+        int prevRank = ranks[rank-1];
+
+        if (rank != nranks) goto newring;
+
+        for (int r=0; r<nranks; r++) {
+          int rank = ranks[r];
+          if (rank < 0 || rank >= nranks) goto newring;
+          for (int i=0; i<r; i++) {
+            if (ranks[i] == rank) goto newring;
+          }
+          next[nrings*nranks+prevRank] = rank;
+          prev[nrings*nranks+rank] = prevRank;
+          prevRank = rank;
+        }
+        nrings++;
+newring:
+        rank = 0;
+      }
+    }
+  } while (str[offset++] != 0);
+end:
+  *nringsRet = nrings;
+  return ncclSuccess;
+}
+
 static int recIsConnected(int rank1, int rank2, int nranks, int* matrix, int transport, int* done) {
   if (matrix[rank1*nranks+rank2] == transport) return 1;
   done[rank1] = 1;
@@ -58,6 +106,17 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
   *nrings = 0;
   *nthreads = 512;
   if (nranks == 1) return ncclSuccess;
+
+  char* str = getenv("NCCL_RINGS");
+  if (str && strlen(str)>0) {
+    int ret = parseRings(str, nrings, nranks, prev, next);
+    if (ret == ncclSuccess && *nrings > 0) {
+      if (rank == 0) INFO("%d ring(s) set by environment", *nrings);
+      return ncclSuccess;
+    }
+    if (rank == 0) INFO("No valid ring found in environment, ignoring");
+    *nrings = 0;
+  }
 
   // Compute hierarchical topology groups, indexes, and rank<->index tables
   int coords[nranks*NTRANSPORTS];
