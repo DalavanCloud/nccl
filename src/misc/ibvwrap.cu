@@ -4,8 +4,6 @@
  * See LICENSE.txt for license information
  ************************************************************************/
 
-//#define IBV_DIRECT 1
-#ifndef IBV_DIRECT
 #include "ibvwrap.h"
 #include <sys/types.h>
 #include <unistd.h>
@@ -15,6 +13,7 @@
 
 static enum { ibvUninitialized, ibvInitializing, ibvInitialized, ibvError } ibvState = ibvUninitialized;
 
+/*Function Pointers*/
 struct ibv_device** (*ibv_internal_get_device_list)(int *num_devices); 
 void (*ibv_internal_free_device_list)(struct ibv_device **list);
 const char * (*ibv_internal_get_device_name)(struct ibv_device *device);
@@ -119,20 +118,68 @@ ncclResult_t wrap_ibv_symbols(void) {
   return ncclSystemError;
 }
 
-struct ibv_device **wrap_ibv_get_device_list(int *num_devices) {
-  if (ibv_internal_get_device_list == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  return ibv_internal_get_device_list(num_devices);
+#define IBV_PTR_CHECK_ERRNO(name_internal, call, retval, error_retval, name) \
+  if (name_internal == NULL) { \
+     WARN("lib wrapper not initialized."); \
+     return ncclInternalError; \
+  } \
+  retval = call; \
+  if (retval == error_retval) { \
+    WARN("Call to " name " failed with error %s", strerror(errno)); \
+    return ncclSystemError; \
+  } \
+  return ncclSuccess;
+
+#define IBV_PTR_CHECK(name_internal, call, retval, error_retval, name) \
+  if (name_internal == NULL) { \
+     WARN("lib wrapper not initialized."); \
+     return ncclInternalError; \
+  } \
+  retval = call; \
+  if (retval == error_retval) { \
+    WARN("Call to " name " failed"); \
+    return ncclSystemError; \
+  } \
+  return ncclSuccess;
+
+#define IBV_INT_CHECK_RET_ERRNO(name_internal, call, success_retval, name) \
+  if (name_internal == NULL) { \
+     WARN("lib wrapper not initialized."); \
+     return ncclInternalError; \
+  } \
+  int ret = call; \
+  if (ret != success_retval) { \
+    WARN("Call to " name " failed with error %s", strerror(ret)); \
+    return ncclSystemError; \
+  } \
+  return ncclSuccess;
+
+#define IBV_INT_CHECK(name_internal, call, error_retval, name) \
+  if (name_internal == NULL) { \
+     WARN("lib wrapper not initialized."); \
+     return ncclInternalError; \
+  } \
+  int ret = call; \
+  if (ret == error_retval) { \
+    WARN("Call to " name " failed"); \
+    return ncclSystemError; \
+  } \
+  return ncclSuccess;
+
+#define IBV_PASSTHRU(name_internal, call) \
+  if (name_internal == NULL) { \
+     WARN("lib wrapper not initialized."); \
+     return ncclInternalError; \
+  } \
+  call; \
+  return ncclSuccess;
+
+ncclResult_t wrap_ibv_get_device_list(struct ibv_device ***ret, int *num_devices) {
+  IBV_PTR_CHECK_ERRNO(ibv_internal_get_device_list, ibv_internal_get_device_list(num_devices), *ret, NULL, "ibv_get_device_list");
 }
 
-void wrap_ibv_free_device_list(struct ibv_device **list) {
-  if (ibv_internal_free_device_list == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  ibv_internal_free_device_list(list);
+ncclResult_t wrap_ibv_free_device_list(struct ibv_device **list) {
+  IBV_PASSTHRU(ibv_internal_free_device_list, ibv_internal_free_device_list(list));
 }
 
 const char *wrap_ibv_get_device_name(struct ibv_device *device) {
@@ -143,171 +190,66 @@ const char *wrap_ibv_get_device_name(struct ibv_device *device) {
   return ibv_internal_get_device_name(device);
 }
 
-struct ibv_context *wrap_ibv_open_device(struct ibv_device *device) { /*returns 0 on success, -1 on failure*/
-  if (ibv_internal_open_device == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  return ibv_internal_open_device(device);
+ncclResult_t wrap_ibv_open_device(struct ibv_context **ret, struct ibv_device *device) { /*returns 0 on success, -1 on failure*/
+  IBV_PTR_CHECK(ibv_internal_open_device, ibv_internal_open_device(device), *ret, NULL, "ibv_open_device");
 }
 
-int wrap_ibv_close_device(struct ibv_context *context) { /*returns 0 on success, -1 on failure*/
-  if (ibv_internal_close_device == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  int ret = ibv_internal_close_device(context);
-  if (ret != IBV_SUCCESS) {
-    WARN("ibv_close_device() failed");
-    return ret; 
-  }
-  return ncclSuccess;
+ncclResult_t wrap_ibv_close_device(struct ibv_context *context) { /*returns 0 on success, -1 on failure*/
+  IBV_INT_CHECK(ibv_internal_close_device, ibv_internal_close_device(context), -1, "ibv_close_device");
 }
 
-int wrap_ibv_get_async_event(struct ibv_context *context, struct ibv_async_event *event) { /*returns 0 on success, and -1 on error*/
-  if (ibv_internal_get_async_event == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  int ret = ibv_internal_get_async_event(context, event);
-  if (ret < IBV_SUCCESS) {
-    WARN("ibv_get_async_event() failed");
-    return ret; 
-  }
-  return ncclSuccess;
+ncclResult_t wrap_ibv_get_async_event(struct ibv_context *context, struct ibv_async_event *event) { /*returns 0 on success, and -1 on error*/
+  IBV_INT_CHECK(ibv_internal_get_async_event, ibv_internal_get_async_event(context, event), -1, "ibv_get_async_event");
 }
 
-void wrap_ibv_ack_async_event(struct ibv_async_event *event) {
-  if (ibv_internal_ack_async_event == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  ibv_internal_ack_async_event(event);
+ncclResult_t wrap_ibv_ack_async_event(struct ibv_async_event *event) {
+  IBV_PASSTHRU(ibv_internal_ack_async_event, ibv_internal_ack_async_event(event));
 }
 
-int wrap_ibv_query_device(struct ibv_context *context, struct ibv_device_attr *device_attr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
-  if (ibv_internal_query_device == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  int ret = ibv_internal_query_device(context, device_attr);
-  if (ret != IBV_SUCCESS) {
-    WARN("ibv_query_device() failed");
-    return ret; 
-  }
-  return ncclSuccess;
+ncclResult_t wrap_ibv_query_device(struct ibv_context *context, struct ibv_device_attr *device_attr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
+  IBV_INT_CHECK_RET_ERRNO(ibv_internal_query_device, ibv_internal_query_device(context, device_attr), 0, "ibv_query_device");
 }
 
-int wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
-  if (ibv_internal_query_port == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  int ret = ibv_internal_query_port(context, port_num, port_attr);
-  if (ret != IBV_SUCCESS) {
-    WARN("ibv_query_port() failed");
-    return ret; 
-  }
-  return ncclSuccess;
+ncclResult_t wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
+  IBV_INT_CHECK_RET_ERRNO(ibv_internal_query_port, ibv_internal_query_port(context, port_num, port_attr), 0, "ibv_query_port");
 }
 
-struct ibv_pd *wrap_ibv_alloc_pd(struct ibv_context *context) {
-  if (ibv_internal_alloc_pd == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  return ibv_internal_alloc_pd(context);
+ncclResult_t wrap_ibv_alloc_pd(struct ibv_pd **ret, struct ibv_context *context) {
+  IBV_PTR_CHECK(ibv_internal_alloc_pd, ibv_internal_alloc_pd(context), *ret, NULL, "ibv_alloc_pd");
 }
 
-int wrap_ibv_dealloc_pd(struct ibv_pd *pd) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
-  if (ibv_internal_dealloc_pd == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  int ret = ibv_internal_dealloc_pd(pd);
-  if (ret != IBV_SUCCESS) {
-    WARN("ibv_internal_dealloc_pd() failed");
-    return ret; 
-  }
-  return ncclSuccess;
+ncclResult_t wrap_ibv_dealloc_pd(struct ibv_pd *pd) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
+  IBV_INT_CHECK_RET_ERRNO(ibv_internal_dealloc_pd, ibv_internal_dealloc_pd(pd), 0, "ibv_dealloc_pd");
 }
 
-struct ibv_mr *wrap_ibv_reg_mr(struct ibv_pd *pd, void *addr, size_t length, int access) {
-  if (ibv_internal_reg_mr == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  return ibv_internal_reg_mr(pd, addr, length, access);
+ncclResult_t wrap_ibv_reg_mr(struct ibv_mr **ret, struct ibv_pd *pd, void *addr, size_t length, int access) {
+  IBV_PTR_CHECK(ibv_internal_reg_mr, ibv_internal_reg_mr(pd, addr, length, access), *ret, NULL, "ibv_reg_mr");
 }
 
-int wrap_ibv_dereg_mr(struct ibv_mr *mr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
-  if (ibv_internal_dereg_mr == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  int ret = ibv_internal_dereg_mr(mr);
-  if (ret != IBV_SUCCESS) {
-    WARN("ibv_dereg_mr() failed");
-    return ret; 
-  }
-  return ncclSuccess;
+ncclResult_t wrap_ibv_dereg_mr(struct ibv_mr *mr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
+  IBV_INT_CHECK_RET_ERRNO(ibv_internal_dereg_mr, ibv_internal_dereg_mr(mr), 0, "ibv_dereg_mr");
 }
 
-struct ibv_comp_channel *wrap_ibv_create_comp_channel(struct ibv_context *context) {
-  if (ibv_internal_create_comp_channel == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  return ibv_internal_create_comp_channel(context);
+ncclResult_t wrap_ibv_create_comp_channel(struct ibv_comp_channel **ret, struct ibv_context *context) {
+  IBV_PTR_CHECK(ibv_internal_create_comp_channel, ibv_internal_create_comp_channel(context), *ret, NULL, "ibv_create_comp_channel");
 }
 
-struct ibv_cq *wrap_ibv_create_cq(struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector) {
-  if (ibv_internal_create_cq == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  return ibv_internal_create_cq(context, cqe, cq_context, channel, comp_vector);
+ncclResult_t wrap_ibv_create_cq(struct ibv_cq **ret, struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector) {
+  IBV_PTR_CHECK(ibv_internal_create_cq, ibv_internal_create_cq(context, cqe, cq_context, channel, comp_vector), *ret, NULL, "ibv_create_cq");
 }
 
-int wrap_ibv_destroy_cq(struct ibv_cq *cq) {
-  if (ibv_internal_destroy_cq == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  int ret = ibv_internal_destroy_cq(cq);
-  if (ret != IBV_SUCCESS) {
-    WARN("ibv_destroy_cq() failed");
-    return ret; 
-  }
-  return ncclSuccess;
+ncclResult_t wrap_ibv_destroy_cq(struct ibv_cq *cq) {
+  IBV_INT_CHECK_RET_ERRNO(ibv_internal_destroy_cq, ibv_internal_destroy_cq(cq), 0, "ibv_destroy_cq");
 }
 
-struct ibv_qp *wrap_ibv_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr) {
-  if (ibv_internal_create_qp == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  return ibv_internal_create_qp(pd, qp_init_attr);
+ncclResult_t wrap_ibv_create_qp(struct ibv_qp **ret, struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr) {
+  IBV_PTR_CHECK(ibv_internal_create_qp, ibv_internal_create_qp(pd, qp_init_attr), *ret, NULL, "ibv_create_qp");
 }
 
-int wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
-  if (ibv_internal_modify_qp == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  int ret = ibv_internal_modify_qp(qp, attr, attr_mask);
-  if (ret != IBV_SUCCESS) {
-    WARN("ibv_modify_qp() failed");
-    return ret; 
-  }
-  return ncclSuccess;
+ncclResult_t wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
+  IBV_INT_CHECK_RET_ERRNO(ibv_internal_modify_qp, ibv_internal_modify_qp(qp, attr, attr_mask), 0, "ibv_modify_qp");
 }
 
-const char *wrap_ibv_event_type_str(enum ibv_event_type event) {
-  if (ibv_internal_event_type_str == NULL) {
-     WARN("lib wrapper not initialized.");
-     exit(-1);
-  }
-  return ibv_internal_event_type_str(event);
+ncclResult_t wrap_ibv_event_type_str(char **ret, enum ibv_event_type event) {
+  IBV_PASSTHRU(ibv_internal_event_type_str, ibv_internal_event_type_str(event));  
 }
-#endif

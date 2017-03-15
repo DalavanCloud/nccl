@@ -11,6 +11,9 @@
 #include "nccl.h"
 #include "debug.h"
 
+#define USE_SOCKET 1
+#define USE_IB 1
+
 extern ncclNet_t ncclNetSocket; 
 extern ncclNet_t ncclNetIb; 
 extern ncclNet_t ncclMpi; 
@@ -262,31 +265,41 @@ int main(int argc, char *argv[]) {
   int failed = 0;
   char *data = new char[MAX_SIZE];
   //ncclNet_t *nets[] = {&ncclNetSocket, &ncclNetIb, &ncclMpi};
+#if defined(USE_SOCKET) && defined(USE_IB)
   ncclNet_t *nets[] = {&ncclNetSocket, &ncclNetIb};
+#elif defined(USE_SOCKET)
+  ncclNet_t *nets[] = {&ncclNetSocket};
+#elif defined(USE_IB)
+  ncclNet_t *nets[] = {&ncclNetIb};
+#else
+  if(!rank) WARN("No ncclNet selected");
+#endif
+
+#if defined(USE_SOCKET) || defined(USE_IB)
   for(int i=0; i<sizeof(nets)/sizeof(nets[0]); i++){
     ncclNet_t *net = nets[i]; 
-    if(!rank){
-      INFO("ncclNet implementation %s found ", net->name);
-    }
+    if(!rank) INFO("ncclNet %s selected ", net->name);
     for(size_t bytes=1; bytes<=MAX_SIZE; bytes*=32){
-      if(!rank) {INFO("Send/Recv %lld bytes", bytes);}
+      if(!rank) INFO("Send/Recv %lld bytes", bytes);
       size_t duration=0;
       struct timeval start, end;
       gettimeofday(&start, NULL);
-      failed = testers[i](net, data, bytes, &duration, 0, rank, nranks, MPI_COMM_WORLD); /*TODO: when NIC is not dev0*/
+      failed = testers[i](net, data, bytes, &duration, 0, rank, nranks, MPI_COMM_WORLD);
       gettimeofday(&end, NULL);
       size_t tot_duration = (end.tv_sec - start.tv_sec)*1000000 + (end.tv_usec - start.tv_usec);
-      if(!rank) {INFO("Duration (total) %lld us duration (data transfer) %lld us Bandwidth %lld MB/s", tot_duration, duration, bytes/duration);}
+      if(!rank) INFO("Duration (total) %lld us duration (data transfer) %lld us Bandwidth %lld MB/s", tot_duration, duration, bytes/duration);
       if (failed) goto out;
     }
   }
-  printf("[%d] : Test successful\n", rank);
+  if(!rank) INFO("Test successful");
+#endif
+
   delete data;
   MPI_Finalize();
 
 out:
   if(failed){
-    printf("[%d] Test failed\n", rank);
+    if(!rank) WARN("Test failed");
     delete data;
     MPI_Finalize();
   }
