@@ -264,20 +264,25 @@ struct ncclIbHandle {
   struct ncclIbQpInfo qpInfo;
 };
 
+struct ncclIbMr {
+  struct ibv_mr* mr;
+  int refcnt;
+};
+
 struct ncclIbVerbs {
   struct ibv_pd* pd;
   struct ibv_comp_channel* cc;
   struct ibv_cq* cq;
   struct ibv_qp* qp;
   int numRequests;
-  struct ibv_mr* mrPool[MAX_REQUESTS];
+  struct ncclIbMr mrPool[MAX_REQUESTS];
   int mrRotation;
 };
 
 struct ncclIbRequest {
   int used;
   struct ncclIbVerbs* verbs;
-  struct ibv_mr* mr;
+  struct ncclIbMr * ibMr;
   int done;
   int size;
 };
@@ -473,7 +478,7 @@ struct ncclIbRequest* ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbVer
     struct ncclIbRequest* req = reqs->requests+i;
     if (req->used == 0) {
       req->used = 1;
-      req->mr = NULL;
+      req->ibMr = NULL;
       req->done = 0;
       req->size = 0;
       req->verbs = verbs;
@@ -528,6 +533,9 @@ int ncclIbTest(void* request, int* done, int* size) {
 
       struct ncclIbRequest* doneReq = (struct ncclIbRequest*)wc.wr_id;
       if (doneReq) {
+	if (doneReq->ibMr != NULL) {
+	  doneReq->ibMr->refcnt--;
+	}
         if (wc.opcode == IBV_WC_RECV) {
           doneReq->size = wc.byte_len;
 #ifdef USE_RDMA_WRITE
@@ -552,29 +560,47 @@ int ncclIbTest(void* request, int* done, int* size) {
 #define REG_ALIGN (4096)
 
 // Cache previous MRs to avoid registering/unregistering for each Isend/Irecv
-ncclResult_t ncclIbGetMr(struct ncclIbVerbs* verbs, void* data, int size, struct ibv_mr** mrRet) {
+ncclResult_t ncclIbGetMr(struct ncclIbVerbs* verbs, void* data, int size, struct ncclIbMr** mrRet) {
   uint64_t addr = (uint64_t)data;
-  int elem = (verbs->mrRotation++)%MAX_REQUESTS;
+  int elem = -1;
+
+  // Look for an already existing MR
   for (int i=0; i<MAX_REQUESTS;i++) {
-    if (verbs->mrPool[i] == NULL) continue;
-    uint64_t regAddr = (uint64_t)verbs->mrPool[i]->addr;
-    uint64_t regSize = (uint64_t)verbs->mrPool[i]->length;
+    if (verbs->mrPool[i].mr == NULL) continue;
+    uint64_t regAddr = (uint64_t)verbs->mrPool[i].mr->addr;
+    uint64_t regSize = (uint64_t)verbs->mrPool[i].mr->length;
     if (regAddr <= addr && addr < regAddr + regSize) {
       if (addr+size <= regAddr + regSize) {
-        *mrRet = verbs->mrPool[i];
+        *mrRet = verbs->mrPool+i;
+        verbs->mrPool[i].refcnt++;
         return ncclSuccess;
-      } else { // Size to small, delete the area (and recreate it, larger)
+      } else { // Size too small, delete the area (and recreate it, larger)
         elem = i;
         break;
       }
     }
   }
+
+  // Find an unused element
+  if (elem == -1) {
+    elem = (verbs->mrRotation++)%MAX_REQUESTS;
+    for (int i=0; i<MAX_REQUESTS;i++) {
+      if (verbs->mrPool[elem].refcnt > 0) elem++; else break;
+    }
+    if (verbs->mrPool[elem].refcnt > 0) {
+      WARN("IB memory register : no MR available");
+      return ncclInternalError;
+    }
+  }
+
+  // Deregister / register
   uint64_t regAddr = addr & (~(REG_ALIGN-1));
   uint64_t regSize = addr+size - regAddr;
   regSize = ((regSize + REG_ALIGN-1) / REG_ALIGN ) * REG_ALIGN;
-  if (verbs->mrPool[elem]) NCCLCHECK(wrap_ibv_dereg_mr(verbs->mrPool[elem]));
-  NCCLCHECK(wrap_ibv_reg_mr(&verbs->mrPool[elem], verbs->pd, (void*)regAddr, regSize, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE));
-  *mrRet = verbs->mrPool[elem];
+  if (verbs->mrPool[elem].mr) NCCLCHECK(wrap_ibv_dereg_mr(verbs->mrPool[elem].mr));
+  NCCLCHECK(wrap_ibv_reg_mr(&verbs->mrPool[elem].mr, verbs->pd, (void*)regAddr, regSize, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE));
+  *mrRet = verbs->mrPool+elem;
+  verbs->mrPool[elem].refcnt++;
   return ncclSuccess;
 }
 
@@ -595,14 +621,12 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
   if (size == 0) {
     wr.sg_list = NULL;
     wr.num_sge = 0;
-    req->mr = NULL;
+    req->ibMr = NULL;
   } else {
-    struct ibv_mr* mr;
-    NCCLCHECK(ncclIbGetMr(&comm->verbs, data, size, &mr));
-    sge.addr=(uintptr_t)data; sge.length=(unsigned int)size; sge.lkey=mr->lkey;
+    NCCLCHECK(ncclIbGetMr(&comm->verbs, data, size, &req->ibMr));
+    sge.addr=(uintptr_t)data; sge.length=(unsigned int)size; sge.lkey=req->ibMr->mr->lkey;
     wr.sg_list = &sge;
     wr.num_sge = 1;
-    req->mr = mr;
   }
   wr.opcode = IBV_WR_SEND;
   wr.send_flags = IBV_SEND_SIGNALED;
@@ -664,7 +688,6 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   comm->verbs.numRequests++;
   comm->remFifoTail++;
   
-  struct ncclIbRequest *r = (struct ncclIbRequest*)req;
   while (req->done == 0) {
     int done;
     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
@@ -690,14 +713,12 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
   if (size == 0) {
     wr.sg_list = NULL;
     wr.num_sge = 0;
-    req->mr = NULL;
+    req->ibMr = NULL;
   } else {
-    struct ibv_mr* mr;
-    NCCLCHECK(ncclIbGetMr(&comm->verbs, data, size, &mr));
-    sge.addr=(uintptr_t)data; sge.length=(unsigned int)size; sge.lkey=mr->lkey;
+    NCCLCHECK(ncclIbGetMr(&comm->verbs, data, size, &req->ibMr));
+    sge.addr=(uintptr_t)data; sge.length=(unsigned int)size; sge.lkey=req->ibMr->mr->lkey;
     wr.sg_list = &sge;
     wr.num_sge = 1;
-    req->mr = mr;
   }
 
   // Wait for WR to be available in the RQ
@@ -714,7 +735,7 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
   *request = req;
 
   // Post to FIFO to notify sender
-  NCCLCHECK(ncclIbPostFifo(comm, req->mr->rkey, (uint64_t)data));
+  NCCLCHECK(ncclIbPostFifo(comm, req->ibMr->mr->rkey, (uint64_t)data));
   return ncclSuccess;
 }
 
@@ -725,7 +746,10 @@ int ncclIbCloseSend(void* sendComm) {
     close(comm->fd);
     if (comm->fifoMr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->fifoMr));
     for (int i=0; i<MAX_REQUESTS; i++) {
-      if (comm->verbs.mrPool[i] != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i]));
+      if (comm->verbs.mrPool[i].mr != NULL) {
+	if (comm->verbs.mrPool[i].refcnt != 0) WARN("IB MR #%d has non-zero refcnt", i);
+	NCCLCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i].mr));
+      }
     }
     free(comm);
   }
@@ -739,7 +763,10 @@ int ncclIbCloseRecv(void* recvComm) {
     close(comm->fd);
     if (comm->fifoElemMr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->fifoElemMr));
     for (int i=0; i<MAX_REQUESTS; i++) {
-      if (comm->verbs.mrPool[i] != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i]));
+      if (comm->verbs.mrPool[i].mr != NULL) {
+        if (comm->verbs.mrPool[i].refcnt != 0) WARN("IB MR #%d has non-zero refcnt", i);
+        NCCLCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i].mr));
+      }
     }
     free(comm);
   }
