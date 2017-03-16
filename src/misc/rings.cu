@@ -103,9 +103,20 @@ static ncclResult_t fillCoords(int nranks, int* matrix, int* coords, int* rankTo
   return ncclInternalError;
 }
 
+ncclResult_t getDefaultThreads(int* nthreads) {
+  int cudaDev;
+  CUDACHECK(cudaGetDevice(&cudaDev));
+  int ccMajor;
+  CUDACHECK(cudaDeviceGetAttribute(&ccMajor, cudaDevAttrComputeCapabilityMajor, cudaDev));
+  *nthreads = (ccMajor > 5) ? 256 : 512;
+  return ncclSuccess;
+}
+
 ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
   *nrings = 0;
-  *nthreads = 512;
+
+  NCCLCHECK(getDefaultThreads(nthreads));
+
   if (nranks == 1) return ncclSuccess;
 
   char* str = getenv("NCCL_RINGS");
