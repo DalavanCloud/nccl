@@ -85,7 +85,7 @@ void deltaKern(void* A_, void* B_, int count, double* max) {
     double delta = absDiff(A[i], B[i]);
     if( delta > locmax ) {
       locmax = delta;
-      if (delta > .1) printf("Error at %d : %f != %f\n", i, toFloat(A[i]), toFloat(B[i]));
+      if (delta > .1) printf("Error at %d/%d : %f != %f\n", i, count, toFloat(A[i]), toFloat(B[i]));
     }
   }
 
@@ -386,6 +386,7 @@ double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op,
        	printf("%d:%d ", j, *((int *)temp + j));
        }
        printf("\n");
+       free(temp);
     }
 #endif
   }
@@ -511,19 +512,19 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
 void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName, int root, int inPlace) {
   size_t size;
   int nranks = args->nProcs*args->nGpus*args->nThreads; 
-  size_t count, sendBytes, recvBytes, sendInplaceOffset, recvInplaceOffset, procSharedBytes;
+  size_t count, sendCount, recvCount, sendInplaceOffset, recvInplaceOffset, procSharedCount;
   int sameExpected;
   for (size = args->minbytes; size<=args->maxbytes; size = ((args->stepfactor > 1) ? size*args->stepfactor : size+args->stepbytes)) { 
-      getCollByteCount(&sendBytes, &recvBytes, &sendInplaceOffset, &recvInplaceOffset, &procSharedBytes, &sameExpected, (size_t)size, (size_t)nranks);
+      count = size / wordSize(type);
+      getCollByteCount(&sendCount, &recvCount, &sendInplaceOffset, &recvInplaceOffset, &procSharedCount, &sameExpected, (size_t)count, (size_t)nranks);
 
-      args->nbytes = size; 
-      args->sendBytes = sendBytes; 
-      args->expectedBytes = recvBytes;
-      args->sendInplaceOffset = sendInplaceOffset;
-      args->recvInplaceOffset = recvInplaceOffset;
+      args->nbytes = count * wordSize(type); 
+      args->sendBytes = sendCount * wordSize(type); 
+      args->expectedBytes = recvCount * wordSize(type);
+      args->sendInplaceOffset = sendInplaceOffset * wordSize(type);
+      args->recvInplaceOffset = recvInplaceOffset * wordSize(type);
 
-      count = args->nbytes / wordSize(type);
-      print_line_header((count*wordSize(type)), count, typeName, opName, root);
+      print_line_header(args->nbytes, count, typeName, opName, root);
 
       BenchTime(args, type, op, root, 0);
       if (inPlace) BenchTime(args, type, op, root, 1);

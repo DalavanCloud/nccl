@@ -17,13 +17,13 @@ void print_line_header (int size, int count, const char *typeName, const char *o
   PRINT("%12i  %12i  %6s  %6s", size, count, typeName, opName);
 }
 
-void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedBytes, int *sameExpected, size_t nbytes, int nranks) {
-    *sendbytes = nbytes*nranks;
-    *recvbytes = nbytes;
+void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedCount, int *sameExpected, size_t count, int nranks) {
+    *sendcount = count*nranks;
+    *recvcount = count;
     *sameExpected = 0;
-    *procSharedBytes = nbytes*nranks;
+    *procSharedCount = count*nranks;
     *sendInplaceOffset = 0;
-    *recvInplaceOffset = nbytes;
+    *recvInplaceOffset = count;
 }
 
 void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first) {
@@ -57,25 +57,27 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
 
   if (args->thread+1 == args->nThreads) {
 #ifdef MPI_SUPPORT
-    // Last thread does the MPI reduction
-    void* remote, *remoteHost = malloc(sendbytes);
-    void* myInitialData = malloc(sendbytes);
-    memcpy(myInitialData, args->procSharedHost, sendbytes);
-    CUDACHECK(cudaHostRegister(remoteHost, sendbytes, 0));
-    CUDACHECK(cudaHostGetDevicePointer(&remote, remoteHost, 0));
+    if (sendbytes > 0) {
+      // Last thread does the MPI reduction
+      void* remote, *remoteHost = malloc(sendbytes);
+      void* myInitialData = malloc(sendbytes);
+      memcpy(myInitialData, args->procSharedHost, sendbytes);
+      CUDACHECK(cudaHostRegister(remoteHost, sendbytes, 0));
+      CUDACHECK(cudaHostGetDevicePointer(&remote, remoteHost, 0));
 
-    for (int i=0; i<args->nProcs; i++) {
-      if (i == args->proc) {
-        MPI_Bcast(myInitialData, sendbytes, MPI_BYTE, i, MPI_COMM_WORLD);
-        free(myInitialData);
-      } else {
-        MPI_Bcast(remoteHost, sendbytes, MPI_BYTE, i, MPI_COMM_WORLD);
-        Accumulate(args->procShared, remote, sendcount, type, op);
-        cudaDeviceSynchronize();
+      for (int i=0; i<args->nProcs; i++) {
+        if (i == args->proc) {
+          MPI_Bcast(myInitialData, sendbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+          free(myInitialData);
+        } else {
+          MPI_Bcast(remoteHost, sendbytes, MPI_BYTE, i, MPI_COMM_WORLD);
+          Accumulate(args->procShared, remote, sendcount, type, op);
+          cudaDeviceSynchronize();
+        }
       }
+      CUDACHECK(cudaHostUnregister(remoteHost));
+      free(remoteHost);
     }
-    CUDACHECK(cudaHostUnregister(remoteHost));
-    free(remoteHost);
 #endif
     args->sync[0] = 0;
   } else {

@@ -18,11 +18,11 @@ void print_line_header (int size, int count, const char *typeName, const char *o
   PRINT("%12i  %12i  %6s  %6s  %6i", size, count, typeName, opName, root);
 }
 
-void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedBytes, int *sameExpected, size_t nbytes, int nranks) {
-    *sendbytes = nbytes;
-    *recvbytes = nbytes;
+void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedCount, int *sameExpected, size_t count, int nranks) {
+    *sendcount = count;
+    *recvcount = count;
     *sameExpected = 0;
-    *procSharedBytes = nbytes;
+    *procSharedCount = count;
     *sendInplaceOffset = 0;
     *recvInplaceOffset = 0;
  }
@@ -58,24 +58,26 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
 
   if (args->thread+1 == args->nThreads) {
 #ifdef MPI_SUPPORT
-    // Last thread does the MPI reduction
-    if (root_proc == args->proc) { 
+    if (args->expectedBytes) {
+      // Last thread does the MPI reduction
+      if (root_proc == args->proc) { 
         void* temp, *tempHost = malloc(args->expectedBytes);
         CUDACHECK(cudaHostRegister(tempHost, args->expectedBytes, 0));
         CUDACHECK(cudaHostGetDevicePointer(&temp, tempHost, 0));
 
         for (int i=0; i<args->nProcs; i++) {
-            if (i == args->proc) continue;
-            MPI_Recv(tempHost, args->expectedBytes, MPI_BYTE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          if (i == args->proc) continue;
+          MPI_Recv(tempHost, args->expectedBytes, MPI_BYTE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            Accumulate(args->procShared, temp, count, type, op);
+          Accumulate(args->procShared, temp, count, type, op);
         }
         CUDACHECK(cudaDeviceSynchronize());
 
         CUDACHECK(cudaHostUnregister(tempHost));
         free(tempHost);
-    } else {
+      } else {
         MPI_Send(args->procSharedHost, args->expectedBytes, MPI_BYTE, root_proc, 0, MPI_COMM_WORLD);
+      }
     }
 #endif
     args->sync[0] = 0;
@@ -101,10 +103,8 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
 
 void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw, int nranks) {
   double baseBw = (double)(count * typesize) / 1.0E9 / sec;
-
   *algBw = baseBw;
-  double factor = ((double)(2*(nranks - 1)))/((double)nranks);
-  *busBw = baseBw * factor;
+  *busBw = baseBw;
 }
 
 void RunColl(void* sendbuff, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {

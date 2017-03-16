@@ -18,11 +18,11 @@ void print_line_header (int size, int count, const char *typeName, const char *o
   PRINT("%12i  %12i  %6s  %6i", size, count, typeName, root);
 }
 
-void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedBytes, int *sameExpected, size_t nbytes, int nranks) {
-    *sendbytes = nbytes;
-    *recvbytes = nbytes;
+void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedCount, int *sameExpected, size_t count, int nranks) {
+    *sendcount = count;
+    *recvcount = count;
     *sameExpected = 0;
-    *procSharedBytes = nbytes;
+    *procSharedCount = count;
     *sendInplaceOffset = 0;
     *recvInplaceOffset = 0;
 }
