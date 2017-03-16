@@ -84,7 +84,7 @@ static bool NeedProxy(int type, int pattern, struct ncclRing* ring, int nranks) 
 static void StartProxy(int type, int substeps, int nsteps, int opCount, struct ncclRing* ring, int pattern, int nranks) {
   struct ncclConnector* connector = (type == 0) ? &ring->recv : &ring->send;
   struct transportProxyInfo* info = connector->proxyInfo;
-  if (nsteps && info && NeedProxy(type, pattern, ring, nranks)) {
+  if (info && NeedProxy(type, pattern, ring, nranks)) {
     struct ncclProxyArgs args;
     args.ring = ring;
     args.substeps = substeps;
