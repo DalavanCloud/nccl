@@ -218,6 +218,12 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
     prev[rank] = (rank-1+nranks) % nranks;
     next[rank] = (rank+1)%nranks;
   }
+
+  str = getenv("NCCL_NTHREADS");
+  if (str && strlen(str)>0) {
+    int nt = atoi(str);
+    if (nt == 128 || nt == 256 || nt == 512) *nthreads = nt;
+  }
   return ncclSuccess;
 }
 
