@@ -112,6 +112,15 @@ ncclResult_t getDefaultThreads(int* nthreads) {
   return ncclSuccess;
 }
 
+ncclResult_t getEnvThreads(int* nthreads) {
+  char* str = getenv("NCCL_NTHREADS");
+  if (str && strlen(str)>0) {
+    int nt = atoi(str);
+    if (nt == 128 || nt == 256 || nt == 512) *nthreads = nt;
+  }
+  return ncclSuccess;
+}
+
 ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
   *nrings = 0;
 
@@ -124,6 +133,7 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
     int ret = parseRings(str, nrings, nranks, prev, next);
     if (ret == ncclSuccess && *nrings > 0) {
       if (rank == 0) INFO("%d ring(s) set by environment", *nrings);
+      NCCLCHECK(getEnvThreads(nthreads));
       return ncclSuccess;
     }
     if (rank == 0) INFO("No valid ring found in environment, ignoring");
@@ -230,11 +240,7 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
     next[rank] = (rank+1)%nranks;
   }
 
-  str = getenv("NCCL_NTHREADS");
-  if (str && strlen(str)>0) {
-    int nt = atoi(str);
-    if (nt == 128 || nt == 256 || nt == 512) *nthreads = nt;
-  }
+  NCCLCHECK(getEnvThreads(nthreads));
   return ncclSuccess;
 }
 
