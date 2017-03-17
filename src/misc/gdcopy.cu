@@ -164,14 +164,14 @@ gdr_t gdr_open()
 
     g = (gdr_t)calloc(1, sizeof(*g));
     if (!g) {
-        WARN("GDCOPY : error while allocating memory\n");
+        WARN("GDCOPY : error while allocating memory");
         return NULL;
     }
 
     int fd = open(gdrinode, O_RDWR);
     if (-1 == fd ) {
         int ret = errno;
-        INFO("GDCOPY : error opening driver (errno=%d/%s)\n", ret, strerror(ret));
+        INFO("GDCOPY : error opening driver (errno=%d/%s)", ret, strerror(ret));
         free(g);
         return NULL;
     }
@@ -187,7 +187,7 @@ int gdr_close(gdr_t g)
     int retcode = close(g->fd);
     if (-1 == retcode) {
         ret = errno;
-        WARN("GDCOPY : error closing driver (errno=%d/%s)\n", ret, strerror(ret));
+        WARN("GDCOPY : error closing driver (errno=%d/%s)", ret, strerror(ret));
     }
     g->fd = 0;
     free(g);
@@ -209,7 +209,7 @@ int gdr_pin_buffer(gdr_t g, unsigned long addr, size_t size, uint64_t p2p_token,
     retcode = ioctl(g->fd, GDRDRV_IOC_PIN_BUFFER, &params);
     if (0 != retcode) {
         ret = errno;
-        WARN("GDCOPY : ioctl error (errno=%d)\n", ret);
+        WARN("GDCOPY : ioctl error (errno=%d)", ret);
     }
     *handle = params.handle;
 
@@ -240,7 +240,7 @@ int gdr_pin_buffer_ext(gdr_t g, unsigned long addr, size_t size, uint64_t p2p_to
     retcode = ioctl(g->fd, GDRDRV_IOC_PIN_BUFFER_EXT, &params);
     if (0 != retcode) {
         ret = errno;
-        WARN("GDCOPY : ioctl error (errno=%d)\n", ret);
+        WARN("GDCOPY : ioctl error (errno=%d)", ret);
         goto out;
     }
 
@@ -265,7 +265,7 @@ int gdr_unpin_buffer(gdr_t g, gdr_mh_t handle)
     retcode = ioctl(g->fd, GDRDRV_IOC_UNPIN_BUFFER, &params);
     if (0 != retcode) {
         ret = errno;
-        WARN("GDCOPY : ioctl error (errno=%d)\n", ret);
+        WARN("GDCOPY : ioctl error (errno=%d)", ret);
     }
 
     return ret;
@@ -282,7 +282,7 @@ int gdr_unpin_buffer_ext(gdr_t g, gdr_mh_ext_t handle)
     retcode = ioctl(g->fd, GDRDRV_IOC_UNPIN_BUFFER, &params);
     if (0 != retcode) {
         ret = errno;
-        WARN("GDCOPY : ioctl error (errno=%d)\n", ret);
+        WARN("GDCOPY : ioctl error (errno=%d)", ret);
     }
 
     return ret;
@@ -299,7 +299,7 @@ int gdr_get_callback_flag(gdr_t g, gdr_mh_t handle, int *flag)
     retcode = ioctl(g->fd, GDRDRV_IOC_GET_CB_FLAG, &params);
     if (0 != retcode) {
         ret = errno;
-        WARN("GDCOPY : ioctl error (errno=%d)\n", ret);
+        WARN("GDCOPY : ioctl error (errno=%d)", ret);
     } else
         *flag = params.flag;
 
@@ -317,7 +317,7 @@ int gdr_get_info(gdr_t g, gdr_mh_t handle, gdr_info_t *info)
     retcode = ioctl(g->fd, GDRDRV_IOC_GET_INFO, &params);
     if (0 != retcode) {
         ret = errno;
-        WARN("GDCOPY : ioctl error (errno=%d)\n", ret);
+        WARN("GDCOPY : ioctl error (errno=%d)", ret);
     } else {
         info->va          = params.va;
         info->mapped_size = params.mapped_size;
@@ -335,7 +335,7 @@ int gdr_map(gdr_t g, gdr_mh_t handle, void **ptr_va, size_t size)
 
     ret = gdr_get_info(g, handle, &info);
     if (ret) {
-	WARN("GDCOPY : error getting info \n");
+	WARN("GDCOPY : error getting info");
         return ret;
     }
     size_t rounded_size = (size + CPU_PAGE_SIZE - 1) & CPU_PAGE_MASK;
@@ -346,7 +346,7 @@ int gdr_map(gdr_t g, gdr_mh_t handle, void **ptr_va, size_t size)
     if (mmio == MAP_FAILED) {
         int __errno = errno;
         mmio = NULL;
-        WARN("GDCOPY : can't mmap BAR, error=%s(%d) rounded_size=%zu offset=%llx handle=%x\n",
+        WARN("GDCOPY : can't mmap BAR, error=%s(%d) rounded_size=%zu offset=%llx handle=%x",
                 strerror(__errno), __errno, rounded_size, (long long unsigned)magic_off, handle);
         ret = __errno;
     }
@@ -366,7 +366,7 @@ int gdr_unmap(gdr_t g, gdr_mh_t handle, void *va, size_t size)
     retcode = munmap(va, rounded_size);
     if (-1 == retcode) {
         int __errno = errno;
-        WARN("GDCOPY : can't unmap BAR, error=%s(%d) rounded_size=%zu\n",
+        WARN("GDCOPY : can't unmap BAR, error=%s(%d) rounded_size=%zu",
                 strerror(__errno), __errno, rounded_size);
         ret = __errno;
     }
