@@ -1,5 +1,5 @@
 /*************************************************************************
- * Copyright (c) 2015-2016, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2016-2017, NVIDIA CORPORATION. All rights reserved.
  *
  * See LICENSE.txt for license information
  ************************************************************************/
@@ -7,13 +7,18 @@
 #include "core.h"
 #include "net.h"
 
+/* Parse user defined rings. Format is like :
+ * "0 1|1 0|0 1 2 3|3 2 1 0|0 2 3 1|1 3 2 0|0 1 2 3 4 5 6 7|7 6 5 4 3 2 1 0"
+ * Rings with a non-matching number of ranks are ignored so we can provide
+ * rings for multiple cases.
+ */
 #define MAX_ENV_RANKS 512
 static ncclResult_t parseRings(const char* str, int* nringsRet, int nranks, int* prev, int* next) {
   int ranks[MAX_ENV_RANKS];
   int nrings = 0;
   int rank = 0;
   int offset = 0;
-  int status = 0;
+  int status = 0; // 0 : between numbers, 1 : inside number
   do {
     int digit = str[offset] - '0';
     if (digit >= 0 && digit <= 9) {
@@ -21,7 +26,7 @@ static ncclResult_t parseRings(const char* str, int* nringsRet, int nranks, int*
         ranks[rank] = digit;
         status = 1;
       } else {
-        ranks[rank]= ranks[rank]*10+digit;
+        ranks[rank] = ranks[rank]*10+digit;
       }
     } else {
       if (status == 1) {
@@ -31,15 +36,17 @@ static ncclResult_t parseRings(const char* str, int* nringsRet, int nranks, int*
       status = 0;
       if (str[offset] == '|' || str[offset] == '\0') {
         int prevRank = ranks[rank-1];
-
+        // Ignore rings if nranks doesn't match
         if (rank != nranks) goto newring;
 
         for (int r=0; r<nranks; r++) {
           int rank = ranks[r];
+          // Ignore rings with ranks out of bounds
           if (rank < 0 || rank >= nranks) goto newring;
-          for (int i=0; i<r; i++) {
+          // Ignore rings with duplicate ranks
+          for (int i=0; i<r; i++)
             if (ranks[i] == rank) goto newring;
-          }
+
           next[nrings*nranks+prevRank] = rank;
           prev[nrings*nranks+rank] = prevRank;
           prevRank = rank;
@@ -54,6 +61,42 @@ end:
   *nringsRet = nrings;
   return ncclSuccess;
 }
+
+/*
+ * Ring creation algorithm
+ * 
+ * First, we establish hierarchical coordinates depending on the way ranks can 
+ * communicate. After fillCoords, we have for each rank a unique 3-int array
+ * {   node, pci_domain,   rank } corresponding to the three transports :
+ * { 2[NET],     1[SHM], 0[P2P] }.
+ * Also, we renumber ranks (to indexes) based on their growing coordinates.
+ *
+ * Then, we ask transports to connect groups together. We start with net, then
+ * shm, then p2p. We maintain two arrays, prev and next, where values are equal
+ * to -1 when ranks are not yet connected, and a rank otherwise. We never 
+ * connect ranks outside our group, meaning that on 4 nodes of 2 sockets of 4 
+ * ranks, if we are rank 13, we should see something like (provided we have a 
+ * single net interface, hence a single ring) :
+ *
+ * Connecting all nodes                                <13>
+ * 2[NET] : prev 31 -1 -1 -1 -1 -1 -1 -1  7 -1 -1 -1 -1 -1 -1 -1 15 -1 -1 -1 -1 -1 -1 -1 23 -1 -1 -1 -1 -1 -1 -1
+ *          next -1 -1 -1 -1 -1 -1 -1  8 -1 -1 -1 -1 -1 -1 -1 16 -1 -1 -1 -1 -1 -1 -1 24 -1 -1 -1 -1 -1 -1 -1  0
+ *
+ * Connecting PCI domains (only inside the node)       <13>
+ * 1[SHM] : prev 31 -1 -1 -1 -1 -1 -1 -1  7 -1 -1 -1 11 -1 -1 -1 15 -1 -1 -1 -1 -1 -1 -1 23 -1 -1 -1 -1 -1 -1 -1
+ *          next -1 -1 -1 -1 -1 -1 -1  8 -1 -1 -1 12 -1 -1 -1 16 -1 -1 -1 -1 -1 -1 -1 24 -1 -1 -1 -1 -1 -1 -1  0
+ *
+ * Connecting ranks (only inside the PCI domain)       <13>
+ * 0[P2P] : prev 31 -1 -1 -1 -1 -1 -1 -1  7 -1 -1 -1 11 12 13 14 15 -1 -1 -1 -1 -1 -1 -1 23 -1 -1 -1 -1 -1 -1 -1
+ *          next -1 -1 -1 -1 -1 -1 -1  8 -1 -1 -1 12 13 14 15 16 -1 -1 -1 -1 -1 -1 -1 24 -1 -1 -1 -1 -1 -1 -1  0
+ *
+ * Hence, when we ask a transport to connect groups, we provide it with a subview of the ranks (except for net 
+ * which always sees the full world). That way, P2P can bruteforce all combinations inside the node without
+ * risking to explode in terms of combinations, and we scale better.
+ *
+ * Finally, we loop over Network scores to try to create rings with high scores (=locality) and decrease until
+ * we get at least one ring.
+ */
 
 static int recIsConnected(int rank1, int rank2, int nranks, int* matrix, int transport, int* done) {
   if (matrix[rank1*nranks+rank2] == transport) return 1;
@@ -103,6 +146,7 @@ static ncclResult_t fillCoords(int nranks, int* matrix, int* coords, int* rankTo
   return ncclInternalError;
 }
 
+/* Get the default number of threads based on the GPU generation */
 ncclResult_t getDefaultThreads(int* nthreads) {
   int cudaDev;
   CUDACHECK(cudaGetDevice(&cudaDev));
@@ -112,15 +156,25 @@ ncclResult_t getDefaultThreads(int* nthreads) {
   return ncclSuccess;
 }
 
+/* Users can force the number of threads with an environment variable */
 ncclResult_t getEnvThreads(int* nthreads) {
-  char* str = getenv("NCCL_NTHREADS");
-  if (str && strlen(str)>0) {
-    int nt = atoi(str);
-    if (nt == 128 || nt == 256 || nt == 512) *nthreads = nt;
+  static int nt = -1;
+  if (nt == -1) {
+    nt = -2;
+    char* str = getenv("NCCL_NTHREADS");
+    if (str && strlen(str) > 0) {
+      nt = atoi(str);
+      if (nt != 128 && nt != 256 && nt != 512) {
+        WARN("User-defined number of threads can only be 128, 256 or 512. Ignoring.");
+        nt = -2;
+      }
+    }
   }
+  if (nt > 0) *nthreads = nt;
   return ncclSuccess;
 }
 
+/* Main ring creation function */
 ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
   *nrings = 0;
 
@@ -147,6 +201,7 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
   for (int i=0; i<nranks*NTRANSPORTS; i++) coords[i] = -1;
   NCCLCHECK(fillCoords(nranks, transports, coords, globalRankToIdx, globalIdxToRank));
 
+  // Start with a high score, then decrease until we find rings
   int minScore = NCCL_MAX_SCORE;
   int nringsTmp;
   int prevTmp[nranks*MAXRINGS];
@@ -154,6 +209,7 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
   do {
     for (int i=0; i<nranks*MAXRINGS; i++) prevTmp[i] = nextTmp[i] = -1;
     nringsTmp = MAXRINGS;
+    // Loop over transports to connect groups
     for (int t=NTRANSPORTS-1; t>=0; t--) {
       int idxToRank[nranks];
       int rankToIdx[nranks];
@@ -176,11 +232,11 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
         idxToRank[nidx] = r;
         nidx++;
       }
-      // Coords should be ordered
-      int ngroups = groups[nidx-1] + 1;
+ 
+      int ngroups = groups[nidx-1] + 1; // Coords should be ordered
 
       if (ngroups > 1) {
-        /* Extract values */
+        /* Extract subvalues */
         int subvalues[nidx*nidx];
         for (int i=0; i<nidx; i++) {
           for (int j=0; j<nidx; j++) {
@@ -190,7 +246,7 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
               subvalues[i*nidx+j] = 0;
           }
         }
-        /* Extract prev/next */
+        /* Extract subprev/subnext */
         int subprev[nidx*nringsTmp];
         int subnext[nidx*nringsTmp];
         for (int i=0; i<nidx*nringsTmp; i++) {
@@ -210,7 +266,7 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
         }
         /* Get rings */
         NCCLCHECK(ncclTransports[t].getRings(nidx, groups, subgroups, subvalues, &nringsTmp, subprev, subnext, minScore, nthreads));
-        /* Merge prev/next */
+        /* Merge subprev/subnext into prev/next */
         for (int r=0; r<nringsTmp; r++) {
           for (int i=0; i<nidx; i++) {
             if ((prevTmp[r*nranks+idxToRank[i]] == -1) && (subprev[r*nidx+i] != -1)) prevTmp[r*nranks+idxToRank[i]] = idxToRank[subprev[r*nidx+i]];
