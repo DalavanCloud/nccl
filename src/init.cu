@@ -247,12 +247,12 @@ void dumpMatrix(int* connectMatrix, int nranks) {
   line[STRLENGTH] = '\0';
   memset(line, ' ', STRLENGTH);
   for (int j=0; j<nranks && j<MAXWIDTH; j++) sprintf(4+line+4*j, " %3d", j);
-  INFO(line);
+  INFO("%s", line);
   for (int i=0; i<nranks; i++) {
     memset(line, ' ', STRLENGTH);
     sprintf(line, "%3d ", i);
     for (int j=0; j<nranks && j<MAXWIDTH; j++) sprintf(4+line+4*j, " %3d", connectMatrix[i*nranks+j]);
-    INFO(line);
+    INFO("%s", line);
   }
 }
 
@@ -263,7 +263,7 @@ void dumpLine(int* values, int nranks, const char* prefix) {
   memset(line, ' ', STRLENGTH);
   strncpy(line, prefix, PREFIXLEN);
   for (int i=0; i<nranks && i<MAXWIDTH; i++) sprintf(line+prefixlen+4*i, " %3d", values[i]);
-  INFO(line);
+  INFO("%s", line);
 }
 
 static ncclResult_t buildRings(int nrings, int* rings, int rank, int nranks, int* prev, int* next) {
