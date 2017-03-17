@@ -158,19 +158,15 @@ ncclResult_t getDefaultThreads(int* nthreads) {
 
 /* Users can force the number of threads with an environment variable */
 ncclResult_t getEnvThreads(int* nthreads) {
-  static int nt = -1;
-  if (nt == -1) {
-    nt = -2;
-    char* str = getenv("NCCL_NTHREADS");
-    if (str && strlen(str) > 0) {
-      nt = atoi(str);
-      if (nt != 128 && nt != 256 && nt != 512) {
-        WARN("User-defined number of threads can only be 128, 256 or 512. Ignoring.");
-        nt = -2;
-      }
+  char* str = getenv("NCCL_NTHREADS");
+  if (str && strlen(str) > 0) {
+    int nt = atoi(str);
+    if (nt != 128 && nt != 256 && nt != 512) {
+      WARN("User-defined number of threads can only be 128, 256 or 512. Ignoring.");
+    } else {
+      *nthreads = nt;
     }
   }
-  if (nt > 0) *nthreads = nt;
   return ncclSuccess;
 }
 

@@ -287,7 +287,7 @@ struct FuncMin<uint8_t> {
 template<>
 struct FuncSum<half> {
   __device__ half2 operator()(const half2 x, const half2 y) const {
-#if __CUDA_ARCH__ >= 530
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
     return __hadd2(x, y);
 #else
     float2 fx, fy, fr;
@@ -299,7 +299,7 @@ struct FuncSum<half> {
 #endif
   }
   __device__ half operator()(const half x, const half y) const {
-#if __CUDA_ARCH__ >= 530
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
     return __hadd(x, y);
 #else
     return __float2half( __half2float(x) + __half2float(y) );
@@ -310,7 +310,7 @@ struct FuncSum<half> {
 template<>
 struct FuncProd<half> {
   __device__ half2 operator()(const half2 x, const half2 y) const {
-#if __CUDA_ARCH__ >= 530
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
     return __hmul2(x, y);
 #else
     float2 fx, fy, fr;
@@ -322,7 +322,7 @@ struct FuncProd<half> {
 #endif
   }
   __device__ half operator()(const half x, const half y) const {
-#if __CUDA_ARCH__ >= 530
+#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
     return __hmul(x, y);
 #else
     return __float2half( __half2float(x) * __half2float(y) );
