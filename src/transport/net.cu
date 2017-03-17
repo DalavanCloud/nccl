@@ -72,14 +72,12 @@ ncclResult_t netCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
   return ncclSuccess;
 }
 
-static inline int groupBestScore(int nranks, int* groups, int group, int* subgroups, int subGroupToAvoid, int rankToAvoid, int* values, int card, int minScore) {
+static inline int groupBestStart(int nranks, int* groups, int group, int* values, int card, int minScore) {
   int bestRank = -1;
   int bestScore = 0;
   for (int rank=0; rank<nranks; rank++) {
+    if (groups[rank] != group) continue;
     for (int i=0; i<nranks; i++) {
-      if (groups[rank] != group) continue;
-      if (subGroupToAvoid != -1 && subGroupToAvoid == subgroups[rank]) continue;
-      if (rankToAvoid == rank) continue;
       int netValue = values[rank*nranks+i];
       if (netValue != 0) {
         int score = (netValue>>(3*card)) & 0x7;
@@ -94,6 +92,29 @@ static inline int groupBestScore(int nranks, int* groups, int group, int* subgro
   }
   return bestRank;
 }
+static inline int groupBestEnd(int nranks, int* groups, int group, int* subgroups, int subGroupToAvoid, int rankToAvoid, int* values, int card, int minScore) {
+  int bestRank = -1;
+  int bestScore = 0;
+  for (int rank=nranks-1; rank>=0; rank--) {
+    if (groups[rank] != group) continue;
+    if (subGroupToAvoid != -1 && subGroupToAvoid == subgroups[rank]) continue;
+    if (rankToAvoid == rank) continue;
+    for (int i=0; i<nranks; i++) {
+      int netValue = values[rank*nranks+i];
+      if (netValue != 0) {
+        int score = (netValue>>(3*card)) & 0x7;
+        if (score >= minScore && score > bestScore) {
+          bestScore = score;
+          bestRank = rank;
+        }
+        // All other values should be the same, stop here for this rank
+        break;
+      }
+    }
+  }
+  return bestRank;
+}
+
 
 ncclResult_t netGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore, int* nthreads) {
   int nGroups = groups[nranks-1] + 1;
@@ -114,10 +135,10 @@ ncclResult_t netGetRings(int nranks, int* groups, int* subgroups, int* values, i
       // Receive on the rank closest to the NIC
       for (int card=0; card<NET_MAX_IFS; card++) {
         if (cardUsed[group*NET_MAX_IFS+card] == 1) continue;
-        int start = groupBestScore(nranks, groups, group, NULL, -1, -1, values, card, minScore);
+        int start = groupBestStart(nranks, groups, group, values, card, minScore);
         // Send from any rank, but best on a different subgroup and close to the NIC also.
         int end = (nranksInGroup == 1) ? start 
-          : groupBestScore(nranks, groups, group, subgroups, nsubGroups ? subgroups[start] : -1, start, values, card, minScore);
+          : groupBestEnd(nranks, groups, group, subgroups, nsubGroups ? subgroups[start] : -1, start, values, card, minScore);
         //printf("Ring %d, Minscore %d, Card %d, group %d, start = %d, end = %d\n", ring, minScore, card, group, start, end);
         if (start != -1 && end != -1) {
           cardUsed[group*NET_MAX_IFS+card] = 1;
