@@ -45,7 +45,12 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   const int size = args.N;
   //const int rank = comm->rank;
   const int nranks = comm->nRanks;
-  const int buffSize = ring->buffSize / sizeof(T);
+  int buffSize = ring->buffSize;
+#if 0
+  // Best tuning, but need to do the same on transports
+  while ((buffSize > 65536) && (buffSize >= (size*sizeof(T)))) buffSize /= 2;
+#endif
+  buffSize /= sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
 
   if (tid == 0) {
