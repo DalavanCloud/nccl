@@ -17,7 +17,7 @@ extern pthread_mutex_t ncclDebugOutputLock;
 #define WARN(...) do {                                           \
   if (ncclDebugLevel >= WARN) {                                  \
     pthread_mutex_lock(&ncclDebugOutputLock);                    \
-    printf("WARN %s:%d ", __FILE__, __LINE__);                   \
+    printf("\nWARN %s:%d ", __FILE__, __LINE__);                 \
     printf(__VA_ARGS__);                                         \
     printf("\n");                                                \
     fflush(stdout);                                              \

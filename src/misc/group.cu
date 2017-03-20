@@ -75,7 +75,7 @@ ncclResult_t ncclSetDevice(int cudaDev) {
 
 #define CHECK(a) do { \
   if ((args->ret = (a)) != ncclSuccess) { \
-    WARN("< ... > [Async thread]"); \
+    INFO("%s:%d -> %d [Async thread]", __FILE__, __LINE__, args->ret); \
     return args; \
   } \
 } while(0)

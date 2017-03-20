@@ -121,7 +121,7 @@ void* persistentThread(void *opaqueInfo) {
     }
     ncclResult_t res = info->func(&args);
     if (res != ncclSuccess) {
-      WARN("Persistent proxy : proxy function returned with code %d\n", res);
+      INFO("%s:%d -> %d [Proxy thread]", __FILE__, __LINE__, res);
     }    
   }
 }

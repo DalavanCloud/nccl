@@ -137,7 +137,7 @@ struct ncclComm {
   ncclResult_t res = call; \
   if (res != ncclSuccess) { \
     /* Print the back trace*/ \
-    WARN("< ... >"); \
+    INFO("%s:%d -> %d", __FILE__, __LINE__, res); \
     return res; \
   } \
 } while (0);

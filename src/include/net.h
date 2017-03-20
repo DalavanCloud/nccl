@@ -15,7 +15,7 @@ typedef char ncclNetHandle_t[NCCL_NET_HANDLE_MAXSIZE];
 #define NETCHECK(cmd) do { \
   int err = cmd; \
   if (err != 0) { \
-    WARN("Net transport returned error code %d", err); \
+    INFO("%s:%d -> %d [Net]", __FILE__, __LINE__, err); \
     return ncclSystemError; \
   } \
 } while (false)
