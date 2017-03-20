@@ -92,27 +92,25 @@ static inline int groupBestStart(int nranks, int* groups, int group, int* values
   }
   return bestRank;
 }
-static inline int groupBestEnd(int nranks, int* groups, int group, int* subgroups, int subGroupToAvoid, int rankToAvoid, int* values, int card, int minScore) {
-  int bestRank = -1;
-  int bestScore = 0;
+static inline int groupBestEnd(int nranks, int* groups, int group, int* subgroups, int startSubGroup, int startRank, int* values, int card, int minScore) {
+  // For the last rank, we don't need the absolute best score, just to be within minScore.
   for (int rank=nranks-1; rank>=0; rank--) {
     if (groups[rank] != group) continue;
-    if (subGroupToAvoid != -1 && subGroupToAvoid == subgroups[rank]) continue;
-    if (rankToAvoid == rank) continue;
+    if (startSubGroup != -1 && startSubGroup == subgroups[rank]) continue;
+    if (startRank == rank) continue;
     for (int i=0; i<nranks; i++) {
       int netValue = values[rank*nranks+i];
       if (netValue != 0) {
         int score = (netValue>>(3*card)) & 0x7;
-        if (score >= minScore && score > bestScore) {
-          bestScore = score;
-          bestRank = rank;
+        if (score >= minScore) {
+          return rank;
         }
         // All other values should be the same, stop here for this rank
         break;
       }
     }
   }
-  return bestRank;
+  return -1;
 }
 
 

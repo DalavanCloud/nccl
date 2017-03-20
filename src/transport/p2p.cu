@@ -6,6 +6,7 @@
 
 #include "core.h"
 #include "utils.h"
+#include "topo.h"
 #include "transport.h"
 #include <unistd.h>
 #include <cuda_runtime.h>
@@ -105,7 +106,19 @@ ncclResult_t p2pCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* pee
       }
       if (p2p == 1) {
         int nlinks = getNvlinkCount(myInfo->busId, peerInfo->busId);
-        p2p = nlinks ? 2*nlinks : 1;
+        if (nlinks) {
+          p2p += PATH_SOC + nlinks;
+        } else {
+          char* myPath;
+          char* peerPath;
+          ncclResult_t err1 = getCudaPath(myInfo->cudaDev, &myPath);
+          ncclResult_t err2 = getCudaPath(peerInfo->cudaDev, &peerPath);
+          if (err1 == ncclSuccess && err2 == ncclSuccess) {
+            p2p += PATH_SOC - pciDistance(myPath, peerPath);
+            if (err1 == ncclSuccess) free(myPath);
+            if (err2 == ncclSuccess) free(peerPath);
+          }
+        }
       }
     }
   }
@@ -212,7 +225,7 @@ int p2pComputeRings(int* values, int nranks, int* rings, int nrings, int* prev, 
   // Compute rings
   int matrix[nranks*nranks];
   for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++)
-    matrix[i*nranks+j] = oversubscribe ? values[i*nranks+j] : values[i*nranks+j]/2;
+    matrix[i*nranks+j] = oversubscribe ? (values[i*nranks+j]-(PATH_SOC+1))*2 : values[i*nranks+j]-(PATH_SOC+1) ;
 
   int compNrings = p2pComputeRings(matrix, nranks, rings, nrings, connect);
   if (connect == 0) {
@@ -247,7 +260,7 @@ ncclResult_t p2pGetRings(int nranks, int* groups, int* subgroups, int* values, i
   for (int rank=0; rank<nranks; rank++) {
     int nr = 0;
     for (int i=0; i<nranks; i++) {
-      nr+= values[rank*nranks+i]/2;
+      nr+= max(0, values[rank*nranks+i]-(PATH_SOC+1));
     }
     nrings = min(nrings, nr);
   }
@@ -266,11 +279,15 @@ ncclResult_t p2pGetRings(int nranks, int* groups, int* subgroups, int* values, i
         rings[r*nranks] = end;
         rings[r*nranks+1] = start;
         int cur = start;
-        int inc = r%2 == 0 ? 1 : -1;
         for (int i=2; i<nranks; i++) {
-          cur = (cur+inc+nranks) % nranks;
-          while (cur == end || cur == start) cur = (cur+inc+nranks) % nranks;
-          rings[r*nranks+i] = cur;
+          int next = (cur+1) % nranks;
+          while (next == end || next == start) next = (next+1) % nranks;
+          if (values[cur*nranks+next] < minScore) {
+            *nringsRet = 0;
+            return ncclSuccess;
+          }
+          rings[r*nranks+i] = next;
+          cur = next;
         }
         connect = 1;
       } else {

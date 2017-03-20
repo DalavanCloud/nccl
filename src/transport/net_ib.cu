@@ -8,13 +8,13 @@
 #include "core.h"
 #include "socket.h"
 #include "net.h"
+#include "topo.h"
 
 #include <assert.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <poll.h>
-#include <ctype.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -23,7 +23,6 @@
 
 #define USE_RDMA_WRITE 1
 #define MAX_IF_NAME_SIZE 16
-#define MAXPATHSIZE 1024
 #define MAXNAMESIZE 64
 static char ncclIbIfName[MAX_IF_NAME_SIZE];
 static struct in_addr ncclIbIfAddr;
@@ -54,83 +53,6 @@ static void* ncclIbAsyncThreadMain(void* args) {
     if (ncclSuccess != wrap_ibv_ack_async_event(&event)) { break; }
   }
   return NULL;
-}
-
-ncclResult_t getCudaPath(int cudaDev, char** path) {
-  char busId[16];
-  CUDACHECK(cudaDeviceGetPCIBusId(busId, 16, cudaDev));
-  for (int i=0; i<16; i++) busId[i] = tolower(busId[i]);
-  char busPath[] =  "/sys/class/pci_bus/0000:00";
-  memcpy(busPath+sizeof("/sys/class/pci_bus/")-1, busId, sizeof("0000:00")-1); 
-
-  char pathname[MAXPATHSIZE];
-  strcpy(pathname, "/sys/class/pci_bus/");
-  int strLen = strlen(pathname);
-  int linkLen = readlink(busPath, pathname+strLen, MAXPATHSIZE-strLen);
-  if (linkLen == 0) {
-    WARN("Could not find link %s", path);
-    return ncclSystemError;
-  }
-  // readlink does not append '\0'. We have to do it.
-  pathname[strLen+linkLen] = '\0';
-  strncpy(pathname+strlen(pathname), "/device", MAXPATHSIZE-strlen(pathname));
-  char* cudaRpath = realpath(pathname, NULL); 
-  strncpy(pathname, cudaRpath, MAXPATHSIZE);
-  strncpy(pathname+strlen(pathname), "/", MAXPATHSIZE-strlen(pathname));
-  strncpy(pathname+strlen(pathname), busId, MAXPATHSIZE-strlen(pathname));
-  free(cudaRpath);
-  *path = realpath(pathname, NULL); 
-  if (*path == NULL) {
-    WARN("Could not find real path of %s", pathname);
-    return ncclSystemError;
-  }
-  return ncclSuccess;
-}
-
-ncclResult_t getMlxPath(char* ibdevPath, char** path) {
-  char pathname[MAXPATHSIZE];
-  strcpy(pathname, "/sys/class/infiniband/");
-  int strLen = strlen(pathname);
-  int linkLen = readlink(ibdevPath, pathname+strLen, MAXPATHSIZE-strLen);
-  if (linkLen == 0) {
-    WARN("Could not find link %s", ibdevPath);
-    return ncclSystemError;
-  }
-  // readlink does not append '\0'. We have to do it.
-  pathname[strLen+linkLen] = '\0';
-  strncpy(pathname+strlen(pathname), "/../..", MAXPATHSIZE-strlen(pathname));
-  *path = realpath(pathname, NULL); 
-  if (*path == NULL) {
-    WARN("Could not find real path of %s", pathname);
-    return ncclSystemError;
-  }
-  return ncclSuccess;
-}
-
-enum ncclIbPathDist {
-  PATH_PIX = 0,
-  PATH_PXB = 1,
-  PATH_PHB = 2,
-  PATH_SOC = 3
-};
-
-static const char* pathDists[] = { "PIX", "PXB", "PHB", "SOC" };
-
-int pciDistance(char* path1, char* path2) {
-  int score = 0;
-  int depth = 0;
-  int same = 1;
-  for (int i=0; i<strlen(path1); i++) {
-    if (path1[i] != path2[i]) same = 0;
-    if (path1[i] == '/') {
-      depth++;
-      if (same == 1) score++;
-    }
-  }
-  if (score == 3) return PATH_SOC;
-  if (score == 4) return PATH_PHB;
-  if (score == depth-1)     return PATH_PIX;
-  return PATH_PXB;
 }
 
 static void initDevices() {
@@ -200,20 +122,20 @@ int ncclIbDevices(int* ndev, int** scores) {
   int cudaDev;
   cudaGetDevice(&cudaDev);
   char* cudaPath;
-  getCudaPath(cudaDev, &cudaPath);
+  ncclResult_t err1 = getCudaPath(cudaDev, &cudaPath);
   int* sc = (int*)malloc(ncclNIbDevs*sizeof(int));
   char line[1024];
   sprintf(line, "CUDA Dev %d, IB Ports : ", cudaDev);
   for (int d=0; d<ncclNIbDevs; d++) {
     char* mlxPath;
-    getMlxPath(ncclIbDevs[d].devPath, &mlxPath);
-    int distance = (mlxPath == NULL || cudaPath == NULL) ? PATH_SOC : pciDistance(mlxPath, cudaPath);
+    ncclResult_t err2 = getMlxPath(ncclIbDevs[d].devPath, &mlxPath);
+    int distance = (err1 != ncclSuccess || err2 != ncclSuccess || mlxPath == NULL || cudaPath == NULL) ? PATH_SOC : pciDistance(mlxPath, cudaPath);
     sprintf(line+strlen(line), "%s/%d(%s) ", ncclIbDevs[d].devName, ncclIbDevs[d].port, pathDists[distance]);
     sc[d] = 1+PATH_SOC-distance;
-    free(mlxPath);
+    if (err2 == ncclSuccess) free(mlxPath);
   }
   INFO(line);
-  free(cudaPath);
+  if (err1 == ncclSuccess) free(cudaPath);
   *scores = sc;
   return ncclSuccess;
 }
