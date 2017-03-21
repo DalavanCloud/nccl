@@ -29,6 +29,8 @@ thread_local int is_main_thread = 0;
 
 static int datacheck = 1;
 static int iters = 20;
+static int ncclop = ncclSum;
+static char ncclopstring[10] = "sum";
 
 double DeltaMaxValue(ncclDataType_t type) {
   switch(type) {
@@ -534,8 +536,13 @@ void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeNa
   }
 }
 
+
 void* threadRunTests(void* args) {
-  RunTests((struct threadArgs_t*)args);
+  if (ncclop != -1) { 
+     RunTestsOp((struct threadArgs_t*)args, (ncclRedOp_t)ncclop, ncclopstring);
+  } else { 
+     RunTests((struct threadArgs_t*)args);
+  } 
   return NULL;
 }
 
@@ -559,8 +566,26 @@ void AllocateBuffs(void **sendbuff, size_t sendBytes, void **recvbuff, size_t re
         *expected = cached_ptr;
         *expectedHost = cached_hostptr;
     }
- }
+}
+ 
+int ncclstringtoop (char *str) { 
+    int op;
 
+    printf("input %s", str);
+
+    if (!strcmp(str, "sum")) op = (int)ncclSum; 
+    else if (!strcmp(str, "prod")) op = (int)ncclProd; 
+    else if (!strcmp(str, "min")) op = (int)ncclMin; 
+    else if (!strcmp(str, "max")) op = (int)ncclMax; 
+    else if (!strcmp(str, "all")) op = -1;
+    else printf("invalid op, defaulting to sum... \n"); 
+
+    if(op != (int)ncclSum) { 
+      strcpy(ncclopstring, str);
+    }
+
+    return op;
+}
 
 int main(int argc, char* argv[]) {
  int nThreads = 1, nGpus = 1;
@@ -570,22 +595,23 @@ int main(int argc, char* argv[]) {
  int localRank = 0;
  char hostname[1024];
  getHostName(hostname, 1024);
-
+ 
  static struct option longopts[] = {
-    {"nthreads", required_argument, 0, 0}, 
-    {"ngpus", required_argument, 0, 0}, 
-    {"minbytes", required_argument, 0, 0}, 
-    {"maxbytes", required_argument, 0, 0}, 
-    {"stepbytes", required_argument, 0, 0},
-    {"stepfactor", required_argument, 0, 0},
-    {"iters", required_argument, 0, 0},
-    {"check", required_argument, 0, 0},
-    {"help", no_argument, 0, 0}
+    {"nthreads", required_argument, 0, 't'}, 
+    {"ngpus", required_argument, 0, 'g'}, 
+    {"minbytes", required_argument, 0, 'b'}, 
+    {"maxbytes", required_argument, 0, 'e'}, 
+    {"stepbytes", required_argument, 0, 'i'},
+    {"stepfactor", required_argument, 0, 'f'},
+    {"iters", required_argument, 0, 'n'},
+    {"check", required_argument, 0, 'c'},
+    {"op", required_argument, 0, 'o'},
+    {"help", no_argument, 0, 'h'}
  };
 
  while(1) {
       int c;
-      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:c:h", longopts, &longindex);
+      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:c:o:h", longopts, &longindex);
 
       if (c == -1)
          break;
@@ -615,14 +641,17 @@ int main(int argc, char* argv[]) {
 	 case 'c':
 	     datacheck = (int)strtol(optarg, NULL, 0);
 	     break;
+	 case 'o':
+	     ncclop = ncclstringtoop(optarg);
+	     break;
          case 'h':
 	     printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
-	     " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c,--check <0/1>] [-h,--help]\n");
+	     " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c,--check <0/1>] [-o,--op <sum/prod/min/max/all>] [-h,--help]\n");
 	     return 0;
 	 default: 
 	     printf("invalid option \n");
 	     printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
-	     " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c, --check <0/1>] [-h,--help]\n");
+	     " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c, --check <0/1>] [-o,--op <sum/prod/min/max/all>] [-h,--help]\n");
 	     return 0;
       }
   }
@@ -751,8 +780,13 @@ int main(int argc, char* argv[]) {
     args[t].bw_count=bw_count+t;
     if (t)
       pthread_create(threads+t-1, NULL, threadRunTests, args+t);
-    else
-      RunTests(args+t); // Directly execute last thread
+    else { 
+      if (ncclop != -1) { 
+         RunTestsOp((struct threadArgs_t*)args, (ncclRedOp_t) ncclop, ncclopstring);
+      } else { 
+         RunTests((struct threadArgs_t*)args);
+      } 
+    }
   }
   // Wait for other threads
   for (int t=1; t<nThreads; t++) {

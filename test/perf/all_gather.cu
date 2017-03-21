@@ -97,3 +97,7 @@ void RunTests(struct threadArgs_t* args) {
   RunTestType(args, ncclFloat, "float");
   RunTestType(args, ncclDouble, "double");
 }
+
+void RunTestsOp(struct threadArgs_t* args, ncclRedOp_t op, const char* opName) {
+  RunTests(args);
+}

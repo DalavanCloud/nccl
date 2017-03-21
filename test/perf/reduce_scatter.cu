@@ -124,3 +124,15 @@ void RunTests(struct threadArgs_t* args) {
   RunTestType(args, ncclFloat, "float");
   RunTestType(args, ncclDouble, "double");
 }
+
+void RunTestsOp(struct threadArgs_t* args, ncclRedOp_t op, const char* opName) {
+  RunTestOp(args, ncclInt8, "int8", op, opName);
+  RunTestOp(args, ncclUint8, "uint8", op, opName);
+  RunTestOp(args, ncclInt32, "int32", op, opName);
+  RunTestOp(args, ncclUint32, "uint32", op, opName);
+  RunTestOp(args, ncclInt64, "int64", op, opName);
+  RunTestOp(args, ncclUint64, "uint64", op, opName);
+  RunTestOp(args, ncclHalf, "half", op, opName);
+  RunTestOp(args, ncclFloat, "float", op, opName);
+  RunTestOp(args, ncclDouble, "double", op, opName);
+}
