@@ -1058,6 +1058,7 @@ ncclResult_t wrap_ibv_dealloc_pd(struct ibv_pd *pd);
 ncclResult_t wrap_ibv_reg_mr(struct ibv_mr **ret, struct ibv_pd *pd, void *addr, size_t length, int access);
 ncclResult_t wrap_ibv_dereg_mr(struct ibv_mr *mr);
 ncclResult_t wrap_ibv_create_comp_channel(struct ibv_comp_channel **ret, struct ibv_context *context);
+ncclResult_t wrap_ibv_destroy_comp_channel(struct ibv_comp_channel *channel);
 ncclResult_t wrap_ibv_create_cq(struct ibv_cq **ret, struct ibv_context *context, int cqe, void *cq_context, struct ibv_comp_channel *channel, int comp_vector);
 ncclResult_t wrap_ibv_destroy_cq(struct ibv_cq *cq);
 static inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc) { /*returns 0 on success, and -1 on error*/
@@ -1069,6 +1070,7 @@ static inline int wrap_ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ib
 }
 ncclResult_t wrap_ibv_create_qp(struct ibv_qp **ret, struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr);
 ncclResult_t wrap_ibv_modify_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask);
+ncclResult_t wrap_ibv_destroy_qp(struct ibv_qp *qp);
 static inline int ibv_post_send(struct ibv_qp *qp, struct ibv_send_wr *wr, struct ibv_send_wr **bad_wr) {
   return qp->context->ops.post_send(qp, wr, bad_wr);
 }

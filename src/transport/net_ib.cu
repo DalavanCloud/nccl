@@ -245,13 +245,13 @@ struct ncclIbSendComm {
 };
 
 struct ncclIbGpuFlush {
+  int enabled;
   void* devMem;
   int hostMem;
   struct ibv_mr* devMr;
   struct ibv_mr* hostMr;
   struct ibv_sge sge;
   struct ibv_qp* qp;
-  struct ibv_qp* recvQp;
 };
 
 struct ncclIbRemFifo {
@@ -278,11 +278,21 @@ struct ncclIbRecvComm {
     WARN("IBV call return NULL\n"); \
   }
 
-ncclResult_t ncclIbCreateQp(ibv_context* ctx, uint8_t ib_port, struct ncclIbVerbs* verbs, int access_flags, struct ibv_qp** qp) {
-  if (verbs->pd == NULL) NCCLCHECK(wrap_ibv_alloc_pd(&verbs->pd, ctx));
-  if (verbs->cc == NULL) NCCLCHECK(wrap_ibv_create_comp_channel(&verbs->cc, ctx));
-  if (verbs->cq == NULL) NCCLCHECK(wrap_ibv_create_cq(&verbs->cq, ctx, MAX_REQUESTS, NULL, verbs->cc, 0));
+ncclResult_t ncclIbInitVerbs(ibv_context* ctx, struct ncclIbVerbs* verbs) {
+  NCCLCHECK(wrap_ibv_alloc_pd(&verbs->pd, ctx));
+  NCCLCHECK(wrap_ibv_create_comp_channel(&verbs->cc, ctx));
+  NCCLCHECK(wrap_ibv_create_cq(&verbs->cq, ctx, MAX_REQUESTS, NULL, verbs->cc, 0));
+  return ncclSuccess;
+}
 
+ncclResult_t ncclIbDestroyVerbs(struct ncclIbVerbs* verbs) {
+  NCCLCHECK(wrap_ibv_destroy_cq(verbs->cq));
+  NCCLCHECK(wrap_ibv_destroy_comp_channel(verbs->cc));
+  NCCLCHECK(wrap_ibv_dealloc_pd(verbs->pd));
+  return ncclSuccess;
+}
+
+ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbVerbs* verbs, int access_flags, struct ibv_qp** qp) {
   struct ibv_qp_init_attr qpInitAttr;
   memset(&qpInitAttr, 0, sizeof(struct ibv_qp_init_attr));
   qpInitAttr.send_cq = verbs->cq;
@@ -359,8 +369,9 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   // IB Setup
   initDevices(); /*XXX: Need this for ncclNet unit test that bypasses nccl initialization*/
   ibv_context* ctx = ncclIbDevs[dev].context;
+  NCCLCHECK(ncclIbInitVerbs(ctx, &comm->verbs));
   uint8_t ib_port = ncclIbDevs[dev].port;
-  NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &comm->verbs, IBV_ACCESS_REMOTE_WRITE, &comm->qp));
+  NCCLCHECK(ncclIbCreateQp(ib_port, &comm->verbs, IBV_ACCESS_REMOTE_WRITE, &comm->qp));
 
   // Send my QP Info to receiver through the socket. Hope this won't block.
   struct ibv_port_attr portAttr;
@@ -392,8 +403,9 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
 
   // IB setup
   ibv_context* ctx = ncclIbDevs[lComm->dev].context;
+  NCCLCHECK(ncclIbInitVerbs(ctx, &rComm->verbs));
   uint8_t ib_port = ncclIbDevs[lComm->dev].port;
-  NCCLCHECK(ncclIbCreateQp(ctx, ib_port, &rComm->verbs, IBV_ACCESS_REMOTE_WRITE, &rComm->qp));
+  NCCLCHECK(ncclIbCreateQp(ib_port, &rComm->verbs, IBV_ACCESS_REMOTE_WRITE, &rComm->qp));
 
   struct ibv_qp* qp = rComm->qp;
   NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn, remQpInfo.lid, remQpInfo.ib_port));
@@ -408,7 +420,13 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
   rComm->remFifo.sge.lkey = rComm->remFifo.mr->lkey;
 
   // Allocate Flush dummy buffer for GPU Direct RDMA
-  if (ncclIbGdrSupport()) {
+  rComm->gpuFlush.enabled = 1;
+  char *str = getenv("NCCL_GDR_FLUSH_DISABLE");
+  if (str && strlen(str) > 0 && atoi(str) > 0) {
+    rComm->gpuFlush.enabled = 0;
+    INFO("GDR Flush is disabled");
+  }
+  if (ncclIbGdrSupport() && rComm->gpuFlush.enabled) {
     CUDACHECK(cudaMalloc(&rComm->gpuFlush.devMem, sizeof(int)));
     NCCLCHECK(wrap_ibv_reg_mr(&rComm->gpuFlush.devMr, rComm->verbs.pd, rComm->gpuFlush.devMem, sizeof(int), IBV_ACCESS_REMOTE_READ));
     NCCLCHECK(wrap_ibv_reg_mr(&rComm->gpuFlush.hostMr, rComm->verbs.pd, &rComm->gpuFlush.hostMem, sizeof(int), IBV_ACCESS_LOCAL_WRITE));
@@ -416,14 +434,11 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
     rComm->gpuFlush.sge.length = sizeof(int);
     rComm->gpuFlush.sge.lkey = rComm->gpuFlush.hostMr->lkey;
     uint8_t port = ncclIbDevs[lComm->dev].port;
-    NCCLCHECK(ncclIbCreateQp(NULL, port, &rComm->verbs, IBV_ACCESS_LOCAL_WRITE, &rComm->gpuFlush.qp));
-    NCCLCHECK(ncclIbCreateQp(NULL, port, &rComm->verbs, IBV_ACCESS_REMOTE_READ, &rComm->gpuFlush.recvQp));
+    NCCLCHECK(ncclIbCreateQp(port, &rComm->verbs, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ, &rComm->gpuFlush.qp));
     struct ibv_port_attr portAttr;
     NCCLCHECK(wrap_ibv_query_port(ctx, port, &portAttr));
-    NCCLCHECK(ncclIbRtrQp(rComm->gpuFlush.qp, rComm->gpuFlush.recvQp->qp_num, portAttr.lid, port));
-    NCCLCHECK(ncclIbRtrQp(rComm->gpuFlush.recvQp, rComm->gpuFlush.qp->qp_num, portAttr.lid, port));
+    NCCLCHECK(ncclIbRtrQp(rComm->gpuFlush.qp, rComm->gpuFlush.qp->qp_num, portAttr.lid, port));
     NCCLCHECK(ncclIbRtsQp(rComm->gpuFlush.qp));
-    NCCLCHECK(ncclIbRtsQp(rComm->gpuFlush.recvQp));
   }
 
   // Fill Handle
@@ -670,6 +685,8 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
 
 ncclResult_t ncclIbFlush(struct ncclIbRequest* req) {
   struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)req->comm;
+  if (comm->gpuFlush.enabled == 0) return ncclSuccess;
+
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
   wr.wr_id = (uint64_t)req;
@@ -743,12 +760,12 @@ int ncclIbTest(void* request, int* done, int* size) {
   return 0;
 }
 
-
 int ncclIbCloseSend(void* sendComm) {
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)sendComm;
   if (comm) {
     free(comm->reqs.requests);
     close(comm->fd);
+    if (comm->qp != NULL) NCCLCHECK(wrap_ibv_destroy_qp(comm->qp));
     if (comm->fifoMr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->fifoMr));
     for (int i=0; i<MAX_REQUESTS; i++) {
       if (comm->verbs.mrPool[i].mr != NULL) {
@@ -756,6 +773,7 @@ int ncclIbCloseSend(void* sendComm) {
 	NCCLCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i].mr));
       }
     }
+    NCCLCHECK(ncclIbDestroyVerbs(&comm->verbs));
     free(comm);
   }
   return 0;
@@ -766,6 +784,13 @@ int ncclIbCloseRecv(void* recvComm) {
   if (comm) {
     free(comm->reqs.requests);
     close(comm->fd);
+    if (comm->qp != NULL) NCCLCHECK(wrap_ibv_destroy_qp(comm->qp));
+    if (comm->gpuFlush.enabled) {
+      if (comm->gpuFlush.qp != NULL) NCCLCHECK(wrap_ibv_destroy_qp(comm->gpuFlush.qp));
+      if (comm->gpuFlush.devMr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->gpuFlush.devMr));
+      if (comm->gpuFlush.hostMr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->gpuFlush.hostMr));
+      CUDACHECK(cudaFree(comm->gpuFlush.devMem));
+    }
     if (comm->remFifo.mr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->remFifo.mr));
     for (int i=0; i<MAX_REQUESTS; i++) {
       if (comm->verbs.mrPool[i].mr != NULL) {
@@ -773,6 +798,7 @@ int ncclIbCloseRecv(void* recvComm) {
         NCCLCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i].mr));
       }
     }
+    NCCLCHECK(ncclIbDestroyVerbs(&comm->verbs));
     free(comm);
   }
   return 0;
