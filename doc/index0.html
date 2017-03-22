@@ -51,29 +51,29 @@ Failure to do so will result in other ranks waiting indefinitely.
 <a name="allreduce"></a><h4>All-reduce (ncclAllReduce)</h4>
 <p>The AllReduce operation is performing reductions on data (e.g. sum, max)
 across devices and writing the result in the receive buffers of every rank.
-<p><center><img src="AllReduce.png" width=300px></center>
+<p><center><img src="img/AllReduce.png" width=300px></center>
 
 <a name="reduce"></a><h4>Reduce (ncclReduce)</h4>
 <p>The Reduce operation is performing the same operation as AllReduce, but
 writes the result only in the receive buffers of a specified <i>root</i> rank.
-<p><center><img src="Reduce.png" width=300px></center>
+<p><center><img src="img/Reduce.png" width=300px></center>
 
 <a name="bcast"></a><h4>Broadcast (ncclBcast)</h4>
 <p>The Broadcast operation is replicating data from a specified <i>root</i> rank
 to all the other ranks.
-<p><center><img src="Bcast.png" width=300px></center>
+<p><center><img src="img/Bcast.png" width=300px></center>
 <p>Note : Reduce+Bcast is equivalent to AllReduce.
 
 <a name="reducescatter"></a><h4>Reduce-scatter (ncclReduceScatter)</h4>
 <p>The ReduceScatter operation is performing the same operation as the Reduce
 operation, except the result is scattered in equal blocks among ranks, each rank
 getting a chunk of data based on its rank number.
-<p><center><img src="ReduceScatter.png" width=300px></center>
+<p><center><img src="img/ReduceScatter.png" width=300px></center>
 
 <a name="allgather"></a><h4>All-gather (ncclAllGather)</h4>
 <p>The AllGather operation is exchanging data between ranks so that all ranks
 get aggregated data from all ranks, in the order of the ranks numbers.
-<p><center><img src="ReduceScatter.png" width=300px></center>
+<p><center><img src="img/ReduceScatter.png" width=300px></center>
 <p>Note: : ReduceScatter+AllGather is equivalent to AllReduce.
 
 <h4>Impact of rank/device mappings</h4>
