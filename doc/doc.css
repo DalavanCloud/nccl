@@ -1,0 +1,17 @@
+div.menu {
+  overflow: hidden;
+  background-color: #ccc;
+  position: fixed; /* Set the navbar to fixed position */
+  top: 0; /* Position the navbar at the top of the page */
+  width: 250px; /* Full width */
+  height: 100%;
+}
+
+div.main {
+  position: fixed;
+  top: 0;
+  left: 300px;
+  width: 900px;
+  max-height: 100%;
+  overflow-y: auto;
+}
