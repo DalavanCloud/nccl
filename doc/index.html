@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h1>NCCL User Manual</h1>
+
+<h2>Table of contents</h2>
+
+<h2>Introduction</h2>
+
+<p>NCCL is a communication library targetted at CUDA devices. It is optimized to
+perform inter-device data movement and reductions.
+<p>NCCL is able to work on single nodes as well as multiple nodes, using a
+combination of NVLink, PCI point-to-point, shared memory, Infiniband or Sockets.
+<p>Five collective operations are currently implemented : allreduce, reduce, broadcast,
+reduce_scatter and allgather. The API is similar to equivalent MPI operations.
+
+<h2>Usage</h2>
+<h3>Collective calls</h3>
+<p>NCCL defines operations which exchange data between a group of CUDA devices.
+A group is called "communicator", similarly to the notion of MPI communicator,
+and the creation of a communicator is the first step needed before launching any
+communication operation.
+<p>When creating a communicator, a rank between <i>0</i> and <i>n-1</i> has
+to be assigned to each of the <i>n</i> CUDA devices which are part of the
+communicator.
+<p>Given that static mapping of ranks to CUDA devices, the ncclCommInitRank and
+ncclCommInitAll functions will create <i>n</i> communicator objects,
+each communicator object being associated to a fixed rank. Those objects will
+then be used to launch communication operations.
+<p>Like MPI collective operations, NCCL collective operations have to be called
+for each rank (hence CUDA device) to form a complete collective operation.
+Failure to do so will result in other ranks waiting indefinitely.
+<h3>Multiple devices, threads and processes</h3>
+<p>Using multiple CUDA devices in an application can be done in different ways.
+Applications can use a single thread to launch CUDA operations on the different
+devices, use one thread for each device, use one process for each device or even
+more complex systems.
+<p>All these cases should be supported by NCCL : a process can own any number of
+ranks within a group and the associated communicator objects can be used from
+any thread of the process.
+<h3>Communicator creation</h3>
+To create a communicator, one needs to first create a unique object which will
+be used by all processes and threads to synchronize and understand they are part
+of the same communicator. This is done by calling ncclGetUniqueId.
+ncclGetUniqueId will return an <i>ID</i> which has to be broadcasted to all
+participating processes using any CPU communication system, e.g. passing
+the <i>ID</i> pointer to multiple threads, or broadcasting it to other processes
+using MPI or another parallel environment like sockets.
+<p>Then, the application can call ncclCommInitRank for every rank.
+<p> The usage of ncclCommInitRank is similar to any collective call : it
+has to be called exactly <i>n</i> times, with each call specifying a different
+rank going from <i>0</i> to <i>n-1</i>. Before calling <i>ncclCommInitRank</i>,
+the application has to set the CUDA device which will be associated to the
+specified <i>rank</i>.
+<p>Another function, ncclCommInitAll is provided as a convenience
+function to create <i>n</i> communicator objects at once within a single
+process. As it is limited to a single process, this function does not permit
+inter-node communication. ncclCommInitAll is equivalent to calling a
+combination of ncclGetUniqueId and ncclCommInitRank.
+<pre>
+ncclResult_t ncclCommInitAll(ncclComm_t* comm, int ndev, const int* devlist) {
+  ncclUniqueId Id;
+  ncclGetUniqueId(&amp;Id);
+  ncclGroupStart();
+  for (int i=0; i&lt;ndev; i++) {
+    cudaSetDevice(devlist[i]);
+    ncclCommInitRank(comm+i, ndev, Id, i);
+  }
+  ncclGroupEnd();
+}  
+</pre>
+<p>Note : this is a simplified implementation of ncclCommInitAll, see the
+ncclCommInitAll documentation for more information.
+<h3>CUDA Stream semantics</h3>
+<p>NCCL calls are associated to a stream, passed as last argument of collective
+communication functions. NCCL calls return when the operation has been
+effectively enqueued to the given stream, and is therefore executed
+asynchronously on the CUDA device. The operation status can be queried using
+standard CUDA semantics, e.g. calling cudaStreamSynchronize or using CUDA events.
+<h3>Group calls</h3>
+<h3>Differences with MPI</h3>
+<h4>CUDA device and rank mappings</h4>
+<h4>Send/Receive counts and datatypes</h4>
+<h4>In place semantics</h4>
+<h2>API</h2>
+<h3>Initialization</h3>
+<h3>Collective operations</h3>
+<h3>Group calls</h3>
+</body>
+</html>
