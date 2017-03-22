@@ -8,7 +8,7 @@
 default : src.build
 BUILDDIR ?= $(abspath ./build)
 ABSBUILDDIR := $(abspath $(BUILDDIR))
-TARGETS := src test fortran debian
+TARGETS := src test fortran debian doc
 all:   ${TARGETS:%=%.build}
 clean: ${TARGETS:%=%.clean}
 fortran.build test.build: src.build
