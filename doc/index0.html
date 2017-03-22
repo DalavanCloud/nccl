@@ -125,6 +125,17 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comm, int ndev, const int* devlist) {
 </pre>
 <p>Note : this is a simplified implementation of ncclCommInitAll, see the
 ncclCommInitAll documentation for more information.
+<h3>Data pointers</h3>
+<p>Pointers provided to NCCL have to be CUDA pointers, accessible from the CUDA
+device associated to the communicator object. This includes :
+<ul>
+<li>Device memory local to the CUDA device
+<li>Host memory registered using cudaHostRegister/cudaGetDevicePointer
+<li>Managed and unified memory
+</ul>
+<p>The only exception is therefore device memory located on another device but
+accessible from the current device using peer access. NCCL will return an error
+in that case to avoid programming errors.
 <h3>CUDA Stream semantics</h3>
 <p>NCCL calls are associated to a stream, passed as last argument of the
 collective communication function. The NCCL call returns when the operation has
