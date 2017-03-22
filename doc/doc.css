@@ -1,10 +1,50 @@
+body {
+  font-family: Sans-Serif;
+  font-size: 14px;
+}
+
+h1, h2, h3, h4 {
+  color:#76b900;
+}
+
+a {
+  color:#000;
+  text-decoration:none;
+}
+
+a:hover {
+  color:#000;
+  text-decoration:underline;
+}
+
+th {
+  text-align:left;
+}
+
+td.code {
+  background-color:#eee;
+  font-family:monospace;
+}
+td.desc {
+  background-color:#eee;
+}
+
+pre {
+  background-color:#eee;
+}
+
 div.menu {
   overflow: hidden;
   background-color: #ccc;
   position: fixed; /* Set the navbar to fixed position */
   top: 0; /* Position the navbar at the top of the page */
-  width: 250px; /* Full width */
+  left: 0px;
+  width: 300px; /* Full width */
   height: 100%;
+}
+div.inmenu {
+  margin-left: 10px;
+  margin-right: 10px;
 }
 
 div.main {
@@ -14,4 +54,8 @@ div.main {
   width: 900px;
   max-height: 100%;
   overflow-y: auto;
+}
+div.inmain {
+  margin-left:50px;
+  margin-right:50px;
 }

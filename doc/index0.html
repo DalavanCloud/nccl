@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" type="text/css" href="doc.css">
+</head>
+<body>
+
+<div class="main">
+<div class="inmain">
+<h1>NCCL User Manual</h1>
+
+<h2>Purpose</h2>
+
+<p>NCCL is a communication library targetted at CUDA devices. It is optimized to
+perform inter-device data movement and reductions.
+
+<p>NCCL is able to work on single nodes as well as multiple nodes, using a
+combination of NVLink, PCI point-to-point, shared memory, Infiniband or Sockets.
+It features automatic topology detection to optimize bandwidth on platforms
+combining multiple technologies.
+
+<p>Five collective operations are currently implemented : allreduce, reduce,
+broadcast, reduce_scatter and allgather. The API is similar to equivalent MPI
+operations.
+
+<h2>Operation</h2>
+
+<h3>Communicators</h3>
+
+<p>NCCL defines operations which exchange data between a group of CUDA devices.
+A group is called "communicator", similarly to the notion of MPI communicator,
+and the creation of a communicator is the first step needed before launching any
+communication operation.
+
+<p>When creating a communicator, a rank between <i>0</i> and <i>n-1</i> has
+to be assigned to each of the <i>n</i> CUDA devices which are part of the
+communicator.
+
+<p>Given that static mapping of ranks to CUDA devices, the ncclCommInitRank and
+ncclCommInitAll functions will create <i>n</i> communicator objects,
+each communicator object being associated to a fixed rank. Those objects will
+then be used to launch communication operations.
+
+<h3>Collective communication primitives</h3>
+
+<h4>Usage</h4>
+<p>Like MPI collective operations, NCCL collective operations have to be called
+for each rank (hence CUDA device) to form a complete collective operation.
+Failure to do so will result in other ranks waiting indefinitely.
+
+<a name="allreduce"></a><h4>All-reduce (ncclAllReduce)</h4>
+<p>The AllReduce operation is performing reductions on data (e.g. sum, max)
+across devices and writing the result in the receive buffers of every rank.
+<p><center><img src="AllReduce.png" width=300px></center>
+
+<a name="reduce"></a><h4>Reduce (ncclReduce)</h4>
+<p>The Reduce operation is performing the same operation as AllReduce, but
+writes the result only in the receive buffers of a specified <i>root</i> rank.
+<p><center><img src="Reduce.png" width=300px></center>
+
+<a name="bcast"></a><h4>Broadcast (ncclBcast)</h4>
+<p>The Broadcast operation is replicating data from a specified <i>root</i> rank
+to all the other ranks.
+<p><center><img src="Bcast.png" width=300px></center>
+<p>Note : Reduce+Bcast is equivalent to AllReduce.
+
+<a name="reducescatter"></a><h4>Reduce-scatter (ncclReduceScatter)</h4>
+<p>The ReduceScatter operation is performing the same operation as the Reduce
+operation, except the result is scattered in equal blocks among ranks, each rank
+getting a chunk of data based on its rank number.
+<p><center><img src="ReduceScatter.png" width=300px></center>
+
+<a name="allgather"></a><h4>All-gather (ncclAllGather)</h4>
+<p>The AllGather operation is exchanging data between ranks so that all ranks
+get aggregated data from all ranks, in the order of the ranks numbers.
+<p><center><img src="ReduceScatter.png" width=300px></center>
+<p>Note: : ReduceScatter+AllGather is equivalent to AllReduce.
+
+<h4>Impact of rank/device mappings</h4>
+<p>The AllReduce operation is rank-agnostic. Any reordering of the ranks will
+not affect the outcome of the operations. 
+<p>Reduce and Broadcast have a <i>root</i> argument, which is one of the ranks,
+and is therefore impacted by a different rank/device mapping.
+<p> ReduceScatter and AllGather are also affected, since the ranks determine the
+data layout.
+<h3>Multiple devices, threads and processes</h3>
+<p>Using multiple CUDA devices in an application can be done in different ways.
+Applications can use a single thread to launch CUDA operations on the different
+devices, use one thread for each device, use one process for each device, a
+combination of all or even more complex systems.
+<p>All these cases should be supported by NCCL : every process can own any
+number of ranks within a group and the associated communicator objects can be
+used from any thread of the process.
+<h3>Communicator creation</h3>
+<p>To create a communicator, one needs to first create a unique object which will
+be used by all processes and threads to synchronize and understand they are part
+of the same communicator. This is done by calling ncclGetUniqueId.
+<p>ncclGetUniqueId will return an <i>ID</i> which has to be broadcasted to all
+participating processes using any CPU communication system, e.g. passing
+the <i>ID</i> pointer to multiple threads, or broadcasting it to other processes
+using MPI or another parallel environment like sockets.
+<p>Then, the application can call ncclCommInitRank for every rank.
+<p>The usage of ncclCommInitRank is similar to any collective call : it
+has to be called exactly <i>n</i> times, with each call specifying a different
+rank going from <i>0</i> to <i>n-1</i>.
+<p>Important note : before calling <i>ncclCommInitRank</i>,
+the application has to set the CUDA device which will be associated to the
+specified <i>rank</i>.
+<p>Another function, ncclCommInitAll, is provided as a convenience
+function to create <i>n</i> communicator objects at once within a single
+process. As it is limited to a single process, this function does not permit
+inter-node communication. ncclCommInitAll is equivalent to calling a
+combination of ncclGetUniqueId and ncclCommInitRank.
+<pre>
+ncclResult_t ncclCommInitAll(ncclComm_t* comm, int ndev, const int* devlist) {
+  ncclUniqueId Id;
+  ncclGetUniqueId(&amp;Id);
+  ncclGroupStart();
+  for (int i=0; i&lt;ndev; i++) {
+    cudaSetDevice(devlist[i]);
+    ncclCommInitRank(comm+i, ndev, Id, i);
+  }
+  ncclGroupEnd();
+}  
+</pre>
+<p>Note : this is a simplified implementation of ncclCommInitAll, see the
+ncclCommInitAll documentation for more information.
+<h3>CUDA Stream semantics</h3>
+<p>NCCL calls are associated to a stream, passed as last argument of the
+collective communication function. The NCCL call returns when the operation has
+been effectively enqueued to the given stream, or returns an error. The
+collective operations is then executed asynchronously on the CUDA device. The
+operation status can be queried using standard CUDA semantics, e.g. calling
+cudaStreamSynchronize or using CUDA events.
+<a name="groups"></a><h3>Group calls</h3>
+<p>When a single thread is managing multiple devices, group semantics must be
+used.
+<p>This is because every NCCL call may have to block, waiting for other
+threads/ranks to arrive, before effectively posting the NCCL operation on the
+given stream. Hence, a simple loop on multiple devices like shown below could
+block on the first call waiting for the other ones :
+<pre>
+   for (int i=0; i&lt;nLocalDevs; i++) {
+     ncclAllReduce(..., comm[i], stream[i];
+   }
+</pre>
+<p>To define that these calls are part of the same collectives, ncclGroupStart
+and ncclGroupEnd should be used :
+<pre>
+   ncclGroupStart();
+   for (int i=0; i&lt;nLocalDevs; i++) {
+     ncclAllReduce(..., comm[i], stream[i];
+   }
+   ncclGroupEnd();
+</pre>
+<p>This will tell NCCL to treat all calls between ncclGroupStart and
+ncclGroupEnd as a single call to many devices. When called inside a group,
+ncclAllReduce can return without having enqueued the operation on the stream.
+Stream operations like cudaStreamSynchronize can therefore be called only after
+ncclGroupEnd returns.
+<p>Note : contrary to NCCL 1.x, there is no need to set the CUDA device before
+every NCCL communication call within a group, but it is still needed when
+calling ncclCommInitRank within a group.
+<h3>Thread safety</h3>
+<p>NCCL primitives are generally not thread-safe but they are reentrant, since
+each thread is supposed to use different communicator objects.
+<h3>Difference with MPI</h3>
+<p>The NCCL API and usage is similar to MPI but there are many minor
+differences.
+<h4>Ranks/process mapping</h4>
+<p>Similarly to the concept of MPI endpoints, NCCL does not require ranks to be
+mapped 1:1 to MPI ranks. A NCCL communicator may have many ranks associated
+to a single process (hence MPI rank if used with MPI).
+<h4>Reduce Scatter</h4>
+<p>The ncclReduceScatter operation is similar to the MPI_Reduce_scatter_block
+operation, not MPI_Reduce_scatter. The MPI_Reduce_scatter function is
+intrinsically a "vector" function, and should have been called
+MPI_Reduce_scatterv, while MPI_Reduce_scatter_block (defined later to fill the
+missing semantics) is providing regular counts similarly to the mirror function
+MPI_Allgather. This is an odditiy of MPI which has not been fixed for legitimate
+retro-compatibility reasons and that NCCL does not follow.
+<h4>Send/Receive counts and datatypes</h4>
+<p>In many collective operations, MPI allows for different send/receive counts
+and types, as long as sendcount*sizeof(sendtype) == recvcount*sizeof(recvtype).
+NCCL does not allow that, defining a single count and a single datatype.
+<p>For AllGather and ReduceScatter operations, the count is equal to the
+per-rank size, which is the smallest size ; the other count being equal to
+<i>nranks*count</i>. The function prototype clearly shows which count is
+provided, i.e. <i>sendcount</i> for ncclAllgather and <i>recvcount</i> for
+ncclReduceScatter.
+<p>Remark : when performing or comparing AllReduce operations using a
+combination of ReduceScatter and AllGather, users should therefore define the
+sendcount and recvcount as the total count divided by the number of ranks, with
+the correct rounding (up) if it is not a perfect multiple of the number of
+ranks.
+<h4>In place semantics</h4>
+<p>Contrary to MPI, NCCL does not define a special "in-place" value to
+replace pointers. Instead, NCCL optimizes the case where the provided pointers
+are effectively "in place".
+<p>For ncclReduce and ncclAllreduce functions, this simply means that passing <i>sendBuff
+== recvBuff</i> will perform in place operations, storing final results at the
+same place as initial data was read from.
+<p>For ncclReduceScatter and ncclAllGather, in place operations will be done
+when the per-rank pointer is located at the rank offset of the global buffer.
+More precisely, these calls will be considered in place :
+<pre>
+  ncclReduceScatter(data, data+rank*recvcount, recvcount, datatype, op, comm, stream);
+  ncclAllGather(data+rank*sendcount, data, sendcount, datatype, op, comm, stream);
+</pre>
+<h2>API</h2>
+<h3>Initialization</h3>
+<h4>ncclGetUniqueId</h4>
+<pre>ncclResult_t  ncclGetUniqueId(ncclUniqueId* uniqueId);</pre>
+<p> Generates an Id to be used in ncclCommInitRank. ncclGetUniqueId should be
+ called once and the Id should be distributed to all ranks in the 
+ communicator before calling ncclCommInitRank.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+<tr><td class="code">ncclUniqueId*</td><td class="code">uniqueId</td>
+<td class="desc">pointer to an already allocated unique Id.</td></tr>
+</table>
+<h4>ncclCommInitRank</h4>
+<pre>ncclResult_t  ncclCommInitRank(ncclComm_t* comm, int nranks, ncclUniqueId commId, int rank);</pre>
+<p>Creates a new communicator object for the current CUDA device. This function
+permits multi-process initialization.
+<p>ncclCommInitRank implicitly syncronizes with other ranks, so it must be 
+called by different threads/processes or use ncclGroupStart/ncclGroupEnd.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+
+<tr><td class="code">ncclComm_t*</td><td class="code">comm</td>
+<td class="desc">Returned communicator</td></tr>
+
+<tr><td class="code">int</td><td class="code">nranks</td>
+<td class="desc">Number of ranks in the communicator</td></tr>
+
+<tr><td class="code">ncclUniqueId*</td><td class="code">uniqueId</td>
+<td class="desc">pointer to unique Id</td></tr>
+
+<tr><td class="code">int</td><td class="code">rank</td>
+<td class="desc">Rank associated to the current device. Must be between 0 and
+nranks-1 and unique within a communicator clique.</td></tr>
+</table>
+<h4>ncclCommInitAll</h4>
+<pre>ncclResult_t  ncclCommInitAll(ncclComm_t* comm, int ndev, const int* devlist);</pre>
+<p> Creates a full communicator, i.e. a clique of communicator objects. Only
+works within a single process.
+<p>Returns an array of ndev newly initialized communicators in comm.
+comm should be pre-allocated with size at least ndev*sizeof(ncclComm_t).
+If devlist is NULL, the first ndev CUDA devices are used.
+Order of devlist defines user-order of processors within the communicator.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+
+<tr><td class="code">ncclComm_t*</td><td class="code">comm</td>
+<td class="desc">Returned array of communicators. comm should be pre-allocated
+with a size of at least ndev*sizeof(ncclComm_t).</td></tr>
+
+<tr><td class="code">int</td><td class="code">ndev</td>
+<td class="desc">Number of ranks/devices in the communicator</td></tr>
+
+<tr><td class="code">const int*</td><td class="code">devlist</td>
+<td class="desc">List of CUDA devices to associate with each rank. Should be an
+array of ndev integers.</td></tr>
+</table>
+
+<h4>ncclCommDestroy</h4>
+<pre>ncclResult_t  ncclCommDestroy(ncclComm_t comm);</pre>
+<p>Frees resources allocated to a communicator object.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object to free</td></tr>
+</table>
+
+<h4>ncclCommCount</h4>
+<pre>ncclResult_t  ncclCommCount(const ncclComm_t comm, int* count);</pre>
+<p>Returns the number of ranks in the communicator.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object</td></tr>
+
+<tr><td class="code">int*</td><td class="code">count</td>
+<td class="desc">Number of ranks returned</td></tr>
+</table>
+
+<h4>ncclCommCuDevice</h4>
+<pre>ncclResult_t  ncclCommCuDevice(const ncclComm_t comm, int* device);</pre>
+<p>Returns the CUDA device associated to a communicator object.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object</td></tr>
+
+<tr><td class="code">int*</td><td class="code">count</td>
+<td class="desc">CUDA device returned</td></tr>
+</table>
+<h4>ncclCommUserRank</h4>
+<pre>ncclResult_t  ncclCommUserRank(const ncclComm_t comm, int* rank);</pre>
+<p>Returns the rank of a communicator object.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object</td></tr>
+
+<tr><td class="code">int*</td><td class="code">rank</td>
+<td class="desc">rank returned</td></tr>
+</table>
+
+<h3>Collective operations</h3>
+<h4>ncclAllReduce</h4>
+<pre>ncclResult_t  ncclAllReduce(const void* sendbuff, void* recvbuff, size_t count,
+    ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm, cudaStream_t stream);</pre>
+<p>Reduces data arrays of length count in sendbuff using op operation, and
+leaves identical copies of result on each recvbuff.
+<p>See also the <a href="#allreduce">All-reduce</a> paragraph.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+<tr><td class="code">const void*</td><td class="code">sendbuff</td>
+<td class="desc">Pointer to data to read from</td></tr>
+<tr><td class="code">const void*</td><td class="code">recvbuff</td>
+<td class="desc">Pointer to data to write to</td></tr>
+<tr><td class="code">size_t</td><td class="code">count</td>
+<td class="desc">Number of elements to process</td></tr>
+<tr><td class="code">ncclDataType_t</td><td class="code">datatype</td>
+<td class="desc">Type of the elements</td></tr>
+<tr><td class="code">ncclRedOp_t</td><td class="code">op</td>
+<td class="desc">Operation to perform on each element</td></tr>
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object</td></tr>
+<tr><td class="code">cudaStream_t</td><td class="code">stream</td>
+<td class="desc">CUDA stream to run the operation on</td></tr>
+</table>
+
+<h4>ncclReduce</h4>
+<pre> ncclResult_t  ncclReduce(const void* sendbuff, void* recvbuff, size_t count, ncclDataType_t datatype,
+    ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);</pre>
+<p>Reduces data arrays of length count in sendbuff into recvbuff using op 
+operation.
+<p>See also the <a href="#reduce">Reduce</a> paragraph.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+<tr><td class="code">const void*</td><td class="code">sendbuff</td>
+<td class="desc">Pointer to data to read from</td></tr>
+<tr><td class="code">const void*</td><td class="code">recvbuff</td>
+<td class="desc">Pointer to data to write to</td></tr>
+<tr><td class="code">size_t</td><td class="code">count</td>
+<td class="desc">Number of elements to process</td></tr>
+<tr><td class="code">ncclDataType_t</td><td class="code">datatype</td>
+<td class="desc">Type of the elements</td></tr>
+<tr><td class="code">ncclRedOp_t</td><td class="code">op</td>
+<td class="desc">Operation to perform on each element</td></tr>
+<tr><td class="code">int</td><td class="code">root</td>
+<td class="desc">Rank of the root of the operation</td></tr>
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object</td></tr>
+<tr><td class="code">cudaStream_t</td><td class="code">stream</td>
+<td class="desc">CUDA stream to run the operation on</td></tr>
+</table>
+
+<h4>ncclBcast</h4>
+<pre>ncclResult_t  ncclBcast(void* buff, size_t count, ncclDataType_t datatype, int root,
+    ncclComm_t comm, cudaStream_t stream);</pre>
+<p>Copies count values from root to all other devices.
+root is the rank (not the CUDA device) where data resides before the 
+operation is started.
+<p>See also the <a href="#bcast">Broadcast</a> paragraph.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+<tr><td class="code">const void*</td><td class="code">buff</td>
+<td class="desc">Pointer to data to read from (root) or write to (non-root)</td></tr>
+<tr><td class="code">size_t</td><td class="code">count</td>
+<td class="desc">Number of elements to process</td></tr>
+<tr><td class="code">ncclDataType_t</td><td class="code">datatype</td>
+<td class="desc">Type of the elements</td></tr>
+<tr><td class="code">int</td><td class="code">root</td>
+<td class="desc">Rank of the root of the operation</td></tr>
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object</td></tr>
+<tr><td class="code">cudaStream_t</td><td class="code">stream</td>
+<td class="desc">CUDA stream to run the operation on</td></tr>
+</table>
+
+<h4>ncclReduceScatter</h4>
+<pre>ncclResult_t  ncclReduceScatter(const void* sendbuff, void* recvbuff,
+    size_t recvcount, ncclDataType_t datatype, ncclRedOp_t op, ncclComm_t comm,
+    cudaStream_t stream);</pre>
+<p>Reduces data in sendbuff using op operation and leaves reduced result 
+scattered over the devices so that recvbuff on rank i will contain the i-th
+block of the result.
+<p>Assumes sendcount is equal to nranks*recvcount, which means that sendbuff 
+should have a size of at least nranks*recvcount elements.
+<p>See also the <a href="#reducescatter">Reduce-scatter</a> paragraph.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+<tr><td class="code">const void*</td><td class="code">sendbuff</td>
+<td class="desc">Pointer to data to read from. Should be of size
+recvcount*nranks</td></tr>
+<tr><td class="code">const void*</td><td class="code">recvbuff</td>
+<td class="desc">Pointer to data to write to</td></tr>
+<tr><td class="code">size_t</td><td class="code">recvcount</td>
+<td class="desc">Number of elements to receive by each rank</td></tr>
+<tr><td class="code">ncclDataType_t</td><td class="code">datatype</td>
+<td class="desc">Type of the elements</td></tr>
+<tr><td class="code">ncclRedOp_t</td><td class="code">op</td>
+<td class="desc">Operation to perform on each element</td></tr>
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object</td></tr>
+<tr><td class="code">cudaStream_t</td><td class="code">stream</td>
+<td class="desc">CUDA stream to run the operation on</td></tr>
+</table>
+
+<h4>ncclAllGather</h4>
+<pre>ncclResult_t  ncclAllGather(const void* sendbuff, void* recvbuff, size_t sendcount,
+    ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream);</pre>
+<p>Each device gathers sendcount values from other GPUs into recvbuff,
+receiving data from rank i at offset i*sendcount.
+Assumes recvcount is equal to nranks*sendcount, which means that recvbuff
+should have a size of at least nranks*sendcount elements.
+<p>See also the <a href="#allgather">All-gather</a> paragraph.
+<table class="args">
+<tr><th colspan=3>Arguments :</th>
+<tr><td class="code">const void*</td><td class="code">sendbuff</td>
+<td class="desc">Pointer to data to read from</td></tr>
+<tr><td class="code">const void*</td><td class="code">recvbuff</td>
+<td class="desc">Pointer to data to write to. Should be of size
+sendcount*nranks.</td></tr>
+<tr><td class="code">size_t</td><td class="code">sendcount</td>
+<td class="desc">Number of elements sent per rank</td></tr>
+<tr><td class="code">ncclDataType_t</td><td class="code">datatype</td>
+<td class="desc">Type of the elements</td></tr>
+<tr><td class="code">ncclComm_t</td><td class="code">comm</td>
+<td class="desc">Communicator object</td></tr>
+<tr><td class="code">cudaStream_t</td><td class="code">stream</td>
+<td class="desc">CUDA stream to run the operation on</td></tr>
+</table>
+
+<h3>Group calls</h3>
+<p>Group primitives are defining the behavior of the current thread to avoid
+blocking. They can therefore be used from multiple threads independently.
+<h4>ncclGroupStart</h4>
+<pre>ncclResult_t ncclGroupStart();</pre>
+<p>Start a group call. All subsequent calls to NCCL may not block due to
+inter-CPU synchronization.
+<p>See also the <a href="#groups">group calls</a> paragraph.
+<h4>ncclGroupEnd</h4>
+<pre>ncclResult_t ncclGroupEnd();</pre>
+<p>End a group call. Wait for all stream operations (collective communication)
+since ncclGroupStart to enqueue their operations on the streams before
+returning.
+<p>When used with ncclCommInitRank, waits for all communicators to be
+initialized.
+<p>See also the <a href="#groups">group calls</a> paragraph.
+<h3>Enums</h3>
+<h4>ncclResult_t</h4>
+<pre>typedef enum { ncclSuccess                 =  0,
+               ncclUnhandledCudaError      =  1,
+               ncclSystemError             =  2,
+               ncclInternalError           =  3,
+               ncclInvalidArgument         =  4,
+               ncclInvalidUsage            =  5,
+               ncclNumResults              =  6 } ncclResult_t;</pre>
+<p>Return codes of all NCCL functions. Whenever a function returns an error,
+NCCL should print the reason when the environment variable NCCL_DEBUG is set to
+"WARN".
+<table class="args">
+<tr><td class="code">ncclSuccess</td>
+<td class="desc">The operations completed successfully</td></tr>
+<tr><td class="code">ncclUnhandledCudaError</td>
+<td class="desc">A call to CUDA returned a fatal error for the NCCL operation</td></tr>
+<tr><td class="code">ncclSystemError</td>
+<td class="desc">A call to the system returned a fatal error for the NCCL operation</td></tr>
+<tr><td class="code">ncclInternalError</td>
+<td class="desc">NCCL experienced an internal error</td></tr>
+<tr><td class="code">ncclInvalidArgument</td>
+<td class="desc">The user has supplied an invalid argument</td></tr>
+<tr><td class="code">ncclInvalidUsage</td>
+<td class="desc">The user has used NCCL in an invalid manner</td></tr>
+</table>
+
+<h4>ncclRedOp_t</h4>
+<pre>typedef enum { ncclSum        = 0,
+               ncclProd       = 1,
+               ncclMax        = 2,
+               ncclMin        = 3,
+               ncclNumOps     = 4 } ncclRedOp_t;</pre>
+<p>NCCL defines four reduction operations.
+<table class="args">
+<tr><td class="code">ncclSum</td>
+<td class="desc">Perform a sum (+) operation</td></tr>
+<tr><td class="code">ncclProd</td>
+<td class="desc">Perform a product (*) operation</td></tr>
+<tr><td class="code">ncclMin</td>
+<td class="desc">Perform a min operation</td></tr>
+<tr><td class="code">ncclMax</td>
+<td class="desc">Perform a max operation</td></tr>
+</table>
+
+<h4>ncclDataType_t</h4>
+<pre>typedef enum { ncclInt8       = 0, ncclChar       = 0,
+               ncclUint8      = 1,
+               ncclInt32      = 2, ncclInt        = 2,
+               ncclUint32     = 3,
+               ncclInt64      = 4,
+               ncclUint64     = 5,
+               ncclFloat16    = 6, ncclHalf       = 6,
+               ncclFloat32    = 7, ncclFloat      = 7,
+               ncclFloat64    = 8, ncclDouble     = 8,
+               ncclNumTypes   = 9 } ncclDataType_t;</pre>
+<p>NCCL defines integral and floating datatypes.
+<table class="args">
+<tr><td class="code">ncclInt8, ncclChar</td>
+<td class="desc">Signed 8-bits integer</td></tr>
+<tr><td class="code">ncclUint8</td>
+<td class="desc">Unsigned 8-bits integer</td></tr>
+<tr><td class="code">ncclInt32, ncclInt</td>
+<td class="desc">Signed 32-bits integer</td></tr>
+<tr><td class="code">ncclUint32</td>
+<td class="desc">Unsigned 32-bits integer</td></tr>
+<tr><td class="code">ncclInt64</td>
+<td class="desc">Signed 64-bits integer</td></tr>
+<tr><td class="code">ncclUint64</td>
+<td class="desc">Unsigned 64-bits integer</td></tr>
+<tr><td class="code">ncclFloat16, ncclHalf</td>
+<td class="desc">16-bits floating point number (half precision)</td></tr>
+<tr><td class="code">ncclFloat32, ncclFloat</td>
+<td class="desc">32-bits floating point number (single precision)</td></tr>
+<tr><td class="code">ncclFloat64, ncclDouble</td>
+<td class="desc">64-bits floating point number (double precision)</td></tr>
+</table>
+<h3>Constants</h3>
+<h4>NCCL_MAJOR, NCCL_MINOR</h4>
+<p>NCCL defines two constants NCCL_MAJOR and NCCL_MINOR to help distinguish
+between API changes, in particular between NCCL 1.x and NCCL 2.x.
+</div>
+</div>
+<div class="menu">
+<div class="inmenu">
+$CONTENTS
+</div>
+</div>
+</body>
+</html>
