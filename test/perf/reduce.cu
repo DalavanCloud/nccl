@@ -111,39 +111,46 @@ void RunColl(void* sendbuff, void* recvbuff, size_t count, ncclDataType_t type, 
   NCCLCHECK(ncclReduce(sendbuff, recvbuff, count, type, op, root, comm, stream));
 }
 
-void RunTestOp(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName) {
-  for (int i=0; i<args->nProcs*args->nThreads*args->nGpus; i++) {
-      TimeTest(args, type, typeName, op, opName, i, 1);
+
+void RunTest(struct threadArgs_t* args, int root, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName) {
+  ncclDataType_t *run_types;
+  ncclRedOp_t *run_ops;
+  const char **run_typenames, **run_opnames;
+  int type_count, op_count;
+  int begin_root, end_root;
+
+  if ((int)type != -1) { 
+    type_count = 1;
+    run_types = &type;
+    run_typenames = &typeName;
+  } else { 
+    type_count = ncclNumTypes;
+    run_types = test_types;
+    run_typenames = test_typenames;
   }
-}
 
-void RunTestType(struct threadArgs_t* args, ncclDataType_t type, const char* typeName) {
-  RunTestOp(args, type, typeName, ncclSum, "sum");
-  RunTestOp(args, type, typeName, ncclProd, "prod");
-  RunTestOp(args, type, typeName, ncclMax, "max");
-  RunTestOp(args, type, typeName, ncclMin, "min");
-}
+  if ((int)op != -1) { 
+    op_count = 1;
+    run_ops = &op;
+    run_opnames = &opName;
+  } else { 
+    op_count = ncclNumOps;
+    run_ops = test_ops;
+    run_opnames = test_opnames;
+  }
 
-void RunTests(struct threadArgs_t* args) {
-  RunTestType(args, ncclInt8, "int8");
-  RunTestType(args, ncclUint8, "uint8");
-  RunTestType(args, ncclInt32, "int32");
-  RunTestType(args, ncclUint32, "uint32");
-  RunTestType(args, ncclInt64, "int64");
-  RunTestType(args, ncclUint64, "uint64");
-  RunTestType(args, ncclHalf, "half");
-  RunTestType(args, ncclFloat, "float");
-  RunTestType(args, ncclDouble, "double");
-}
+  if (root != -1) { 
+     begin_root = end_root = root;
+  } else { 
+     begin_root = 0;
+     end_root = args->nProcs*args->nThreads*args->nGpus;
+  }
 
-void RunTestsOp(struct threadArgs_t* args, ncclRedOp_t op, const char* opName) {
-  RunTestOp(args, ncclInt8, "int8", op, opName);
-  RunTestOp(args, ncclUint8, "uint8", op, opName);
-  RunTestOp(args, ncclInt32, "int32", op, opName);
-  RunTestOp(args, ncclUint32, "uint32", op, opName);
-  RunTestOp(args, ncclInt64, "int64", op, opName);
-  RunTestOp(args, ncclUint64, "uint64", op, opName);
-  RunTestOp(args, ncclHalf, "half", op, opName);
-  RunTestOp(args, ncclFloat, "float", op, opName);
-  RunTestOp(args, ncclDouble, "double", op, opName);
+  for (int i=0; i<type_count; i++) { 
+      for (int j=0; j<op_count; j++) { 
+         for (int k=begin_root; k<end_root; k++) { 
+             TimeTest(args, run_types[i], run_typenames[i], run_ops[j], run_opnames[j], k, 1);
+         }
+      }
+  }   
 }

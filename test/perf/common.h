@@ -75,8 +75,7 @@ extern void CheckDelta(void* expected, void* results, int count, ncclDataType_t 
 extern double DeltaMaxValue(ncclDataType_t type);
 
 // Provided by each coll
-extern void RunTests(struct threadArgs_t* args);
-extern void RunTestsOp(struct threadArgs_t* args, ncclRedOp_t op, const char* opName);
+void RunTest(struct threadArgs_t* args, int root, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName);
 extern void GetBw(size_t count, int typeSize, double sec, double* algBw, double* busBw, int nranks);
 extern void RunColl(void* sendbuf, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op,  int root, ncclComm_t comm, cudaStream_t stream);
 extern void InitData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op,  int in_place, int is_first);
@@ -129,6 +128,11 @@ static size_t wordSize(ncclDataType_t type) {
     default: return 0;
   }
 }
+
+extern ncclDataType_t test_types[ncclNumTypes];
+extern const char *test_typenames[ncclNumTypes];
+extern ncclRedOp_t test_ops[ncclNumOps];
+extern const char *test_opnames[ncclNumOps];
 
 extern thread_local int is_main_thread;
 #define PRINT if (is_main_thread) printf

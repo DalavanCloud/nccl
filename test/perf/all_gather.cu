@@ -82,22 +82,22 @@ void RunColl(void* sendbuff, void* recvbuff, size_t count, ncclDataType_t type, 
   NCCLCHECK(ncclAllGather(sendbuff, recvbuff, count, type, comm, stream));
 }
 
-void RunTestType(struct threadArgs_t* args, ncclDataType_t type, const char* typeName) {
-  TimeTest(args, type, typeName, (ncclRedOp_t)0, NULL, 0, 1);
-}
+void RunTest(struct threadArgs_t* args, int root, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName) {
+  ncclDataType_t *run_types;
+  const char **run_typenames;
+  int type_count;
 
-void RunTests(struct threadArgs_t* args) {
-  RunTestType(args, ncclInt8, "int8");
-  RunTestType(args, ncclUint8, "uint8");
-  RunTestType(args, ncclInt32, "int32");
-  RunTestType(args, ncclUint32, "uint32");
-  RunTestType(args, ncclInt64, "int64");
-  RunTestType(args, ncclUint64, "uint64");
-  RunTestType(args, ncclHalf, "half");
-  RunTestType(args, ncclFloat, "float");
-  RunTestType(args, ncclDouble, "double");
-}
+  if ((int)type != -1) { 
+    type_count = 1;
+    run_types = &type;
+    run_typenames = &typeName;
+  } else { 
+    type_count = ncclNumTypes;
+    run_types = test_types;
+    run_typenames = test_typenames;
+  }
 
-void RunTestsOp(struct threadArgs_t* args, ncclRedOp_t op, const char* opName) {
-  RunTests(args);
+  for (int i=0; i<type_count; i++) { 
+     TimeTest(args, run_types[i], run_typenames[i], (ncclRedOp_t)0, NULL, 0, 1);
+  }   
 }

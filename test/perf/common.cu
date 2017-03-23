@@ -25,26 +25,46 @@ void ncclMpiUnlock();
 #define MPI_PROTECT(mpicall) mpicall
 #endif
 
+ncclDataType_t test_types[9] = {ncclInt8, ncclUint8, ncclInt32, ncclUint32, ncclInt64, ncclUint64, ncclHalf, ncclFloat, ncclDouble};
+const char *test_typenames[9] = {"int8", "uint8", "int32", "uint32", "int64", "uint64", "half", "float", "double"};
+ncclRedOp_t test_ops[4] = {ncclSum, ncclProd, ncclMax, ncclMin};
+const char *test_opnames[4] = {"sum", "prod", "max", "min"};
+
 thread_local int is_main_thread = 0;
 
 static int datacheck = 1;
 static int iters = 20;
 static int ncclop = ncclSum;
 static char ncclopstring[10] = "sum";
+static int nccltype = ncclFloat;
+static char nccltypestring[10] = "float";
+static int ncclroot = 0;
+
+double parsesize(char *value) {
+    long long int units;
+    double size;
+
+    if (strchr(value, 'G') != NULL) {
+        units=1024*1024*1024;
+    } else if (strchr(value, 'M') != NULL) {
+        units=1024*1024;
+    } else if (strchr(value, 'K') != NULL) {
+        units=1024;
+    } else {
+        units=1;
+    }
+
+    size = atof(value)*units;
+    return size;
+}
 
 double DeltaMaxValue(ncclDataType_t type) {
   switch(type) {
-//    case ncclHalf:
-    case ncclFloat16: return 5e-2;
-//    case ncclFloat:
-    case ncclFloat32: return 1e-5;
-//    case ncclDouble:
-    case ncclFloat64: return 1e-12;
-
-//    case ncclChar:
+    case ncclHalf: return 5e-2;
+    case ncclFloat: return 1e-5;
+    case ncclDouble: return 1e-12;
     case ncclInt8:
     case ncclUint8:
-//    case ncclInt:
     case ncclInt32:
     case ncclUint32:
     case ncclInt64:
@@ -107,21 +127,16 @@ void deltaKern(void* A_, void* B_, int count, double* max) {
 
 void CheckDelta(void* expected, void* results, int count, ncclDataType_t type, double* devmax) {
   switch (type) {
-//    case ncclHalf:
-    case ncclFloat16:
+    case ncclHalf:
       deltaKern<half, 512><<<1, 512>>>(results, expected, count, devmax); break;
-//    case ncclFloat:
-    case ncclFloat32:
+    case ncclFloat:
       deltaKern<float, 512><<<1, 512>>>(results, expected, count, devmax); break;
-//    case ncclDouble:
-    case ncclFloat64:
+    case ncclDouble:
       deltaKern<double, 512><<<1, 512>>>(results, expected, count, devmax); break;
 
-//    case ncclChar:
     case ncclInt8:
     case ncclUint8:
       deltaKern<uint8_t, 512><<<1, 512>>>(results, expected, count, devmax); break;
-//    case ncclInt:
     case ncclInt32:
     case ncclUint32:
       deltaKern<uint32_t, 512><<<1, 512>>>(results, expected, count, devmax); break;
@@ -538,11 +553,8 @@ void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeNa
 
 
 void* threadRunTests(void* args) {
-  if (ncclop != -1) { 
-     RunTestsOp((struct threadArgs_t*)args, (ncclRedOp_t)ncclop, ncclopstring);
-  } else { 
-     RunTests((struct threadArgs_t*)args);
-  } 
+  RunTest((struct threadArgs_t*)args, ncclroot, (ncclDataType_t)nccltype, nccltypestring, (ncclRedOp_t)ncclop, ncclopstring);
+
   return NULL;
 }
 
@@ -568,6 +580,30 @@ void AllocateBuffs(void **sendbuff, size_t sendBytes, void **recvbuff, size_t re
     }
 }
  
+int ncclstringtotype (char *str) { 
+    int type;
+
+    printf("input %s", str);
+
+    if (!strcmp(str, "int8")) type = (int)ncclInt8; 
+    else if (!strcmp(str, "uint8")) type = (int)ncclUint8; 
+    else if (!strcmp(str, "int32")) type = (int)ncclInt32; 
+    else if (!strcmp(str, "uint32")) type = (int)ncclUint32;
+     else if (!strcmp(str, "int64")) type = (int)ncclInt64; 
+    else if (!strcmp(str, "uint64")) type = (int)ncclUint64; 
+    else if (!strcmp(str, "half")) type = (int)ncclHalf; 
+    else if (!strcmp(str, "float")) type = (int)ncclFloat;
+    else if (!strcmp(str, "double")) type = (int)ncclDouble;
+    else if (!strcmp(str, "all")) type = -1;
+    else printf("invalid type, defaulting to uint32... \n"); 
+
+    if(type != (int)ncclUint32) { 
+      strcpy(nccltypestring, str);
+    }
+
+    return type;
+}
+
 int ncclstringtoop (char *str) { 
     int op;
 
@@ -606,12 +642,14 @@ int main(int argc, char* argv[]) {
     {"iters", required_argument, 0, 'n'},
     {"check", required_argument, 0, 'c'},
     {"op", required_argument, 0, 'o'},
+    {"datatype", required_argument, 0, 'd'},
+    {"root", required_argument, 0, 'r'},
     {"help", no_argument, 0, 'h'}
  };
 
  while(1) {
       int c;
-      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:c:o:h", longopts, &longindex);
+      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:c:o:d:r:h", longopts, &longindex);
 
       if (c == -1)
          break;
@@ -624,10 +662,10 @@ int main(int argc, char* argv[]) {
              nGpus = strtol(optarg, NULL, 0);
              break;
          case 'b':
-             minBytes = strtol(optarg, NULL, 0);
+             minBytes = (size_t)parsesize(optarg);
              break;
          case 'e':
-             maxBytes = strtol(optarg, NULL, 0);
+             maxBytes = (size_t)parsesize(optarg);
              break;
          case 'i':
              stepBytes = strtol(optarg, NULL, 0);
@@ -635,24 +673,30 @@ int main(int argc, char* argv[]) {
          case 'f':
              stepFactor = strtol(optarg, NULL, 0);
              break;
-	 case 'n':
-	     iters = (int)strtol(optarg, NULL, 0);
-	     break;
-	 case 'c':
-	     datacheck = (int)strtol(optarg, NULL, 0);
-	     break;
-	 case 'o':
-	     ncclop = ncclstringtoop(optarg);
-	     break;
+	     case 'n':
+	         iters = (int)strtol(optarg, NULL, 0);
+	         break;
+	     case 'c':
+	         datacheck = (int)strtol(optarg, NULL, 0);
+	         break;
+	     case 'o':
+	         ncclop = ncclstringtoop(optarg);
+	         break;
+	     case 'd':
+	         ncclop = ncclstringtotype(optarg);
+	         break;
+	     case 'r':
+	         ncclop = strtol(optarg, NULL, 0);
+	         break;
          case 'h':
-	     printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
-	     " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c,--check <0/1>] [-o,--op <sum/prod/min/max/all>] [-h,--help]\n");
-	     return 0;
-	 default: 
-	     printf("invalid option \n");
-	     printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
-	     " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c, --check <0/1>] [-o,--op <sum/prod/min/max/all>] [-h,--help]\n");
-	     return 0;
+	         printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
+	         " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c,--check <0/1>] [-o,--op <sum/prod/min/max/all>] [-d,--datatype <nccltype/all>] [-r,--root <root>] [-h,--help]\n");
+	         return 0;
+	     default: 
+	         printf("invalid option \n");
+	         printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
+	         " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c, --check <0/1>] [-o,--op <sum/prod/min/max/all>] [-d,--datatype <nccltype/all>] [-r,--root <root>] [-h,--help]\n");
+	         return 0;
       }
   }
 
@@ -781,11 +825,7 @@ int main(int argc, char* argv[]) {
     if (t)
       pthread_create(threads+t-1, NULL, threadRunTests, args+t);
     else { 
-      if (ncclop != -1) { 
-         RunTestsOp((struct threadArgs_t*)args, (ncclRedOp_t) ncclop, ncclopstring);
-      } else { 
-         RunTests((struct threadArgs_t*)args);
-      } 
+      RunTest((struct threadArgs_t*)args, ncclroot, (ncclDataType_t)nccltype, nccltypestring, (ncclRedOp_t)ncclop, ncclopstring);
     }
   }
   // Wait for other threads
