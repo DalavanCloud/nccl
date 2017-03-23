@@ -5,7 +5,6 @@ class ncclCommInitAll_test : public ::testing::Test {
     int nVis = 0;
     virtual void SetUp() {
         ASSERT_EQ(cudaSuccess, cudaGetDeviceCount(&nVis));
-        ASSERT_GT(nVis, 1);
         comms = (ncclComm_t*)calloc(nVis, sizeof(ncclComm_t));
         devList = (int*)calloc(nVis, sizeof(int));
         for (int i = 0; i < nVis; i++) {

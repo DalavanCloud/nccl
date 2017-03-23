@@ -82,9 +82,6 @@ cudaStream_t* ncclCommon_test<DT>::streams = NULL;
 template <typename DT>
 void ncclCommon_test<DT>::SetUpTestCase() {
     ASSERT_EQ(cudaSuccess, cudaGetDeviceCount(&nVis));
-    if (nVis < 2) {
-        FAIL() << "waived: not enough gpu";
-    };
     streams = (cudaStream_t*)calloc(nVis, sizeof(cudaStream_t));
     sendbuffs = (DT**)calloc(nVis, sizeof(DT**));
     recvbuffs = (DT**)calloc(nVis, sizeof(DT**));
