@@ -79,7 +79,7 @@ get aggregated data from all ranks, in the order of the ranks numbers.
 
 <h4>Impact of rank/device mappings</h4>
 <p>The AllReduce operation is rank-agnostic. Any reordering of the ranks will
-not affect the outcome of the operations. 
+not affect the outcome of the operation. 
 <p>Reduce and Broadcast have a <i>root</i> argument, which is one of the ranks,
 and is therefore impacted by a different rank/device mapping.
 <p> ReduceScatter and AllGather are also affected, since the ranks determine the
@@ -156,8 +156,8 @@ block on the first call waiting for the other ones :
      ncclAllReduce(..., comm[i], stream[i];
    }
 </pre>
-<p>To define that these calls are part of the same collectives, ncclGroupStart
-and ncclGroupEnd should be used :
+<p>To define that these calls are part of the same collective operation,
+ncclGroupStart and ncclGroupEnd have to be used to guard the loop :
 <pre>
    ncclGroupStart();
    for (int i=0; i&lt;nLocalDevs; i++) {
@@ -170,6 +170,8 @@ ncclGroupEnd as a single call to many devices. When called inside a group,
 ncclAllReduce can return without having enqueued the operation on the stream.
 Stream operations like cudaStreamSynchronize can therefore be called only after
 ncclGroupEnd returns.
+<p>Note : Group primitives are defining the behavior of the current thread to avoid
+blocking. They can therefore be used from multiple threads independently.
 <p>Note : contrary to NCCL 1.x, there is no need to set the CUDA device before
 every NCCL communication call within a group, but it is still needed when
 calling ncclCommInitRank within a group.
@@ -453,8 +455,6 @@ sendcount*nranks.</td></tr>
 </table>
 
 <h3>Group calls</h3>
-<p>Group primitives are defining the behavior of the current thread to avoid
-blocking. They can therefore be used from multiple threads independently.
 <h4>ncclGroupStart</h4>
 <pre>ncclResult_t ncclGroupStart();</pre>
 <p>Start a group call. All subsequent calls to NCCL may not block due to
