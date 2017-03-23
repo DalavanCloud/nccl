@@ -34,36 +34,36 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
   int *scores;
   int ndev=0;
   char listenHandle[NCCL_NET_HANDLE_MAXSIZE], connectHandle[NCCL_NET_HANDLE_MAXSIZE];
-  char *listenComm, *sendComm, *recvComm; 
   int cnt = 0;
-  char *request[2*MAX_REQUESTS];
   std::random_device rd;
   std::mt19937 rng(rd());
   std::uniform_int_distribution<int> uni(READ, WRITE);
   MPI_Barrier(MPI_COMM_WORLD);
   if(rank==0){
+   char *listenComm, *sendComm[nranks+1], *recvComm[nranks+1]; 
+   char *request[2*nranks*MAX_REQUESTS];
+   if(net->devices(&ndev, &scores)){failed=1; goto out; }
+   INFO("Rank %d ndev %d scores : ", rank, ndev);
+   for(int i=0; i<ndev; i++){
+      INFO("scores[%d] = %d", i, scores[i]);
+    }
     for(int rnk=1; rnk<nranks; rnk++){
-	    if(net->devices(&ndev, &scores)){failed=1; goto out; }
-	    INFO("Rank %d ndev %d scores : ", rank, ndev);
-	    for(int i=0; i<ndev; i++){
-		    INFO("scores[%d] = %d", i, scores[i]);
-	    }
 	    if(net->listen(0, (void *)listenHandle, (void **)&listenComm)){ failed=1; goto out; }
 	    if(MPI_Send(listenHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, rnk, 0, MPI_COMM_WORLD)){ failed=1; goto out; }
-	    if(net->accept(listenComm, (void **)&recvComm)){ failed=1; goto out; }
+	    if(net->accept(listenComm, (void **)&recvComm[rnk])){ failed=1; goto out; }
 	    INFO("Rank %d accepted connection from rank %d", rank, rnk);
 
 	    if(net->closeListen(listenComm)){ failed=1; goto out; }
 	    INFO("Rank %d closed listen comm", rank);
 
 	    if(MPI_Recv(connectHandle, NCCL_NET_HANDLE_MAXSIZE, MPI_BYTE, rnk, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE)){ failed=1; goto out; }
-	    if(net->connect(0, connectHandle, (void **)&sendComm)){ failed=1; goto out; }
+	    if(net->connect(0, connectHandle, (void **)&sendComm[rnk])){ failed=1; goto out; }
 	    INFO("Rank %d connected to rank %d", rank, rnk);
 
             if (type == NCCL_PTR_HOST) {
-	      if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+	      if(net->isend(sendComm[rnk], data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
             } else if (type == NCCL_PTR_CUDA){
-	      if(net->isend(sendComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+	      if(net->isend(sendComm[rnk], data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
             }
 	    INFO("Rank %d posted first send", rank);
 
@@ -73,16 +73,18 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
 		    if(net->test(request[cnt-1], &done, &size)){ failed=1; goto out; }
 	    } while(!done);
 	    INFO("Rank %d completed first send for %s type %d", rank, net->name, type);
+    }//for rnk<nranks
 
+    for(int rnk=1; rnk<nranks; rnk++){
             if(!strcmp(net->name, "IB")) {
               for(int i=0; i<MAX_REQUESTS; i++){
                  auto op = i%2;//uni(rng);
                  if(op == READ) {
 	            INFO("Rank %d posting %dth op (recv), req %d", rank, i, cnt);
                     if (type == NCCL_PTR_HOST) {
-	              if(net->irecv(recvComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+	              if(net->irecv(recvComm[rnk], data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
                     } else if (type == NCCL_PTR_CUDA){
-	              if(net->irecv(recvComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+	              if(net->irecv(recvComm[rnk], data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
                     }
 	            INFO("Rank %d posted %dth op (recv), req %d", rank, i, cnt-1);
 #ifdef REQUEST_CHECK_EAGER
@@ -97,9 +99,9 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
                  } else if (op == WRITE){
 	            INFO("Rank %d posting %dth op (send), req %d", rank, i, cnt);
                     if (type == NCCL_PTR_HOST) {
-	              if(net->isend(sendComm, data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+	              if(net->isend(sendComm[rnk], data, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
                     } else if (type == NCCL_PTR_CUDA){
-	              if(net->isend(sendComm, data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
+	              if(net->isend(sendComm[rnk], data_d, bytes, type, (void **)&request[cnt++])){ failed=1; goto out; }
                     }
 	            INFO("Rank %d posted %dth op (send), req %d", rank, i, cnt - 1);
 #ifdef REQUEST_CHECK_EAGER
@@ -144,10 +146,13 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
 		      } while(!done);
                       INFO("Rank %d request %d done", rank, i);
 	      }
+              INFO("Rank %d completed %d ops", rank, MAX_REQUESTS);
 #endif
             }
-    }
+    }//for rnk<nranks
   }else{
+    char *listenComm, *sendComm, *recvComm; 
+    char *request[2*MAX_REQUESTS];
     if(net->devices(&ndev, &scores)){failed=1; goto out; }
     INFO("Rank %d ndev %d scores : ", rank, ndev);
     for(int i=0; i<ndev; i++){
@@ -265,6 +270,7 @@ int tester(ncclNet_t *net, char *data, char *data_d, size_t bytes, int type, int
 	      } while(!done);
 	      INFO("Rank %d request %d done", rank, i);
       }
+      INFO("Rank %d completed %d ops", rank, MAX_REQUESTS);
 #endif
     }
   }
