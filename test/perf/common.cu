@@ -686,7 +686,7 @@ int main(int argc, char* argv[]) {
 	         ncclop = ncclstringtotype(optarg);
 	         break;
 	     case 'r':
-	         ncclop = strtol(optarg, NULL, 0);
+	         ncclroot = strtol(optarg, NULL, 0);
 	         break;
          case 'h':
 	         printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"

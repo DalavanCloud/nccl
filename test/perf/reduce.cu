@@ -143,12 +143,12 @@ void RunTest(struct threadArgs_t* args, int root, ncclDataType_t type, const cha
      begin_root = end_root = root;
   } else { 
      begin_root = 0;
-     end_root = args->nProcs*args->nThreads*args->nGpus;
+     end_root = args->nProcs*args->nThreads*args->nGpus-1;
   }
 
   for (int i=0; i<type_count; i++) { 
       for (int j=0; j<op_count; j++) { 
-         for (int k=begin_root; k<end_root; k++) { 
+         for (int k=begin_root; k<=end_root; k++) { 
              TimeTest(args, run_types[i], run_typenames[i], run_ops[j], run_opnames[j], k, 1);
          }
       }
