@@ -26,6 +26,7 @@ clean:
 
 $(DEBIANDIR)/% : %.in
 	@printf "Generating %-35s > %s\n" $< $@
+	mkdir -p $(DEBIANDIR)
 	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
 	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
 	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
