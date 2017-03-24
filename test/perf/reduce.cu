@@ -70,8 +70,8 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
           MPI_Recv(tempHost, args->expectedBytes, MPI_BYTE, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
           Accumulate(args->procShared, temp, count, type, op);
+          CUDACHECK(cudaDeviceSynchronize());
         }
-        CUDACHECK(cudaDeviceSynchronize());
 
         CUDACHECK(cudaHostUnregister(tempHost));
         free(tempHost);

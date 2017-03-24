@@ -699,7 +699,7 @@ int main(int argc, char* argv[]) {
 	         ncclop = ncclstringtoop(optarg);
 	         break;
 	     case 'd':
-	         ncclop = ncclstringtotype(optarg);
+	         nccltype = ncclstringtotype(optarg);
 	         break;
 	     case 'r':
 	         ncclroot = strtol(optarg, NULL, 0);
