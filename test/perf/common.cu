@@ -440,6 +440,7 @@ void InitSend(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, in
        	printf("%d:%d ", i, *((int *)temp + i));
        }
        printf("\n");
+       free(temp);
     }
 #endif
 
