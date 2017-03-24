@@ -8,6 +8,7 @@
 #include <pthread.h>
 #include <cstdio>
 #include <getopt.h>
+#include "cuda.h"
 
 #ifdef MPI_TRANSPORT
 extern "C" {
@@ -60,7 +61,7 @@ double parsesize(char *value) {
 
 double DeltaMaxValue(ncclDataType_t type) {
   switch(type) {
-    case ncclHalf: return 5e-2;
+    case ncclHalf: return 1e-2;
     case ncclFloat: return 1e-5;
     case ncclDouble: return 1e-12;
     case ncclInt8:
@@ -413,7 +414,8 @@ double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op,
     }
 #endif
   }
-  if (maxDelta > DeltaMaxValue(type)) args->errors[0]++;
+  double nranks = args->nProcs*args->nThreads*args->nGpus;
+  if (maxDelta > DeltaMaxValue(type)*(nranks - 1)) args->errors[0]++;
   return maxDelta;
 }
 
