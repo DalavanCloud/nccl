@@ -58,6 +58,7 @@ struct threadArgs_t {
   volatile int* sync;
   int syncRank;
   int syncNranks;
+  double* deltaThreads;
   double* deltaHost;
   double* delta;
   int* errors;

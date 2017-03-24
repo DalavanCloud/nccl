@@ -355,16 +355,20 @@ void ncclMpiHook(MPI_Comm comm);
 
 void Barrier(struct threadArgs_t* args)
 {
-  while (args->sync[0] != args->thread) pthread_yield();
-  args->sync[0] = args->thread + 1;
+  static int i = 0;
+
+  while (args->sync[i] != args->thread) pthread_yield();
+  args->sync[i] = args->thread + 1;
   if (args->thread+1 == args->nThreads) {
 #ifdef MPI_SUPPORT
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
-    args->sync[0] = 0;
+    args->sync[i] = 0;
   } else {
-    while (args->sync[0]) pthread_yield();
+    while (args->sync[i]) pthread_yield();
   }
+
+  i=!i;
 }
 
 void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type, ncclRedOp_t op, int seed, int rank) {
@@ -506,7 +510,7 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
     CUDACHECK(cudaStreamSynchronize(args->streams[i]));
   }
 
-  double maxDelta;
+  double maxDelta = 0;
 #ifdef CHECK
   if (datacheck) { 
      maxDelta = CheckData(args, type, op, root, in_place);
@@ -516,6 +520,18 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
 #else
      maxDelta = -1.0;
 #endif
+
+  //aggregate delta from all threads and procs
+  Barrier(args);
+  if (args->thread == 0) {
+      for (int i=1; i<args->nThreads; i++) { 
+          maxDelta += args->deltaThreads[i];
+      }
+#ifdef MPI_SUPPORT
+      MPI_Allreduce(MPI_IN_PLACE, &maxDelta, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+#endif
+  }
+  Barrier(args);
 
   if (datacheck) { 
      PRINT("  %7.3f  %5.2f  %5.2f  %7.0le", deltaSec * 1.0E3, algBw, busBw,
@@ -781,6 +797,7 @@ int main(int argc, char* argv[]) {
 
   int errors[nThreads];
   double bw[nThreads];
+  double delta[nThreads];
   int bw_count[nThreads];
   for (int t=0; t<nThreads; t++) {
     bw[t] = 0.0;
@@ -790,8 +807,9 @@ int main(int argc, char* argv[]) {
   PRINT("\n");
   print_header();
 
-  int* sync = (int*)malloc(sizeof(int));
+  int* sync = (int*)malloc(sizeof(int)*2);
   sync[0] = 0;
+  sync[1] = 0;
 
   pthread_t threads[nThreads-1];
   struct threadArgs_t args[nThreads];
@@ -816,7 +834,8 @@ int main(int argc, char* argv[]) {
     args[t].procSharedHost = procSharedHost; 
     args[t].procShared = procShared; 
     args[t].sync = (volatile int*)sync;
-    args[t].deltaHost = (double*)malloc(sizeof(double));
+    args[t].deltaThreads = delta;
+    args[t].deltaHost = (delta + t);
     CUDACHECK(cudaHostRegister(args[t].deltaHost, sizeof(double), 0));
     CUDACHECK(cudaHostGetDevicePointer(&args[t].delta, args[t].deltaHost, 0));
     args[t].errors=errors+t;
