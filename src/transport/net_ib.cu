@@ -134,7 +134,7 @@ int ncclIbDevices(int* ndev, int** scores) {
     sc[d] = 1+PATH_SOC-distance;
     if (err2 == ncclSuccess) free(mlxPath);
   }
-  INFO(line);
+  INFO("%s", line);
   if (err1 == ncclSuccess) free(cudaPath);
   *scores = sc;
   return ncclSuccess;

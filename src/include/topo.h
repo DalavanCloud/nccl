@@ -24,7 +24,7 @@ static ncclResult_t getCudaPath(int cudaDev, char** path) {
   int strLen = strlen(pathname);
   int linkLen = readlink(busPath, pathname+strLen, MAXPATHSIZE-strLen);
   if (linkLen == 0) {
-    WARN("Could not find link %s", path);
+    WARN("Could not find link %s", busPath);
     return ncclSystemError;
   }
   // readlink does not append '\0'. We have to do it.
