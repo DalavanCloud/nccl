@@ -8,6 +8,10 @@ class ncclCommInitRank_test : public ::testing::Test {
         ASSERT_EQ(ncclSuccess, ncclGetUniqueId(&commId));
     };
     virtual void TearDown() {
+        if (comm == NULL) {
+          // This is needed to free the Unique Id
+          ASSERT_EQ(ncclSuccess, ncclCommInitRank(&comm, 1, commId, 0));
+        }
         ASSERT_EQ(ncclSuccess, ncclCommDestroy(comm));
     };
 };
