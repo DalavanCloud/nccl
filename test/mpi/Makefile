@@ -14,14 +14,15 @@ NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 DST_DIR := $(BUILDDIR)/test/mpi
 SRC_FILES := $(wildcard *.cu)
 OBJ_FILES := $(SRC_FILES:%.cu=${DST_DIR}/%.o)
-EXE_FILES_LIST := mpi_perf all_reduce_scan
-EXE_FILES := $(EXE_FILES_LIST:%=${DST_DIR}/%)
+BIN_FILES_LIST := mpi_perf all_reduce_scan
+BIN_FILES := $(BIN_FILES_LIST:%=${DST_DIR}/%)
 ifeq ($(MPI), 1)
-EXE_FILES += $(EXE_FILES_LIST:%=${DST_DIR}/%_mpi_transport)
+BIN_FILES += $(BIN_FILES_LIST:%=${DST_DIR}/%_mpi_transport)
 endif
 DEP_FILES := $(OBJ_FILES:%.o=%.dep)
 
-all:${EXE_FILES}
+all: ${BIN_FILES}
+
 clean:
 	rm -rf ${DST_DIR}
 

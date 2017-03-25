@@ -8,20 +8,21 @@ ifeq ($(MPI), 1)
 NVCUFLAGS += -DMPI_SUPPORT -I$(MPI_HOME)/include
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 endif
-LIBRARIES += cuda curand nccl nvToolsExt 
+LIBRARIES += cuda curand nccl nvToolsExt
 NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 
 DST_DIR := $(BUILDDIR)/test/perf
 SRC_FILES := $(wildcard *.cu)
 OBJ_FILES := $(SRC_FILES:%.cu=${DST_DIR}/%.o)
-EXE_FILES_LIST := all_reduce all_gather broadcast reduce_scatter reduce
-EXE_FILES := $(EXE_FILES_LIST:%=${DST_DIR}/%_perf)
+BIN_FILES_LIST := all_reduce all_gather broadcast reduce_scatter reduce
+BIN_FILES := $(BIN_FILES_LIST:%=${DST_DIR}/%_perf)
 ifeq ($(MPI), 1)
-EXE_FILES += $(EXE_FILES_LIST:%=${DST_DIR}/%_perf_mpi_transport)
+BIN_FILES += $(BIN_FILES_LIST:%=${DST_DIR}/%_perf_mpi_transport)
 endif
 DEP_FILES := $(OBJ_FILES:%.o=%.dep)
 
-all:${EXE_FILES}
+all: ${BIN_FILES}
+
 clean:
 	rm -rf ${DST_DIR}
 
@@ -42,7 +43,7 @@ ${DST_DIR}/%.o: %.cu
 ${DST_DIR}/common_mpi.o:common.cu
 	@printf "Compiling  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
-	$(NVCC) -DMPI_TRANSPORT --compile -o $@ $(NVCUFLAGS) $<
+	$(NVCC) -DMPI_TRANSPORT -o $@ $(NVCUFLAGS) -c $<
 
 ${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
 	@printf "Compiling   %-35s > %s\n" $< $@

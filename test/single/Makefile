@@ -1,24 +1,23 @@
 include ../../makefiles/common.mk
-##
-BUILDDIR ?= $(abspath ../../build)
-NVCUFLAGS += -I${BUILDDIR}/include/ -I../include
-LIBRARIES += cuda curand nvToolsExt nccl
-ifeq ($(MPI), 1)
-NVCUFLAGS += -DMPI_SUPPORT -I$(MPI_HOME)/include
-NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
-endif
-NVLDFLAGS   += -L${BUILDDIR}/lib $(LIBRARIES:%=-l%)
-##
-DST_DIR := $(abspath ${BUILDDIR}/test/single)
-CU_FILES := $(wildcard *.cu)
-OBJ_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.o)
-EXE_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%)
-DEP_FILES:= $(CU_FILES:%.cu=${DST_DIR}/%.dep)
-#
-all:${EXE_FILES}
+
+.PHONY: all clean
+
+BUILDDIR := $(abspath ../../build)
+NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include
+
+LIBRARIES += cuda curand nccl nvToolsExt
+NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
+
+DST_DIR := $(BUILDDIR)/test/single
+SRC_FILES := $(wildcard *.cu)
+OBJ_FILES := $(SRC_FILES:%.cu=${DST_DIR}/%.o)
+BIN_FILES := $(OBJ_FILES:%.o=%)
+
+all: ${BIN_FILES}
+
 clean:
 	rm -rf ${DST_DIR}
-#
+
 ifneq (clean,${MAKECMDGOALS})
 -include ${DEP_FILES}
 ${DST_DIR}/%.dep:%.cu
@@ -27,13 +26,14 @@ ${DST_DIR}/%.dep:%.cu
 	| sed "0,/^$*.o :/s//$(subst /,\/,${DST_DIR}/$*.o) :/" \
 	> $@
 endif
-#
-${DST_DIR}/%.o:%.cu
+
+${DST_DIR}/%.o: %.cu
 	@printf "Compiling  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
-	$(NVCC) --compile -o $@ $(NVCUFLAGS) $<
-#
-${DST_DIR}/%:${DST_DIR}/%.o
+	$(NVCC) -o $@ $(NVCUFLAGS) -c $<
+
+${DST_DIR}/%: ${DST_DIR}/%.o
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
-	$(NVCC) -o $@ $(NVCUFLAGS) $< ${NVLDFLAGS}
+	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
+
