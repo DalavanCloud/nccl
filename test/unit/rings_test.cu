@@ -570,7 +570,7 @@ static ncclResult_t getRings(int nranks, int* transports, int* values, const cha
 
   for (int rank=0; rank<nranks; rank++) {
     int nrings = MAXRINGS;
-    int nthreads;
+    int nthreads = 512;
     ncclResult_t ret = ncclGetRings(&nrings, &nthreads, rank, nranks, transports, values, prev, next);
     if (ret != ncclSuccess) {
       sprintf(errortext, "Error : getRings returned %s", ncclGetErrorString(ret));

@@ -146,16 +146,6 @@ static ncclResult_t fillCoords(int nranks, int* matrix, int* coords, int* rankTo
   return ncclInternalError;
 }
 
-/* Get the default number of threads based on the GPU generation */
-ncclResult_t getDefaultThreads(int* nthreads) {
-  int cudaDev;
-  CUDACHECK(cudaGetDevice(&cudaDev));
-  int ccMajor;
-  CUDACHECK(cudaDeviceGetAttribute(&ccMajor, cudaDevAttrComputeCapabilityMajor, cudaDev));
-  *nthreads = (ccMajor > 5) ? 256 : 512;
-  return ncclSuccess;
-}
-
 /* Users can force the number of threads with an environment variable */
 ncclResult_t getEnvThreads(int* nthreads) {
   char* str = getenv("NCCL_NTHREADS");
@@ -173,8 +163,6 @@ ncclResult_t getEnvThreads(int* nthreads) {
 /* Main ring creation function */
 ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int* transports, int* values, int* prev, int* next) {
   *nrings = 0;
-
-  NCCLCHECK(getDefaultThreads(nthreads));
 
   if (nranks == 1) return ncclSuccess;
 
