@@ -356,20 +356,20 @@ void ncclMpiHook(MPI_Comm comm);
 
 void Barrier(struct threadArgs_t* args)
 {
-  static int i = 0;
+  while (args->barrier[args->barrier_idx] != args->thread) pthread_yield();
 
-  while (args->sync[i] != args->thread) pthread_yield();
-  args->sync[i] = args->thread + 1;
+  args->barrier[args->barrier_idx] = args->thread + 1;
+
   if (args->thread+1 == args->nThreads) {
 #ifdef MPI_SUPPORT
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
-    args->sync[i] = 0;
+    args->barrier[args->barrier_idx] = 0;
   } else {
-    while (args->sync[i]) pthread_yield();
+    while (args->barrier[args->barrier_idx]) pthread_yield();
   }
 
-  i=!i;
+  args->barrier_idx=!args->barrier_idx;
 }
 
 void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type, ncclRedOp_t op, int seed, int rank) {
@@ -810,9 +810,8 @@ int main(int argc, char* argv[]) {
   PRINT("\n");
   print_header();
 
-  int* sync = (int*)malloc(sizeof(int)*2);
-  sync[0] = 0;
-  sync[1] = 0;
+  int* sync = (int*)calloc(2, sizeof(int));
+  int* barrier = (int*)calloc(2, sizeof(int));
 
   pthread_t threads[nThreads-1];
   struct threadArgs_t args[nThreads];
@@ -836,7 +835,10 @@ int main(int argc, char* argv[]) {
     args[t].expected = expected + t*nGpus;
     args[t].procSharedHost = procSharedHost; 
     args[t].procShared = procShared; 
+    args[t].barrier = (volatile int*)barrier;
+    args[t].barrier_idx = 0;
     args[t].sync = (volatile int*)sync;
+    args[t].sync_idx = 0;
     args[t].deltaThreads = delta;
     args[t].deltaHost = (delta + t);
     CUDACHECK(cudaHostRegister(args[t].deltaHost, sizeof(double), 0));

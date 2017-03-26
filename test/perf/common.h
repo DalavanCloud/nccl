@@ -56,6 +56,9 @@ struct threadArgs_t {
   void* procSharedHost;
   void* procShared;
   volatile int* sync;
+  int sync_idx;
+  volatile int* barrier;
+  int barrier_idx;
   int syncRank;
   int syncNranks;
   double* deltaThreads;
@@ -69,6 +72,7 @@ struct threadArgs_t {
 #include <chrono>
 
 // Provided by common.cu
+extern void Barrier(struct threadArgs_t* args);
 extern void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op,  const char* opName, int root, int inPlace);
 extern void Randomize(void* ptr, int count, ncclDataType_t type, int seed);
 extern void Accumulate(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op);

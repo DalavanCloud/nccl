@@ -29,7 +29,7 @@ void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *sendInplaceO
 void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first) {
   size_t count = args->nbytes / wordSize(type);
 
-  while (args->sync[0] != args->thread) pthread_yield();
+  while (args->sync[args->sync_idx] != args->thread) pthread_yield();
 
   for (int i=0; i<args->nGpus; i++) {
     int device;
@@ -49,7 +49,7 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
     CUDACHECK(cudaDeviceSynchronize());
   }
 
-  args->sync[0] = args->thread + 1;
+  args->sync[args->sync_idx] = args->thread + 1;
 
   if (args->thread+1 == args->nThreads) {
 #ifdef MPI_SUPPORT
@@ -74,10 +74,12 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
       free(remoteHost);
     }
 #endif
-    args->sync[0] = 0;
+    args->sync[args->sync_idx] = 0;
   } else {
-    while (args->sync[0]) pthread_yield();
+    while (args->sync[args->sync_idx]) pthread_yield();
   }
+
+  args->sync_idx = !args->sync_idx;
 }
 
 void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw, int nranks) {

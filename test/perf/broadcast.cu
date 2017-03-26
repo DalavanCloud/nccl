@@ -34,11 +34,7 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
 
   assert(args->expectedBytes == args->nbytes);
 
-  if (args->thread == 0) args->sync[0] = root_thread;
-
   if (root_thread == args->thread) { 
-      while (args->sync[0] != args->thread) pthread_yield();
-     
 #ifdef MPI_SUPPORT
       if (root_proc == args->proc) {  
          CUDACHECK(cudaMemcpy(args->procSharedHost,
@@ -52,7 +48,7 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
       args->sync[0] = 0;
   }
 
-  while (args->sync[0] != args->thread) pthread_yield();
+  Barrier(args);
 
   for (int i=0; i<args->nGpus; i++) {
      int device;
@@ -73,13 +69,7 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
      CUDACHECK(cudaDeviceSynchronize());
   }
 
-  args->sync[0] = args->thread + 1;
-
-  if (args->thread+1 == args->nThreads) {
-    args->sync[0] = 0;
-  } else {
-    while (args->sync[0]) pthread_yield();
-  }
+  Barrier(args);
 }
 
 void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw, int nranks) {
