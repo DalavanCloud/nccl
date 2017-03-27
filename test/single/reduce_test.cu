@@ -286,6 +286,8 @@ int main(int argc, char* argv[]) {
 
   char* str = getenv("NCCL_TESTS_MIN_BW");
   double check_avg_bw = str ? atof(str) : -1;
+  // Don't check bus BW is ndev is 1 -- it makes no sense
+  if (nDev == 1) check_avg_bw = -1;
   avg_bw /= avg_count;
 
   printf(" Out of bounds values : %d %s\n", errors, errors ? "FAILED" : "OK");
