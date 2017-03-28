@@ -212,6 +212,7 @@ struct ncclIbRequest {
   int type;
   struct ncclIbVerbs* verbs;
   struct ncclIbMr * ibMr;
+  void * flushDataPtr;
   int done;
   int size;
   void* comm;
@@ -246,9 +247,7 @@ struct ncclIbSendComm {
 
 struct ncclIbGpuFlush {
   int enabled;
-  void* devMem;
   int hostMem;
-  struct ibv_mr* devMr;
   struct ibv_mr* hostMr;
   struct ibv_sge sge;
   struct ibv_qp* qp;
@@ -427,8 +426,6 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
     INFO("GDR Flush is disabled");
   }
   if (ncclIbGdrSupport() && rComm->gpuFlush.enabled) {
-    CUDACHECK(cudaMalloc(&rComm->gpuFlush.devMem, sizeof(int)));
-    NCCLCHECK(wrap_ibv_reg_mr(&rComm->gpuFlush.devMr, rComm->verbs.pd, rComm->gpuFlush.devMem, sizeof(int), IBV_ACCESS_REMOTE_READ));
     NCCLCHECK(wrap_ibv_reg_mr(&rComm->gpuFlush.hostMr, rComm->verbs.pd, &rComm->gpuFlush.hostMem, sizeof(int), IBV_ACCESS_LOCAL_WRITE));
     rComm->gpuFlush.sge.addr = (uint64_t)&rComm->gpuFlush.hostMem;
     rComm->gpuFlush.sge.length = sizeof(int);
@@ -541,7 +538,7 @@ ncclResult_t ncclIbGetMr(struct ncclIbVerbs* verbs, void* data, int size, struct
   uint64_t regSize = addr+size - regAddr;
   regSize = ((regSize + REG_ALIGN-1) / REG_ALIGN ) * REG_ALIGN;
   if (verbs->mrPool[elem].mr) NCCLCHECK(wrap_ibv_dereg_mr(verbs->mrPool[elem].mr));
-  NCCLCHECK(wrap_ibv_reg_mr(&verbs->mrPool[elem].mr, verbs->pd, (void*)regAddr, regSize, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE));
+  NCCLCHECK(wrap_ibv_reg_mr(&verbs->mrPool[elem].mr, verbs->pd, (void*)regAddr, regSize, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ));
   *mrRet = verbs->mrPool+elem;
   verbs->mrPool[elem].refcnt++;
   return ncclSuccess;
@@ -648,6 +645,7 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
   req->verbs = &comm->verbs;
   req->type = type;
   req->comm = comm;
+  req->flushDataPtr = (size > 0 && type == NCCL_PTR_CUDA) ? data : NULL;
 
   struct ibv_recv_wr wr;
   memset(&wr, 0, sizeof(wr));
@@ -691,8 +689,8 @@ ncclResult_t ncclIbFlush(struct ncclIbRequest* req) {
   memset(&wr, 0, sizeof(wr));
   wr.wr_id = (uint64_t)req;
 
-  wr.wr.rdma.remote_addr = (uint64_t)comm->gpuFlush.devMem;
-  wr.wr.rdma.rkey = comm->gpuFlush.devMr->rkey;
+  wr.wr.rdma.remote_addr = (uint64_t)req->flushDataPtr;
+  wr.wr.rdma.rkey = req->ibMr->mr->rkey;
   wr.sg_list = &comm->gpuFlush.sge;
   wr.num_sge = 1;
   wr.opcode = IBV_WR_RDMA_READ;
@@ -734,18 +732,18 @@ int ncclIbTest(void* request, int* done, int* size) {
 
       struct ncclIbRequest* doneReq = (struct ncclIbRequest*)wc.wr_id;
       if (doneReq) {
-	if (doneReq->ibMr != NULL) {
-	  doneReq->ibMr->refcnt--;
-	}
         if (wc.opcode == IBV_WC_RECV) {
           doneReq->size = wc.byte_len;
-          if (doneReq->size > 0 && doneReq->type == NCCL_PTR_CUDA) NCCLCHECK(ncclIbFlush(doneReq));
+          if (doneReq->flushDataPtr != NULL) NCCLCHECK(ncclIbFlush(doneReq));
 #ifdef USE_RDMA_WRITE
         } else if (wc.opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
           doneReq->size = wc.imm_data;
-          if (doneReq->size > 0 && doneReq->type == NCCL_PTR_CUDA) NCCLCHECK(ncclIbFlush(doneReq));
+          if (doneReq->flushDataPtr != NULL) NCCLCHECK(ncclIbFlush(doneReq));
 #endif
         }
+	if (doneReq->ibMr != NULL) {
+	  doneReq->ibMr->refcnt--;
+	}
         doneReq->done = 1;
       }  
     }
@@ -787,9 +785,7 @@ int ncclIbCloseRecv(void* recvComm) {
     if (comm->qp != NULL) NCCLCHECK(wrap_ibv_destroy_qp(comm->qp));
     if (comm->gpuFlush.enabled) {
       if (comm->gpuFlush.qp != NULL) NCCLCHECK(wrap_ibv_destroy_qp(comm->gpuFlush.qp));
-      if (comm->gpuFlush.devMr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->gpuFlush.devMr));
       if (comm->gpuFlush.hostMr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->gpuFlush.hostMr));
-      CUDACHECK(cudaFree(comm->gpuFlush.devMem));
     }
     if (comm->remFifo.mr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->remFifo.mr));
     for (int i=0; i<MAX_REQUESTS; i++) {
