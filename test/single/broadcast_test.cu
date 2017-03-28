@@ -45,10 +45,10 @@ void RunTest(T** buff, const int N, const ncclDataType_t type, const int root,
   }
 
   // warm up GPU
-  for (int i = 0; i < nDev; ++i) {
-    CUDACHECK(cudaSetDevice(dList[i]));
+  NCCLCHECK(ncclGroupStart());
+  for (int i = 0; i < nDev; ++i)
     NCCLCHECK(ncclBcast((void*)buff[i], std::min(32 * 1024, N), type, root, comms[i], s[i]));
-  }
+  NCCLCHECK(ncclGroupEnd());
 
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
@@ -63,10 +63,10 @@ void RunTest(T** buff, const int N, const ncclDataType_t type, const int root,
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < nDev; ++i) {
-      CUDACHECK(cudaSetDevice(dList[i]));
+    NCCLCHECK(ncclGroupStart());
+    for (int i = 0; i < nDev; ++i)
       NCCLCHECK(ncclBcast((void*)buff[i], n, type, root, comms[i], s[i]));
-    }
+    NCCLCHECK(ncclGroupEnd());
 
     for (int i = 0; i < nDev; ++i) {
       CUDACHECK(cudaSetDevice(dList[i]));
@@ -204,15 +204,15 @@ int main(int argc, char* argv[]) {
   printf("# %10s  %12s  %6s  %4s  %7s  %5s  %5s  %7s\n",
       "bytes", "N", "type", "root", "time", "algbw", "busbw", "delta");
 
-  RunTests<char>(N / sizeof(char), ncclChar, comms, dList);
-  RunTests<int>(N / sizeof(int), ncclInt, comms, dList);
-#ifdef CUDA_HAS_HALF
+  RunTests<int8_t>(N / sizeof(int8_t), ncclInt8, comms, dList);
+  RunTests<uint8_t>(N / sizeof(uint8_t), ncclUint8, comms, dList);
+  RunTests<int32_t>(N / sizeof(int32_t), ncclInt32, comms, dList);
+  RunTests<uint32_t>(N / sizeof(uint32_t), ncclUint32, comms, dList);
   RunTests<half>(N / sizeof(half), ncclHalf, comms, dList);
-#endif
   RunTests<float>(N / sizeof(float), ncclFloat, comms, dList);
   RunTests<double>(N / sizeof(double), ncclDouble, comms, dList);
-  RunTests<long long>(N / sizeof(long long), ncclInt64, comms, dList);
-  RunTests<unsigned long long>(N / sizeof(unsigned long long), ncclUint64, comms, dList);
+  RunTests<int64_t>(N / sizeof(int64_t), ncclInt64, comms, dList);
+  RunTests<uint64_t>(N / sizeof(uint64_t), ncclUint64, comms, dList);
 
   printf("\n");
 
@@ -222,6 +222,8 @@ int main(int argc, char* argv[]) {
 
   char* str = getenv("NCCL_TESTS_MIN_BW");
   double check_avg_bw = str ? atof(str) : -1;
+  // Don't check bus BW is ndev is 1 -- it makes no sense
+  if (nDev == 1) check_avg_bw = -1;
   avg_bw /= avg_count;
 
   printf(" Out of bounds values : %d %s\n", errors, errors ? "FAILED" : "OK");

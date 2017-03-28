@@ -36,20 +36,13 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
     CUDACHECK(cudaStreamCreate(s+i));
-    CUDACHECK(cudaMemset(recvbuff[i], 0, N * sizeof(T)));
-    Randomize(sendbuff[i], N, i);
-    if(i == 0) {
-      CUDACHECK(cudaMemcpy(result, sendbuff[i], N*sizeof(T), cudaMemcpyDeviceToHost));
-    } else {
-      Accumulate<T>(result, sendbuff[i], N, op);
-    }
   }
 
   // warm up GPU
-  for (int i = 0; i < nDev; ++i) {
-    CUDACHECK(cudaSetDevice(dList[i]));
+  NCCLCHECK(ncclGroupStart());
+  for (int i = 0; i < nDev; ++i)
     NCCLCHECK(ncclAllReduce((const void*)sendbuff[i], (void*)recvbuff[i], std::min(N, 1024 * 1024), type, op, comms[i], s[i]));
-  }
+  NCCLCHECK(ncclGroupEnd());
 
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
@@ -65,13 +58,24 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
 
     // do out-of-place reduction first
     nvtxRangePushA("out of place");
+    // init values
+    for (int i = 0; i < nDev; ++i) {
+      CUDACHECK(cudaSetDevice(dList[i]));
+      CUDACHECK(cudaMemset(recvbuff[i], 0, N * sizeof(T)));
+      Randomize(sendbuff[i], N, i);
+      if(i == 0) {
+        CUDACHECK(cudaMemcpy(result, sendbuff[i], N*sizeof(T), cudaMemcpyDeviceToHost));
+      } else {
+        Accumulate<T>(result, sendbuff[i], N, op);
+      }
+    }
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
-      for (int i = 0; i < nDev; ++i) {
-        CUDACHECK(cudaSetDevice(dList[i]));
+      NCCLCHECK(ncclGroupStart());
+      for (int i = 0; i < nDev; ++i)
         NCCLCHECK(ncclAllReduce((const void*)sendbuff[i], (void*)recvbuff[i], n, type, op,
             comms[i], s[i]));
-      }
+      NCCLCHECK(ncclGroupEnd());
     //}
 
     for (int i = 0; i < nDev; ++i) {
@@ -89,7 +93,7 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     double algbw = (double)(n * sizeof(T)) / 1.0E9 / elapsedSec;
     double busbw = algbw * (double)(2 * nDev - 2) / (double)nDev;
 
-    double maxDelta = 0.0;
+    double maxDelta = (double)0.0;
     for (int i = 0; i < nDev; ++i) {
       CUDACHECK(cudaSetDevice(dList[i]));
       double tmpDelta = CheckDelta<T>(recvbuff[i], result, N);
@@ -112,13 +116,24 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     int n = N;
     // now do in-place reduction
     nvtxRangePushA("in place");
+    // init values
+    for (int i = 0; i < nDev; ++i) {
+      CUDACHECK(cudaSetDevice(dList[i]));
+      Randomize(sendbuff[i], N, i);
+      if(i == 0) {
+        CUDACHECK(cudaMemcpy(result, sendbuff[i], N*sizeof(T), cudaMemcpyDeviceToHost));
+      } else {
+        Accumulate<T>(result, sendbuff[i], N, op);
+      }
+    }
+
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
-      for (int i = 0; i < nDev; ++i) {
-        CUDACHECK(cudaSetDevice(dList[i]));
+      NCCLCHECK(ncclGroupStart());
+      for (int i = 0; i < nDev; ++i)
         NCCLCHECK(ncclAllReduce((const void*)sendbuff[i], (void*)sendbuff[i], n, type, op,
             comms[i], s[i]));
-      }
+      NCCLCHECK(ncclGroupEnd());
     //}
 
     for (int i = 0; i < nDev; ++i) {
@@ -246,7 +261,18 @@ int main(int argc, char* argv[]) {
   }
 
   ncclComm_t* comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nDev);
+#if 1
+  ncclUniqueId id;
+  NCCLCHECK(ncclGetUniqueId(&id));
+  NCCLCHECK(ncclGroupStart());
+  for (int i=0; i<nDev; i++) {
+    CUDACHECK(cudaSetDevice(dList[i]));
+    NCCLCHECK(ncclCommInitRank(comms+i, nDev, id, i));
+  }
+  NCCLCHECK(ncclGroupEnd());
+#else
   NCCLCHECK(ncclCommInitAll(comms, nDev, dList.data()));
+#endif
 
   if (!csv) {
     printf("# Using devices\n");
@@ -270,24 +296,26 @@ int main(int argc, char* argv[]) {
     printf("B,N,type,op,oop_time,oop_algbw,oop_busbw,oop_res,ip_time,ip_algbw,ip_busbw,ip_res\n");
   }
 
-  RunTests<char>(N / sizeof(char), ncclChar, comms, dList);
-  RunTests<int>(N / sizeof(int), ncclInt, comms, dList);
-#ifdef CUDA_HAS_HALF
+  RunTests<int8_t>(N / sizeof(int8_t), ncclInt8, comms, dList);
+  RunTests<uint8_t>(N / sizeof(uint8_t), ncclUint8, comms, dList);
+  RunTests<int32_t>(N / sizeof(int32_t), ncclInt32, comms, dList);
+  RunTests<uint32_t>(N / sizeof(uint32_t), ncclUint32, comms, dList);
   RunTests<half>(N / sizeof(half), ncclHalf, comms, dList);
-#endif
   RunTests<float>(N / sizeof(float), ncclFloat, comms, dList);
   RunTests<double>(N / sizeof(double), ncclDouble, comms, dList);
-  RunTests<long long>(N / sizeof(long long), ncclInt64, comms, dList);
-  RunTests<unsigned long long>(N / sizeof(unsigned long long), ncclUint64, comms, dList);
+  RunTests<int64_t>(N / sizeof(int64_t), ncclInt64, comms, dList);
+  RunTests<uint64_t>(N / sizeof(uint64_t), ncclUint64, comms, dList);
 
   printf("\n");
 
-  for(int i=0; i<nDev; ++i)
+  for(int i = 0; i < nDev; ++i)
     ncclCommDestroy(comms[i]);
   free(comms);
 
   char* str = getenv("NCCL_TESTS_MIN_BW");
   double check_avg_bw = str ? atof(str) : -1;
+  // Don't check bus BW is ndev is 1 -- it makes no sense
+  if (nDev == 1) check_avg_bw = -1;
   avg_bw /= avg_count;
 
   printf(" Out of bounds values : %d %s\n", errors, errors ? "FAILED" : "OK");

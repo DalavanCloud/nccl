@@ -53,15 +53,29 @@ template<typename T>
 void GenerateRandom(curandGenerator_t generator, T * const dest,
     const int N);
 
+/// TODO: put specialized template functions into another source file.
+
 template<>
-void GenerateRandom<char>(curandGenerator_t generator, char * const dest,
+void GenerateRandom<int8_t>(curandGenerator_t generator, int8_t * const dest,
     const int N) {
   CURAND_CHK(curandGenerate(generator, (unsigned int*)dest,
-      N * sizeof(char) / sizeof(int)));
+      N * sizeof(int8_t) / sizeof(int)));
+}
+template<>
+void GenerateRandom<uint8_t>(curandGenerator_t generator, uint8_t * const dest,
+    const int N) {
+  CURAND_CHK(curandGenerate(generator, (unsigned int*)dest,
+      N * sizeof(uint8_t) / sizeof(int)));
 }
 
 template<>
-void GenerateRandom<int>(curandGenerator_t generator, int * const dest,
+void GenerateRandom<int32_t>(curandGenerator_t generator, int32_t * const dest,
+    const int N) {
+  CURAND_CHK(curandGenerate(generator, (unsigned int*)dest, N));
+}
+
+template<>
+void GenerateRandom<uint32_t>(curandGenerator_t generator, uint32_t * const dest,
     const int N) {
   CURAND_CHK(curandGenerate(generator, (unsigned int*)dest, N));
 }
@@ -79,11 +93,16 @@ void GenerateRandom<double>(curandGenerator_t generator, double * const dest,
 }
 
 template<>
-void GenerateRandom<unsigned long long>(curandGenerator_t generator, unsigned long long * const dest,
+void GenerateRandom<uint64_t>(curandGenerator_t generator, uint64_t * const dest,
     const int N) {
-  CURAND_CHK(curandGenerateLongLong(generator, dest, N));
+  CURAND_CHK(curandGenerate(generator, (unsigned int *)dest, N*2));
 }
 
+template<>
+void GenerateRandom<int64_t>(curandGenerator_t generator, int64_t * const dest,
+    const int N) {
+  CURAND_CHK(curandGenerate(generator, (unsigned int *)dest, N*2));
+}
 
 template<typename T>
 void Randomize(T* const dest, const int N, const int randomSeed) {
@@ -95,25 +114,6 @@ void Randomize(T* const dest, const int N, const int randomSeed) {
   CUDACHECK(cudaDeviceSynchronize());
 }
 
-template<>
-void Randomize(unsigned long long* const dest, const int N, const int randomSeed) {
-  curandGenerator_t gen;
-  CURAND_CHK(curandCreateGenerator(&gen, CURAND_RNG_QUASI_SOBOL64));
-  GenerateRandom<unsigned long long>(gen, dest, N);
-  CURAND_CHK(curandDestroyGenerator(gen));
-  CUDACHECK(cudaDeviceSynchronize());
-}
-
-template<>
-void Randomize(long long* const dest, const int N, const int randomSeed) {
-  curandGenerator_t gen;
-  CURAND_CHK(curandCreateGenerator(&gen, CURAND_RNG_QUASI_SOBOL64));
-  GenerateRandom<unsigned long long>(gen, (unsigned long long *)dest, N);
-  CURAND_CHK(curandDestroyGenerator(gen));
-  CUDACHECK(cudaDeviceSynchronize());
-}
-
-#ifdef CUDA_HAS_HALF
 __global__ void halve(const float * src, half* dest, int N) {
   for(int tid = threadIdx.x + blockIdx.x*blockDim.x;
       tid < N; tid += blockDim.x * gridDim.x)
@@ -134,25 +134,26 @@ void Randomize<half>(half* const dest, const int N, const int randomSeed) {
   CUDACHECK(cudaFree(temp));
   CUDACHECK(cudaDeviceSynchronize());
 }
-#endif
 
 void makeRandom(void* ptr, int n, ncclDataType_t type, int seed) {
-  if (type == ncclChar)
-    Randomize<char>((char*)ptr, n, seed);
-  else if (type == ncclInt)
-    Randomize<int>((int*)ptr, n, seed);
-#ifdef CUDA_HAS_HALF
-  else if (type == ncclHalf)
-    Randomize<half>((half*)ptr, n, seed);
-#endif
-  else if (type == ncclFloat)
-    Randomize<float>((float*)ptr, n, seed);
-  else if (type == ncclDouble)
-    Randomize<double>((double*)ptr, n, seed);
+  if (type == ncclInt8)
+    Randomize<int8_t>((int8_t*)ptr, n, seed);
+  else if (type == ncclUint8)
+    Randomize<uint8_t>((uint8_t*)ptr, n, seed);
+  else if (type == ncclInt32)
+    Randomize<int32_t>((int32_t*)ptr, n, seed);
+  else if (type == ncclUint32)
+    Randomize<uint32_t>((uint32_t*)ptr, n, seed);
   else if (type == ncclInt64)
-    Randomize<long long>((long long*)ptr, n, seed);
+    Randomize<int64_t>((int64_t*)ptr, n, seed);
   else if (type == ncclUint64)
-    Randomize<unsigned long long>((unsigned long long*)ptr, n, seed);
+    Randomize<uint64_t>((uint64_t*)ptr, n, seed);
+  else if (type == ncclFloat16)
+    Randomize<half>((half*)ptr, n, seed);
+  else if (type == ncclFloat32)
+    Randomize<float>((float*)ptr, n, seed);
+  else if (type == ncclFloat64)
+    Randomize<double>((double*)ptr, n, seed);
 
   return;
 }
@@ -176,7 +177,6 @@ void accumKern(T* acum, const T* contrib, int N) {
   }
 }
 
-#ifdef CUDA_HAS_HALF
 template<> __global__
 void accumKern<half, ncclSum>(half* acum, const half* contrib, int N) {
   int tid = threadIdx.x + blockIdx.x*blockDim.x;
@@ -220,7 +220,6 @@ void accumKern<half, ncclMin>(half* acum, const half* contrib, int N) {
     acum[i] = __float2half( (a<c) ? a : c );
   }
 }
-#endif
 
 template<typename T>
 void accVecType(void* out, void* in, int n, ncclRedOp_t op) {
@@ -247,15 +246,15 @@ void Accumulate(T* dest, const T* contrib, int N, ncclRedOp_t op) {
 
 void accVec(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op) {
   switch (type) {
-    case ncclChar:   accVecType<char>               (out, in, n, op); break;
-    case ncclInt:    accVecType<int>                (out, in, n, op); break;
-#ifdef CUDA_HAS_HALF
-    case ncclHalf:   accVecType<half>               (out, in, n, op); break;
-#endif
-    case ncclFloat:  accVecType<float>              (out, in, n, op); break;
-    case ncclDouble: accVecType<double>             (out, in, n, op); break;
-    case ncclInt64:  accVecType<long long>          (out, in, n, op); break;
-    case ncclUint64: accVecType<unsigned long long> (out, in, n, op); break;
+    case ncclInt8:   accVecType<int8_t>   (out, in, n, op); break;
+    case ncclUint8:  accVecType<uint8_t>  (out, in, n, op); break;
+    case ncclInt32:  accVecType<int32_t>  (out, in, n, op); break;
+    case ncclUint32: accVecType<uint32_t> (out, in, n, op); break;
+    case ncclHalf:   accVecType<half>     (out, in, n, op); break;
+    case ncclFloat:  accVecType<float>    (out, in, n, op); break;
+    case ncclDouble: accVecType<double>   (out, in, n, op); break;
+    case ncclInt64:  accVecType<int64_t>  (out, in, n, op); break;
+    case ncclUint64: accVecType<uint64_t> (out, in, n, op); break;
     default:
       printf("Unknown reduction type.\n");
       exit(EXIT_FAILURE);
@@ -267,14 +266,12 @@ double absDiff(T a, T b) {
   return fabs((double)(b - a));
 }
 
-#ifdef CUDA_HAS_HALF
 template<> __device__
 double absDiff<half>(half a, half b) {
   float x = __half2float(a);
   float y = __half2float(b);
   return fabs((double)(y-x));
 }
-#endif
 
 template<typename T, int BSIZE> __global__
 void deltaKern(const T* A, const T* B, int N, double* max) {
@@ -316,15 +313,15 @@ double CheckDelta(const T* results, const T* expected, int N) {
 
 void maxDiff(double* max, void* first, void* second, int n, ncclDataType_t type, cudaStream_t s) {
   switch (type) {
-    case ncclChar:   deltaKern<char, 512>              <<<1,512,0,s>>>((char*)first, (char*)second, n, max); break;
-    case ncclInt:    deltaKern<int, 512>               <<<1,512,0,s>>>((int*)first, (int*)second, n, max); break;
-#ifdef CUDA_HAS_HALF
-    case ncclHalf:   deltaKern<half, 512>              <<<1,512,0,s>>>((half*)first, (half*)second, n, max); break;
-#endif
-    case ncclFloat:  deltaKern<float, 512>             <<<1,512,0,s>>>((float*)first, (float*)second, n, max); break;
-    case ncclDouble: deltaKern<double, 512>            <<<1,512,0,s>>>((double*)first, (double*)second, n, max); break;
-    case ncclInt64:  deltaKern<long long, 512>         <<<1,512,0,s>>>((long long*)first, (long long*)second, n, max); break;
-    case ncclUint64: deltaKern<unsigned long long, 512><<<1,512,0,s>>>((unsigned long long*)first, (unsigned long long*)second, n, max); break;
+    case ncclInt8:   deltaKern<int8_t, 512>   <<<1,512,0,s>>>((int8_t*)first, (int8_t*)second, n, max); break;
+    case ncclUint8:  deltaKern<uint8_t, 512>  <<<1,512,0,s>>>((uint8_t*)first, (uint8_t*)second, n, max); break;
+    case ncclInt32:  deltaKern<int32_t, 512>  <<<1,512,0,s>>>((int32_t*)first, (int32_t*)second, n, max); break;
+    case ncclUint32: deltaKern<uint32_t, 512> <<<1,512,0,s>>>((uint32_t*)first, (uint32_t*)second, n, max); break;
+    case ncclHalf:   deltaKern<half, 512>     <<<1,512,0,s>>>((half*)first, (half*)second, n, max); break;
+    case ncclFloat:  deltaKern<float, 512>    <<<1,512,0,s>>>((float*)first, (float*)second, n, max); break;
+    case ncclDouble: deltaKern<double, 512>   <<<1,512,0,s>>>((double*)first, (double*)second, n, max); break;
+    case ncclInt64:  deltaKern<int64_t, 512>  <<<1,512,0,s>>>((int64_t*)first, (int64_t*)second, n, max); break;
+    case ncclUint64: deltaKern<uint64_t, 512> <<<1,512,0,s>>>((uint64_t*)first, (uint64_t*)second, n, max); break;
     default:
       printf("Unknown reduction type.\n");
       exit(EXIT_FAILURE);
@@ -333,11 +330,11 @@ void maxDiff(double* max, void* first, void* second, int n, ncclDataType_t type,
 
 std::string TypeName(const ncclDataType_t type) {
   switch (type) {
-    case ncclChar:   return "char";
-    case ncclInt:    return "int";
-#ifdef CUDA_HAS_HALF
+    case ncclInt8:   return "int8";
+    case ncclUint8:  return "uint8";
+    case ncclInt32:  return "int32";
+    case ncclUint32: return "uint32";
     case ncclHalf:   return "half";
-#endif
     case ncclFloat:  return "float";
     case ncclDouble: return "double";
     case ncclInt64:  return "int64";
@@ -359,12 +356,18 @@ std::string OperationName(const ncclRedOp_t op) {
 ncclDataType_t strToType(const char* s) {
   if (strcmp(s, "char") == 0)
     return ncclChar;
+  if (strcmp(s, "int8") == 0)
+    return ncclInt8;
+  if (strcmp(s, "uint8") == 0)
+    return ncclUint8;
   if (strcmp(s, "int") == 0)
     return ncclInt;
-#ifdef CUDA_HAS_HALF
+  if (strcmp(s, "int32") == 0)
+    return ncclInt32;
+  if (strcmp(s, "uint32") == 0)
+    return ncclUint32;
   if (strcmp(s, "half") == 0)
     return ncclHalf;
-#endif
   if (strcmp(s, "float") == 0)
     return ncclFloat;
   if (strcmp(s, "double") == 0)
@@ -374,33 +377,48 @@ ncclDataType_t strToType(const char* s) {
   if (strcmp(s, "uint64") == 0)
     return ncclUint64;
 
-  return nccl_NUM_TYPES;
+  return ncclNumTypes;
 }
 
 size_t wordSize(ncclDataType_t type) {
   switch(type) {
-    case ncclChar:   return sizeof(char);
-    case ncclInt:    return sizeof(int);
-#ifdef CUDA_HAS_HALF
-    case ncclHalf:   return sizeof(short);
-#endif
-    case ncclFloat:  return sizeof(float);
-    case ncclDouble: return sizeof(double);
-    case ncclInt64:  return sizeof(long long);
-    case ncclUint64: return sizeof(unsigned long long);
+//  case ncclChar:
+    case ncclInt8:
+    case ncclUint8: return 1;
+//  case ncclHalf:
+    case ncclFloat16: return 2;
+//  case ncclInt:
+    case ncclInt32:
+    case ncclUint32:
+//  case ncclFloat:
+    case ncclFloat32: return 4;
+    case ncclInt64:
+    case ncclUint64:
+//  case ncclDouble:
+    case ncclFloat64: return 8;
+    default: return 0;
   }
-
-  return 0;
 }
 
 double deltaMaxValue(ncclDataType_t type, bool is_reduction) {
   if (is_reduction) {
     switch(type) {
-#ifdef CUDA_HAS_HALF
-      case ncclHalf:   return 5e-2;
-#endif
-      case ncclFloat:  return 1e-5;
-      case ncclDouble: return 1e-12;
+//    case ncclHalf:
+      case ncclFloat16: return 5e-2;
+//    case ncclFloat:
+      case ncclFloat32: return 1e-5;
+//    case ncclDouble:
+      case ncclFloat64: return 1e-12;
+
+//    case ncclChar:
+      case ncclInt8:
+      case ncclUint8:
+//    case ncclInt:
+      case ncclInt32:
+      case ncclUint32:
+      case ncclInt64:
+      case ncclUint64:
+      default: return 1e-200;
     }
   }
   return 1e-200;
@@ -416,7 +434,7 @@ ncclRedOp_t strToOp(const char* s) {
   if (strcmp(s, "min") == 0)
     return ncclMin;
 
-  return nccl_NUM_OPS;
+  return ncclNumOps;
 }
 
 int strToPosInt(const char* s) {

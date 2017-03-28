@@ -48,11 +48,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
   }
 
   // warm up GPU
-  for (int i = 0; i < nDev; ++i) {
-    CUDACHECK(cudaSetDevice(dList[i]));
+  NCCLCHECK(ncclGroupStart());
+  for (int i = 0; i < nDev; ++i)
     NCCLCHECK(ncclReduce((const void*)sendbuff[i], (void*)recvbuff[i], std::min(N, 1024 * 1024),
         type, op, root, comms[i], s[i]));
-  }
+  NCCLCHECK(ncclGroupEnd());
 
   for (int i = 0; i < nDev; ++i) {
     CUDACHECK(cudaSetDevice(dList[i]));
@@ -70,11 +70,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     nvtxRangePushA("out of place");
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
-      for (int i = 0; i < nDev; ++i) {
-        CUDACHECK(cudaSetDevice(dList[i]));
+      NCCLCHECK(ncclGroupStart());
+      for (int i = 0; i < nDev; ++i)
         NCCLCHECK(ncclReduce((const void*)sendbuff[i], (void*)recvbuff[i], n, type, op,
             root, comms[i], s[i]));
-      }
+      NCCLCHECK(ncclGroupEnd());
     //}
 
     for (int i = 0; i < nDev; ++i) {
@@ -113,11 +113,11 @@ void RunTest(T** sendbuff, T** recvbuff, const int N, const ncclDataType_t type,
     nvtxRangePushA("in place");
     auto start = std::chrono::high_resolution_clock::now();
     //for (int i=0; i<100; i++) {
-      for (int i = 0; i < nDev; ++i) {
-        CUDACHECK(cudaSetDevice(dList[i]));
+      NCCLCHECK(ncclGroupStart());
+      for (int i = 0; i < nDev; ++i)
         NCCLCHECK(ncclReduce((const void*)sendbuff[i], (void*)sendbuff[i], n, type, op,
             root, comms[i], s[i]));
-      }
+      NCCLCHECK(ncclGroupEnd());
     //}
 
     for (int i = 0; i < nDev; ++i) {
@@ -268,15 +268,15 @@ int main(int argc, char* argv[]) {
     printf("B,N,type,op,root,oop_time,oop_algbw,oop_busbw,oop_res,ip_time,ip_algbw,ip_busbw,ip_res\n");
   }
 
-  RunTests<char>(N / sizeof(char), ncclChar, comms, dList);
-  RunTests<int>(N / sizeof(int), ncclInt, comms, dList);
-#ifdef CUDA_HAS_HALF
+  RunTests<int8_t>(N / sizeof(int8_t), ncclInt8, comms, dList);
+  RunTests<uint8_t>(N / sizeof(uint8_t), ncclUint8, comms, dList);
+  RunTests<int32_t>(N / sizeof(int32_t), ncclInt32, comms, dList);
+  RunTests<uint32_t>(N / sizeof(uint32_t), ncclUint32, comms, dList);
   RunTests<half>(N / sizeof(half), ncclHalf, comms, dList);
-#endif
   RunTests<float>(N / sizeof(float), ncclFloat, comms, dList);
   RunTests<double>(N / sizeof(double), ncclDouble, comms, dList);
-  RunTests<long long>(N / sizeof(long long), ncclInt64, comms, dList);
-  RunTests<unsigned long long>(N / sizeof(unsigned long long), ncclUint64, comms, dList);
+  RunTests<int64_t>(N / sizeof(int64_t), ncclInt64, comms, dList);
+  RunTests<uint64_t>(N / sizeof(uint64_t), ncclUint64, comms, dList);
 
   printf("\n");
 
@@ -286,6 +286,8 @@ int main(int argc, char* argv[]) {
 
   char* str = getenv("NCCL_TESTS_MIN_BW");
   double check_avg_bw = str ? atof(str) : -1;
+  // Don't check bus BW is ndev is 1 -- it makes no sense
+  if (nDev == 1) check_avg_bw = -1;
   avg_bw /= avg_count;
 
   printf(" Out of bounds values : %d %s\n", errors, errors ? "FAILED" : "OK");

@@ -40,11 +40,7 @@ void showUsage(const char* bin) {
   printf("\n"
          "Usage: %s <type> <n_min> <n_max> [delta] [gpus] [gpu0 [gpu1 [...]]]\n"
          "Where:\n"
-#ifdef CUDA_HAS_HALF
          "    type   =   [char|int|half|float|double|int64|uint64]\n"
-#else
-         "    type   =   [char|int|float|double|int64|uint64]\n"
-#endif
          "    n_min  >   0\n"
          "    n_max  >=  n_min\n"
          "    delta  >   0\n\n", bin);
@@ -73,7 +69,7 @@ int main(int argc, char* argv[]) {
   }
 
   type = strToType(argv[1]);
-  if (type == nccl_NUM_TYPES) {
+  if (type == ncclNumTypes) {
     printf("Invalid <type> '%s'\n", argv[1]);
     showUsage(argv[0]);
     exit(EXIT_FAILURE);
@@ -186,10 +182,10 @@ int main(int argc, char* argv[]) {
     }
 
     auto start = std::chrono::high_resolution_clock::now();
-    for(int g=0; g<gpus; ++g) {
-      CUDACHECK(cudaSetDevice(list[g]));
-      NCCLCHECK(ncclAllGather(input[g], n, type, output[g], comm[g], stream[g]));
-    }
+    NCCLCHECK(ncclGroupStart());
+    for(int g=0; g<gpus; ++g)
+      NCCLCHECK(ncclAllGather(input[g], output[g], n, type, comm[g], stream[g]));
+    NCCLCHECK(ncclGroupEnd());
     for(int g=0; g<gpus; ++g) {
       CUDACHECK(cudaSetDevice(list[g]));
       CUDACHECK(cudaStreamSynchronize(stream[g]));
