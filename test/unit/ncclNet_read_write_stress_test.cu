@@ -324,17 +324,16 @@ int main(int argc, char *argv[]) {
       if (failed) goto out;
     }
   }
-  INFO("[%d] : Test successful", rank);
+  printf("[%d] Test successful", rank);
   delete data;
   cudaFree(data_d);
   MPI_Finalize();
 
 out:
   if(failed){
-    INFO("[%d] Test failed", rank);
+    printf("[%d] Test failed", rank);
     delete data;
     cudaFree(data_d);
-    MPI_Finalize();
   }
   return failed;
 }
