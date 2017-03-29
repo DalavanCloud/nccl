@@ -11,12 +11,11 @@ NVCUFLAGS += -I$(MPI_HOME)/include
 endif
 # We need private functions. Include and link with src
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include -I../../src/include
-LIBRARIES += cuda #ibverbs loaded dynamically
-LIBOBJS := $(BUILDDIR)/obj/*.o $(BUILDDIR)/obj/*/*.o
+# Use static library since all the internal symbols are there
+LIBRARIES += nccl_static
 NVLDFLAGS += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 ##
 DST_DIR := $(abspath ${BUILDDIR}/test/unit)
-#CU_FILES := $(wildcard *.cu)
 CU_FILES := rings_test.cu
 ifeq ($(MPI),1)
 CU_FILES += ncclNet_test.cu ncclNet_read_write_stress_test.cu

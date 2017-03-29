@@ -5,8 +5,8 @@ include ../../makefiles/common.mk
 BUILDDIR := $(abspath ../../build)
 NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include
 
-LIBRARIES += cuda curand nccl nvToolsExt
-NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
+LIBRARIES += curand nccl nvToolsExt
+NVLDFLAGS += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 
 DST_DIR := $(BUILDDIR)/test/single
 SRC_FILES := $(wildcard *.cu)

@@ -28,7 +28,8 @@ NVCC_GENCODE ?= -gencode=arch=compute_30,code=sm_30 \
 CXXFLAGS   := -I$(CUDA_INC) -fPIC -fvisibility=hidden
 NVCUFLAGS  := -ccbin $(CXX) $(NVCC_GENCODE) -lineinfo -std=c++11 -maxrregcount 96
 # Use addprefix so that we can specify more than one path
-LDFLAGS    += -L${CUDA_LIB} -lcudart -lrt
+LDFLAGS    := -L${CUDA_LIB} -lcudart -lrt
+NVLDFLAGS  := -L${CUDA_LIB} -lcudart -lrt
 
 ########## GCOV ##########
 GCOV ?= 0 # disable by default.

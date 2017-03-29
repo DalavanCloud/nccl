@@ -11,7 +11,7 @@ DEP_FILES	:= $(OBJ_FILES:%.o=%.dep)
 ### cc
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h ${CPPFLAGS} ${GTEST_CPPFLAGS}
 ### ld
-LIBRARIES += cuda curand nvToolsExt nccl
+LIBRARIES += curand nvToolsExt nccl
 LIBDIR := ${BUILDDIR}/lib
 NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) ${GTEST_LIBS}
 ### rules
