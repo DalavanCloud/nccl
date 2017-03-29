@@ -31,6 +31,7 @@
 } while(0)
 
 struct threadArgs_t {
+  void *proc_args;
   size_t nbytes;
   size_t minbytes;
   size_t maxbytes;

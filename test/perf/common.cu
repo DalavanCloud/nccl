@@ -41,6 +41,7 @@ static char ncclopstring[10] = "sum";
 static int nccltype = ncclFloat;
 static char nccltypestring[10] = "float";
 static int ncclroot = 0;
+static int swap_args = 0;
 
 double parsesize(char *value) {
     long long int units;
@@ -452,42 +453,57 @@ void InitSend(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, in
 
 #define CHECK 1
 
+void startColl(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int thread_offset) {
+  size_t count = args->nbytes / wordSize(type);
+
+  if (swap_args) {
+      args = (struct threadArgs_t*)args->proc_args + (args->thread + thread_offset)%args->nThreads;
+  }
+
+  NCCLCHECK(ncclGroupStart());
+  for (int i = 0; i < args->nGpus; i++) {
+    int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
+    RunColl((void*)(in_place ? ((void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank)) : args->sendbuffs[i]),
+        (void*)(in_place ? (void*)((uintptr_t)args->recvbuffs[i] + args->recvInplaceOffset*rank) : args->recvbuffs[i]),
+        count, type, op, root, args->comms[i], args->streams[i]);
+  }
+  NCCLCHECK(ncclGroupEnd());
+
+  if (swap_args) {
+    //if args have been swapped, complete op before returning
+    for (int i = 0; i < args->nGpus; ++i) {
+      CUDACHECK(cudaStreamSynchronize(args->streams[i]));
+    }
+  }
+}
+
+void completeColl(struct threadArgs_t* args) {
+  //it swap_args was enabled, op would have been completed immediately
+  if (swap_args) return;
+
+  for (int i = 0; i < args->nGpus; ++i) {
+    CUDACHECK(cudaStreamSynchronize(args->streams[i]));
+  }
+}
+
 void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
   size_t count = args->nbytes / wordSize(type);
   
   // Warmup / Sync
   for (int iter = 0; iter < warmup_iters; iter++) {
-      NCCLCHECK(ncclGroupStart());
-      for (int i = 0; i < args->nGpus; i++) {
-        // Intialize data after warmup so that we can overwrite safely
-        RunColl((void *)args->sendbuffs[i], 
-            (void *)args->recvbuffs[i], count, type, op, root, args->comms[i], args->streams[i]);
-      }
-      NCCLCHECK(ncclGroupEnd());
+     startColl(args, type, op, root, in_place, iter);
   }
-
-  for (int i = 0; i < args->nGpus; ++i) {
-    CUDACHECK(cudaStreamSynchronize(args->streams[i]));
-  }
+  completeColl(args);
 
   Barrier(args);
 
   // Performance Benchmark
   auto start = std::chrono::high_resolution_clock::now();
-  for (int iter = 0; iter < iters; iter++) { 
-      NCCLCHECK(ncclGroupStart());
-      for (int i = 0; i < args->nGpus; i++) {
-        int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
-        RunColl((void*)(in_place ? ((void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank)) : args->sendbuffs[i]), 
-            (void*)(in_place ? (void*)((uintptr_t)args->recvbuffs[i] + args->recvInplaceOffset*rank) : args->recvbuffs[i]), 
-            count, type, op, root, args->comms[i], args->streams[i]);
-      }
-      NCCLCHECK(ncclGroupEnd());
+  for (int iter = 0; iter < iters; iter++) {
+      startColl(args, type, op, root, in_place, iter); 
   }
+  completeColl(args);
 
-  for (int i = 0; i < args->nGpus; ++i) {
-    CUDACHECK(cudaStreamSynchronize(args->streams[i]));
-  }
   auto delta = std::chrono::high_resolution_clock::now() - start;
   double deltaSec = std::chrono::duration_cast<std::chrono::duration<double>>(delta).count();
   deltaSec = deltaSec/iters;
@@ -504,18 +520,8 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   }
 
   //test validation in single itertion, should ideally be included into the multi-iteration run
-  NCCLCHECK(ncclGroupStart());
-  for (int i = 0; i < args->nGpus; i++) {
-    int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
-    RunColl((void*)(in_place ? ((void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank)) : args->sendbuffs[i]), 
-        (void*)(in_place ? (void*)((uintptr_t)args->recvbuffs[i] + args->recvInplaceOffset*rank) : args->recvbuffs[i]), 
-        count, type, op, root, args->comms[i], args->streams[i]);
-  }
-  NCCLCHECK(ncclGroupEnd());
-
-  for (int i = 0; i < args->nGpus; ++i) {
-    CUDACHECK(cudaStreamSynchronize(args->streams[i]));
-  }
+  startColl(args, type, op, root, in_place, 0); 
+  completeColl(args);
 
   double maxDelta = 0;
 #ifdef CHECK
@@ -663,7 +669,8 @@ int main(int argc, char* argv[]) {
     {"stepbytes", required_argument, 0, 'i'},
     {"stepfactor", required_argument, 0, 'f'},
     {"iters", required_argument, 0, 'n'},
-    {"warmup_iters", required_argument, 0, 'n'},
+    {"warmup_iters", required_argument, 0, 'w'},
+    {"swap_args", required_argument, 0, 's'},
     {"check", required_argument, 0, 'c'},
     {"op", required_argument, 0, 'o'},
     {"datatype", required_argument, 0, 'd'},
@@ -673,7 +680,7 @@ int main(int argc, char* argv[]) {
 
  while(1) {
       int c;
-      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:w:c:o:d:r:h", longopts, &longindex);
+      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:w:s:c:o:d:r:h", longopts, &longindex);
 
       if (c == -1)
          break;
@@ -703,6 +710,9 @@ int main(int argc, char* argv[]) {
 	 case 'w':
 	     warmup_iters = (int)strtol(optarg, NULL, 0);
 	     break;
+	 case 's':
+	     swap_args = (int)strtol(optarg, NULL, 0);
+	     break;
 	 case 'c':
 	     datacheck = (int)strtol(optarg, NULL, 0);
 	     break;
@@ -716,13 +726,17 @@ int main(int argc, char* argv[]) {
 	     ncclroot = strtol(optarg, NULL, 0);
 	     break;
          case 'h':
-	         printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
-	         " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c,--check <0/1>] [-o,--op <sum/prod/min/max/all>] [-d,--datatype <nccltype/all>] [-r,--root <root>] [-h,--help]\n");
+	         printf("USAGE: ./test \n\t [-t,--nthreads <num threads>] \n\t [-g,--ngpus <gpus per thread>] \n\t [-b,--minbytes <min size in bytes>] \n\t [-e,--maxbytes <max size in bytes>] \n\t "
+	         "[-i,--stepbytes <increment size>] \n\t [-f,--stepfactor <increment factor>] \n\t [-n,--iters <iteration count>] \n\t [-w,--warmup_iters <warmup iteration count>]" 
+		 "\n\t [-s,--swap_args <swap thread comms>] \n\t [-c,--check <0/1>] \n\t "
+		 "[-o,--op <sum/prod/min/max/all>] \n\t [-d,--datatype <nccltype/all>] \n\t [-r,--root <root>] \n\t [-h,--help]\n");
 	         return 0;
-	     default: 
+	 default: 
 	         printf("invalid option \n");
-	         printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
-	         " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c, --check <0/1>] [-o,--op <sum/prod/min/max/all>] [-d,--datatype <nccltype/all>] [-r,--root <root>] [-h,--help]\n");
+	         printf("USAGE: ./test \n\t [-t,--nthreads <num threads>] \n\t [-g,--ngpus <gpus per thread>] \n\t [-b,--minbytes <min size in bytes>] \n\t [-e,--maxbytes <max size in bytes>] \n\t "
+	         "[-i,--stepbytes <increment size>] \n\t [-f,--stepfactor <increment factor>] \n\t [-n,--iters <iteration count>] \n\t [-w,--warmup_iters <warmup iteration count>]" 
+		 "\n\t [-s,--swap_args <swap thread comms>] \n\t [-c,--check <0/1>] \n\t "
+		 "[-o,--op <sum/prod/min/max/all>] \n\t [-d,--datatype <nccltype/all>] \n\t [-r,--root <root>] \n\t [-h,--help]\n");
 	         return 0;
       }
   }
@@ -824,6 +838,7 @@ int main(int argc, char* argv[]) {
   pthread_t threads[nThreads-1];
   struct threadArgs_t args[nThreads];
   for (int t=nThreads-1; t>=0; t--) {
+    args[t].proc_args = (void *)args;
     args[t].minbytes=minBytes;
     args[t].maxbytes=maxBytes;
     args[t].stepbytes=stepBytes;
