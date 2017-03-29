@@ -34,14 +34,13 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
 
   assert(args->expectedBytes == args->nbytes);
 
-  if (root_thread == args->thread) { 
-#ifdef MPI_SUPPORT
+  if (root_thread == args->thread) {
       if (root_proc == args->proc) {  
          CUDACHECK(cudaMemcpy(args->procSharedHost,
                     args->sendbuffs[root_gpu],
                     args->nbytes, cudaMemcpyDeviceToHost));
       }
- 
+#ifdef MPI_SUPPORT 
       MPI_Bcast(args->procSharedHost, args->nbytes, MPI_BYTE, root_proc, MPI_COMM_WORLD);
 #endif
 
