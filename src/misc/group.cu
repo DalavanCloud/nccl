@@ -87,7 +87,8 @@ void* ncclAsyncThreadMain(void* args_) {
     CHECK(args->init.func(args->init.newcomm, args->init.ndev, args->init.commId, args->init.myrank));
   } else { // Coll
     assert(args->funcType == ASYNC_FUNC_COLL);
-    CHECK(ncclSetDevice(args->init.cudaDev));
+    CHECK(ncclSetDevice(args->coll.comm->cudaDev));
+    CHECK(ncclCpuBarrierCheckin(args->coll.comm));
     CHECK(ncclCpuBarrierWait(args->coll.comm));
     CHECK(args->coll.func(args->coll.sendbuff, args->coll.recvbuff, args->coll.count, args->coll.type, args->coll.op, args->coll.root, args->coll.comm, args->coll.stream));
   }
