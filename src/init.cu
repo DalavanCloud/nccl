@@ -407,8 +407,6 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   return ncclSuccess;
 }
 
-//#include "nvml.h"
-
 ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   NCCLCHECK(wrapNvmlSymbols());
   NCCLCHECK(wrapNvmlInit());

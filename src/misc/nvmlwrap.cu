@@ -163,7 +163,11 @@ ncclResult_t wrapNvmlDeviceSetCpuAffinity(nvmlDevice_t device) {
     WARN("lib wrapper not initialized.");
     return ncclInternalError;
   }
+  // Workaround : it seems SetCpuAffinity is not thread safe.
+  static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+  pthread_mutex_lock(&lock);
   nvmlReturn_t ret = nvmlInternalDeviceSetCpuAffinity(device);
+  pthread_mutex_unlock(&lock);
   if (ret != NVML_SUCCESS) {
     WARN("nvmlDeviceSetCpuAffinity() failed: %s ",
       nvmlInternalErrorString(ret));

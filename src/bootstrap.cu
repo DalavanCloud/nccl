@@ -16,7 +16,7 @@
   ncclResult_t res = call; \
   if (res != ncclSuccess) { \
     /* Print the back trace*/ \
-    INFO("%s:%d -> %d", __FILE__, __LINE__, res); \
+    INFO("%s:%d -> %d [bthread]", __FILE__, __LINE__, res); \
     goto out; \
   } \
 } while (0);
