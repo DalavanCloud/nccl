@@ -43,11 +43,13 @@ struct threadArgs_t {
   int nThreads;
   int thread;
   int nGpus;
+  int localRank;
   void** sendbuffs;
   size_t sendBytes;
   size_t sendInplaceOffset;
   void** recvbuffs;
   size_t recvInplaceOffset;
+  ncclUniqueId ncclId;
   ncclComm_t* comms;
   cudaStream_t* streams;
 

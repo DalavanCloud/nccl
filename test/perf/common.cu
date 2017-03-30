@@ -42,6 +42,8 @@ static int nccltype = ncclFloat;
 static char nccltypestring[10] = "float";
 static int ncclroot = 0;
 static int swap_args = 0;
+static int parallel_init = 0;
+static int blocking_coll = 0;
 
 double parsesize(char *value) {
     long long int units;
@@ -469,17 +471,18 @@ void startColl(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   }
   NCCLCHECK(ncclGroupEnd());
 
-  if (swap_args) {
+  if (swap_args || blocking_coll) {
     //if args have been swapped, complete op before returning
     for (int i = 0; i < args->nGpus; ++i) {
       CUDACHECK(cudaStreamSynchronize(args->streams[i]));
     }
   }
+  if (blocking_coll) Barrier(args);
 }
 
 void completeColl(struct threadArgs_t* args) {
   //it swap_args was enabled, op would have been completed immediately
-  if (swap_args) return;
+  if (swap_args || blocking_coll) return;
 
   for (int i = 0; i < args->nGpus; ++i) {
     CUDACHECK(cudaStreamSynchronize(args->streams[i]));
@@ -587,6 +590,51 @@ void* threadRunTests(void* args) {
   return NULL;
 }
 
+void* threadInit(void* args) {
+  struct threadArgs_t* targs = (struct threadArgs_t*)args;
+  char hostname[1024];
+  getHostName(hostname, 1024);
+
+  int nranks =  targs->nProcs*targs->nThreads*targs->nGpus;
+
+  NCCLCHECK(ncclGroupStart());
+  for (int i=0; i<targs->nGpus; i++) {
+     int rank = targs->proc*targs->nThreads*targs->nGpus + targs->thread*targs->nGpus + i;
+     int gpuid = targs->localRank*targs->nThreads*targs->nGpus + targs->thread*targs->nGpus + i;
+     CUDACHECK(cudaSetDevice(gpuid));
+     NCCLCHECK(ncclCommInitRank(targs->comms+i, nranks, targs->ncclId, rank));
+  }
+  NCCLCHECK(ncclGroupEnd());
+
+  PRINT("# Using devices\n");
+  for (int p=0; p<targs->nProcs; p++) {
+    if (p == targs->proc) {
+      for (int t=0; t<targs->nThreads; t++) {
+        if (t == targs->thread) {
+          for (int i=0; i<targs->nGpus; i++) {
+            int cudaDev;
+            int rank;
+            cudaDeviceProp prop;
+            NCCLCHECK(ncclCommCuDevice(targs->comms[i], &cudaDev));
+            NCCLCHECK(ncclCommUserRank(targs->comms[i], &rank));
+            CUDACHECK(cudaGetDeviceProperties(&prop, cudaDev));
+            printf("#   Rank %2d on %10s device %2d [0x%02x] %s\n", rank, hostname, cudaDev,
+                prop.pciBusID, prop.name);
+            fflush(stdout);
+          }
+          Barrier(targs);
+          printf("");
+          fflush(stdout);
+	}
+      }
+    }
+  }
+
+  threadRunTests(args);
+
+  return NULL;
+}
+
 void AllocateBuffs(void **sendbuff, size_t sendBytes, void **recvbuff, size_t recvBytes, void **expected, void **expectedHost, size_t nbytes, int nranks, int sameExpected) {
     static int is_first = 1;
     static void *cached_ptr = NULL;
@@ -670,8 +718,10 @@ int main(int argc, char* argv[]) {
     {"stepfactor", required_argument, 0, 'f'},
     {"iters", required_argument, 0, 'n'},
     {"warmup_iters", required_argument, 0, 'w'},
-    {"swap_args", required_argument, 0, 's'},
+    {"swap_comms", required_argument, 0, 's'},
+    {"parallel_init", required_argument, 0, 'p'},
     {"check", required_argument, 0, 'c'},
+    {"blocking", required_argument, 0, 'z'},
     {"op", required_argument, 0, 'o'},
     {"datatype", required_argument, 0, 'd'},
     {"root", required_argument, 0, 'r'},
@@ -680,7 +730,7 @@ int main(int argc, char* argv[]) {
 
  while(1) {
       int c;
-      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:w:s:c:o:d:r:h", longopts, &longindex);
+      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:w:s:p:c:o:d:r:z:h", longopts, &longindex);
 
       if (c == -1)
          break;
@@ -716,6 +766,9 @@ int main(int argc, char* argv[]) {
 	 case 'c':
 	     datacheck = (int)strtol(optarg, NULL, 0);
 	     break;
+	 case 'p':
+	     parallel_init = (int)strtol(optarg, NULL, 0);
+	     break;
 	 case 'o':
 	     ncclop = ncclstringtoop(optarg);
 	     break;
@@ -725,18 +778,47 @@ int main(int argc, char* argv[]) {
 	 case 'r':
 	     ncclroot = strtol(optarg, NULL, 0);
 	     break;
+	 case 'z':
+	     blocking_coll = strtol(optarg, NULL, 0);
+	     break;
          case 'h':
-	         printf("USAGE: ./test \n\t [-t,--nthreads <num threads>] \n\t [-g,--ngpus <gpus per thread>] \n\t [-b,--minbytes <min size in bytes>] \n\t [-e,--maxbytes <max size in bytes>] \n\t "
-	         "[-i,--stepbytes <increment size>] \n\t [-f,--stepfactor <increment factor>] \n\t [-n,--iters <iteration count>] \n\t [-w,--warmup_iters <warmup iteration count>]" 
-		 "\n\t [-s,--swap_args <swap thread comms>] \n\t [-c,--check <0/1>] \n\t "
-		 "[-o,--op <sum/prod/min/max/all>] \n\t [-d,--datatype <nccltype/all>] \n\t [-r,--root <root>] \n\t [-h,--help]\n");
+	         printf("USAGE: ./test \n\t" 
+	 	 "[-t,--nthreads <num threads>] \n\t "
+		 "[-g,--ngpus <gpus per thread>] \n\t "
+		 "[-b,--minbytes <min size in bytes>] \n\t "
+		 "[-e,--maxbytes <max size in bytes>] \n\t "
+	         "[-i,--stepbytes <increment size>] \n\t "
+		 "[-f,--stepfactor <increment factor>] \n\t "
+		 "[-n,--iters <iteration count>] \n\t "
+		 "[-w,--warmup_iters <warmup iteration count>] \n\t" 
+		 "[-s,--swap_args <0/1>] \n\t "
+		 "[-p,--parallel_init <0/1>] \n\t "
+		 "[-c,--check <0/1>] \n\t "
+		 "[-o,--op <sum/prod/min/max/all>] \n\t "
+		 "[-d,--datatype <nccltype/all>] \n\t "
+		 "[-r,--root <root>] \n\t "
+		 "[-z,--blocking <0/1>] \n\t "
+		 "[-h,--help]\n");
 	         return 0;
 	 default: 
 	         printf("invalid option \n");
-	         printf("USAGE: ./test \n\t [-t,--nthreads <num threads>] \n\t [-g,--ngpus <gpus per thread>] \n\t [-b,--minbytes <min size in bytes>] \n\t [-e,--maxbytes <max size in bytes>] \n\t "
-	         "[-i,--stepbytes <increment size>] \n\t [-f,--stepfactor <increment factor>] \n\t [-n,--iters <iteration count>] \n\t [-w,--warmup_iters <warmup iteration count>]" 
-		 "\n\t [-s,--swap_args <swap thread comms>] \n\t [-c,--check <0/1>] \n\t "
-		 "[-o,--op <sum/prod/min/max/all>] \n\t [-d,--datatype <nccltype/all>] \n\t [-r,--root <root>] \n\t [-h,--help]\n");
+	         printf("USAGE: ./test \n\t" 
+	 	 "[-t,--nthreads <num threads>] \n\t "
+		 "[-g,--ngpus <gpus per thread>] \n\t "
+		 "[-b,--minbytes <min size in bytes>] \n\t "
+		 "[-e,--maxbytes <max size in bytes>] \n\t "
+	         "[-i,--stepbytes <increment size>] \n\t "
+		 "[-f,--stepfactor <increment factor>] \n\t "
+		 "[-n,--iters <iteration count>] \n\t "
+		 "[-w,--warmup_iters <warmup iteration count>] \n\t" 
+		 "[-s,--swap_args <0/1>] \n\t "
+		 "[-p,--parallel_init <0/1>] \n\t "
+		 "[-c,--check <0/1>] \n\t "
+		 "[-o,--op <sum/prod/min/max/all>] \n\t "
+		 "[-d,--datatype <nccltype/all>] \n\t "
+		 "[-r,--root <root>] \n\t "
+		 "[-z,--blocking <0/1>] \n\t "
+		 "[-h,--help]\n");
 	         return 0;
       }
   }
@@ -762,6 +844,9 @@ int main(int argc, char* argv[]) {
   if (proc == 0) { 
       printf("nThread %d nGpus %d minBytes %ld maxBytes %ld step: %ld(%s) warmup iters: %d iters: %d validation: %d \n", nThreads, nGpus, minBytes, maxBytes, 
       			(stepFactor > 1)?stepFactor:stepBytes, (stepFactor > 1)?"factor":"bytes", warmup_iters, iters, datacheck);
+      if (swap_args) printf("Swap Comms Enabled: swapping communicators among threads for each iteration \n");
+      if (blocking_coll) printf("Blocking Enabled: wait for completion and barrier after each collective \n"); 
+      if (parallel_init) printf("Parallel Init Enabled: threads call into NcclInitRank concurrently \n"); 
   }
 
   ncclUniqueId ncclId;
@@ -782,15 +867,11 @@ int main(int argc, char* argv[]) {
 
   getCollByteCount(&sendBytes, &recvBytes, &sendInplaceOffset, &recvInplaceOffset, &procSharedBytes, &sameExpected, (size_t)maxBytes, (size_t)nProcs*nGpus*nThreads);
 
-  NCCLCHECK(ncclGroupStart());
-  ncclComm_t* comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nThreads*nGpus);
   for (int i=0; i<nGpus*nThreads; i++) {
     CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
     AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, expectedHost+i, (size_t)maxBytes, nProcs*nThreads*nGpus, sameExpected);
     CUDACHECK(cudaStreamCreate(streams+i));
-    NCCLCHECK(ncclCommInitRank(comms+i, nProcs*nThreads*nGpus, ncclId, proc*nThreads*nGpus+i));
   }
-  NCCLCHECK(ncclGroupEnd());
 
   if (procSharedBytes > 0) { 
       procSharedHost = malloc(procSharedBytes);
@@ -798,26 +879,37 @@ int main(int argc, char* argv[]) {
       CUDACHECK(cudaHostGetDevicePointer(&procShared, procSharedHost, 0));
   }
 
-  PRINT("# Using devices\n");
-  for (int p=0; p<nProcs; p++) {
-    if (p == proc) {
-      for (int i=0; i<nThreads*nGpus; i++) {
-        int cudaDev;
-        int rank;
-        cudaDeviceProp prop;
-        NCCLCHECK(ncclCommCuDevice(comms[i], &cudaDev));
-        NCCLCHECK(ncclCommUserRank(comms[i], &rank));
-        CUDACHECK(cudaGetDeviceProperties(&prop, cudaDev));
-        printf("#   Rank %2d on %10s device %2d [0x%02x] %s\n", rank, hostname, cudaDev,
-            prop.pciBusID, prop.name);
-        fflush(stdout);
-      }
-    }
+  //if parallel init is not selected, use main thread to initialize NCCL
+  ncclComm_t* comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nThreads*nGpus);
+  if (!parallel_init) {
+     NCCLCHECK(ncclGroupStart());
+     for (int i=0; i<nGpus*nThreads; i++) {
+       CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
+       NCCLCHECK(ncclCommInitRank(comms+i, nProcs*nThreads*nGpus, ncclId, proc*nThreads*nGpus+i)); 
+     }
+     NCCLCHECK(ncclGroupEnd());
+
+     PRINT("# Using devices\n");
+     for (int p=0; p<nProcs; p++) {
+       if (p == proc) {
+         for (int i=0; i<nThreads*nGpus; i++) {
+           int cudaDev;
+           int rank;
+           cudaDeviceProp prop;
+           NCCLCHECK(ncclCommCuDevice(comms[i], &cudaDev));
+           NCCLCHECK(ncclCommUserRank(comms[i], &rank));
+           CUDACHECK(cudaGetDeviceProperties(&prop, cudaDev));
+           printf("#   Rank %2d on %10s device %2d [0x%02x] %s\n", rank, hostname, cudaDev,
+               prop.pciBusID, prop.name);
+           fflush(stdout);
+         }
+       }
 #ifdef MPI_SUPPORT
-    MPI_Barrier(MPI_COMM_WORLD);
+       MPI_Barrier(MPI_COMM_WORLD);
 #endif
-    printf("");
-    fflush(stdout);
+       printf("");
+       fflush(stdout);
+     }
   }
 
   int errors[nThreads];
@@ -835,14 +927,16 @@ int main(int argc, char* argv[]) {
   int* sync = (int*)calloc(2, sizeof(int));
   int* barrier = (int*)calloc(2, sizeof(int));
 
-  pthread_t threads[nThreads-1];
+  pthread_t threads[nThreads];
   struct threadArgs_t args[nThreads];
+
   for (int t=nThreads-1; t>=0; t--) {
     args[t].proc_args = (void *)args;
     args[t].minbytes=minBytes;
     args[t].maxbytes=maxBytes;
     args[t].stepbytes=stepBytes;
     args[t].stepfactor=stepFactor;
+    args[t].localRank = localRank;
 
     args[t].nProcs=nProcs;
     args[t].proc=proc;
@@ -851,6 +945,7 @@ int main(int argc, char* argv[]) {
     args[t].nGpus=nGpus;
     args[t].sendbuffs = sendbuffs+t*nGpus;
     args[t].recvbuffs = recvbuffs+t*nGpus;
+    args[t].ncclId = ncclId;
     args[t].comms=comms+t*nGpus;
     args[t].streams=streams+t*nGpus;
 
@@ -864,20 +959,28 @@ int main(int argc, char* argv[]) {
     args[t].sync_idx = 0;
     args[t].deltaThreads = delta;
     args[t].deltaHost = (delta + t);
-    CUDACHECK(cudaHostRegister(args[t].deltaHost, sizeof(double), 0));
+    CUDACHECK(cudaHostRegister(args[t].deltaHost, sizeof(double), cudaHostRegisterPortable|cudaHostRegisterMapped));
     CUDACHECK(cudaHostGetDevicePointer(&args[t].delta, args[t].deltaHost, 0));
     args[t].errors=errors+t;
     args[t].bw=bw+t;
     args[t].bw_count=bw_count+t;
-    if (t)
-      pthread_create(threads+t-1, NULL, threadRunTests, args+t);
-    else { 
-      RunTest((struct threadArgs_t*)args, ncclroot, (ncclDataType_t)nccltype, nccltypestring, (ncclRedOp_t)ncclop, ncclopstring);
+
+    if (!parallel_init) { 
+       if (t) 
+         pthread_create(threads+t, NULL, threadRunTests, args+t);
+       else  
+         RunTest((struct threadArgs_t*)args, ncclroot, (ncclDataType_t)nccltype, nccltypestring, (ncclRedOp_t)ncclop, ncclopstring);
+    } else {
+        if (t || (parallel_init && (proc == 0))) 
+         pthread_create(threads+t, NULL, threadInit, args+t);
+       else  
+         threadInit(args);
     }
   }
+
   // Wait for other threads
-  for (int t=1; t<nThreads; t++) {
-    pthread_join(threads[t-1], NULL);
+  for (int t=nThreads-1; t>=0; t--) {
+    if (t || (parallel_init && (proc == 0))) pthread_join(threads[t], NULL);
     errors[0] += errors[t];
     bw[0] += bw[t];
     bw_count[0] += bw_count[t];

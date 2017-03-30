@@ -58,7 +58,7 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
       void* remote, *remoteHost = malloc(args->nbytes);
       void* myInitialData = malloc(args->nbytes);
       memcpy(myInitialData, args->expectedHost[0], args->nbytes);
-      CUDACHECK(cudaHostRegister(remoteHost, args->nbytes, 0));
+      CUDACHECK(cudaHostRegister(remoteHost, args->nbytes, cudaHostRegisterPortable | cudaHostRegisterMapped));
       CUDACHECK(cudaHostGetDevicePointer(&remote, remoteHost, 0));
       for (int i=0; i<args->nProcs; i++) {
         if (i == args->proc) {
