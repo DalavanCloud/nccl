@@ -594,8 +594,10 @@ void* threadInit(void* args) {
   struct threadArgs_t* targs = (struct threadArgs_t*)args;
   char hostname[1024];
   getHostName(hostname, 1024);
-
   int nranks =  targs->nProcs*targs->nThreads*targs->nGpus;
+
+  //set main thread again
+  is_main_thread = (targs->proc == 0 && targs->thread == 0) ? 1 : 0;
 
   NCCLCHECK(ncclGroupStart());
   for (int i=0; i<targs->nGpus; i++) {
