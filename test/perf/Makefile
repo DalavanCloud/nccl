@@ -8,7 +8,7 @@ ifeq ($(MPI), 1)
 NVCUFLAGS += -DMPI_SUPPORT -I$(MPI_HOME)/include
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 endif
-LIBRARIES += cuda curand nccl nvToolsExt
+LIBRARIES += curand nccl nvToolsExt
 NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 
 DST_DIR := $(BUILDDIR)/test/perf

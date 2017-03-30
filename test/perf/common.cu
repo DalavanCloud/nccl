@@ -34,6 +34,7 @@ const char *test_opnames[4] = {"sum", "prod", "max", "min"};
 thread_local int is_main_thread = 0;
 
 static int datacheck = 1;
+static int warmup_iters = 20;
 static int iters = 20;
 static int ncclop = ncclSum;
 static char ncclopstring[10] = "sum";
@@ -455,13 +456,16 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   size_t count = args->nbytes / wordSize(type);
   
   // Warmup / Sync
-  NCCLCHECK(ncclGroupStart());
-  for (int i = 0; i < args->nGpus; i++) {
-    // Intialize data after warmup so that we can overwrite safely
-    RunColl((void *)args->sendbuffs[i], 
-        (void *)args->recvbuffs[i], count, type, op, root, args->comms[i], args->streams[i]);
+  for (int iter = 0; iter < warmup_iters; iter++) {
+      NCCLCHECK(ncclGroupStart());
+      for (int i = 0; i < args->nGpus; i++) {
+        // Intialize data after warmup so that we can overwrite safely
+        RunColl((void *)args->sendbuffs[i], 
+            (void *)args->recvbuffs[i], count, type, op, root, args->comms[i], args->streams[i]);
+      }
+      NCCLCHECK(ncclGroupEnd());
   }
-  NCCLCHECK(ncclGroupEnd());
+
   for (int i = 0; i < args->nGpus; ++i) {
     CUDACHECK(cudaStreamSynchronize(args->streams[i]));
   }
@@ -659,6 +663,7 @@ int main(int argc, char* argv[]) {
     {"stepbytes", required_argument, 0, 'i'},
     {"stepfactor", required_argument, 0, 'f'},
     {"iters", required_argument, 0, 'n'},
+    {"warmup_iters", required_argument, 0, 'n'},
     {"check", required_argument, 0, 'c'},
     {"op", required_argument, 0, 'o'},
     {"datatype", required_argument, 0, 'd'},
@@ -668,7 +673,7 @@ int main(int argc, char* argv[]) {
 
  while(1) {
       int c;
-      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:c:o:d:r:h", longopts, &longindex);
+      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:w:c:o:d:r:h", longopts, &longindex);
 
       if (c == -1)
          break;
@@ -692,21 +697,24 @@ int main(int argc, char* argv[]) {
          case 'f':
              stepFactor = strtol(optarg, NULL, 0);
              break;
-	     case 'n':
-	         iters = (int)strtol(optarg, NULL, 0);
-	         break;
-	     case 'c':
-	         datacheck = (int)strtol(optarg, NULL, 0);
-	         break;
-	     case 'o':
-	         ncclop = ncclstringtoop(optarg);
-	         break;
-	     case 'd':
-	         nccltype = ncclstringtotype(optarg);
-	         break;
-	     case 'r':
-	         ncclroot = strtol(optarg, NULL, 0);
-	         break;
+	 case 'n':
+	     iters = (int)strtol(optarg, NULL, 0);
+	     break;
+	 case 'w':
+	     warmup_iters = (int)strtol(optarg, NULL, 0);
+	     break;
+	 case 'c':
+	     datacheck = (int)strtol(optarg, NULL, 0);
+	     break;
+	 case 'o':
+	     ncclop = ncclstringtoop(optarg);
+	     break;
+	 case 'd':
+	     nccltype = ncclstringtotype(optarg);
+	     break;
+	 case 'r':
+	     ncclroot = strtol(optarg, NULL, 0);
+	     break;
          case 'h':
 	         printf("USAGE: ./test [-t,--nthreads <num threads>] [-g,--ngpus <gpus per thread>] [-b,--minbytes <min size in bytes>] [-e,--maxbytes <max size in bytes>] [-i,--stepbytes <increment size>]"
 	         " [-f,--stepfactor <increment factor>] [-n,--iters <iteration count>] [-c,--check <0/1>] [-o,--op <sum/prod/min/max/all>] [-d,--datatype <nccltype/all>] [-r,--root <root>] [-h,--help]\n");
@@ -738,8 +746,8 @@ int main(int argc, char* argv[]) {
   is_main_thread = (proc == 0) ? 1 : 0;
 
   if (proc == 0) { 
-      printf("nThread %d nGpus %d minBytes %ld maxBytes %ld step: %ld(%s) iters: %d validation: %d \n", nThreads, nGpus, minBytes, maxBytes, 
-      			(stepFactor > 1)?stepFactor:stepBytes, (stepFactor > 1)?"factor":"bytes", iters, datacheck);
+      printf("nThread %d nGpus %d minBytes %ld maxBytes %ld step: %ld(%s) warmup iters: %d iters: %d validation: %d \n", nThreads, nGpus, minBytes, maxBytes, 
+      			(stepFactor > 1)?stepFactor:stepBytes, (stepFactor > 1)?"factor":"bytes", warmup_iters, iters, datacheck);
   }
 
   ncclUniqueId ncclId;
@@ -873,12 +881,12 @@ int main(int argc, char* argv[]) {
   bw[0] /= bw_count[0];
 
   PRINT(" Out of bounds values : %d %s\n", errors[0], errors[0] ? "FAILED" : "OK");
-  PRINT(" Avg bus bandwidth    : %g %s\n", bw[0], check_avg_bw == -1 ? "" : (bw[0] < check_avg_bw ? "FAILED" : "OK"));
+  PRINT(" Avg bus bandwidth    : %g %s\n", bw[0], check_avg_bw == -1 ? "" : (bw[0] < check_avg_bw*(0.9) ? "FAILED" : "OK"));
   PRINT("\n");
 #ifdef MPI_SUPPORT
   MPI_Finalize();
 #endif
-  if (errors[0] || bw[0] < check_avg_bw)
+  if (errors[0] || bw[0] < check_avg_bw*(0.9))
     exit(EXIT_FAILURE);
   else 
     exit(EXIT_SUCCESS);
