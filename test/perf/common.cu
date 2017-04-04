@@ -474,7 +474,12 @@ void startColl(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   if (swap_args || blocking_coll) {
     //if args have been swapped, complete op before returning
     for (int i = 0; i < args->nGpus; ++i) {
-      CUDACHECK(cudaStreamSynchronize(args->streams[i]));
+      cudaError_t err = cudaErrorNotReady;
+      while (err == cudaErrorNotReady) { 
+          err = cudaStreamQuery(args->streams[i]);
+          pthread_yield();	
+      }
+      CUDACHECK(err);
     }
   }
   if (blocking_coll) Barrier(args);
@@ -485,7 +490,12 @@ void completeColl(struct threadArgs_t* args) {
   if (swap_args || blocking_coll) return;
 
   for (int i = 0; i < args->nGpus; ++i) {
-    CUDACHECK(cudaStreamSynchronize(args->streams[i]));
+    cudaError_t err = cudaErrorNotReady;
+    while (err == cudaErrorNotReady) { 
+        err = cudaStreamQuery(args->streams[i]);
+        pthread_yield();	
+    }
+    CUDACHECK(err);
   }
 }
 
