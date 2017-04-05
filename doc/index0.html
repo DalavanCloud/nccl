@@ -111,21 +111,7 @@ specified <i>rank</i>.
 function to create <i>n</i> communicator objects at once within a single
 process. As it is limited to a single process, this function does not permit
 inter-node communication. ncclCommInitAll is equivalent to calling a
-combination of ncclGetUniqueId and ncclCommInitRank.
-<pre>
-ncclResult_t ncclCommInitAll(ncclComm_t* comm, int ndev, const int* devlist) {
-  ncclUniqueId Id;
-  ncclGetUniqueId(&amp;Id);
-  ncclGroupStart();
-  for (int i=0; i&lt;ndev; i++) {
-    cudaSetDevice(devlist[i]);
-    ncclCommInitRank(comm+i, ndev, Id, i);
-  }
-  ncclGroupEnd();
-}  
-</pre>
-<p>Note : this is a simplified implementation of ncclCommInitAll, see the
-ncclCommInitAll documentation for more information.
+combination of ncclGetUniqueId, ncclCommInitRank and ncclGroupStart/ncclGroupEnd as shown in the examples.
 <h3>Data pointers</h3>
 <p>Pointers provided to NCCL have to be CUDA pointers, accessible from the CUDA
 device associated to the communicator object. This includes :
@@ -549,6 +535,136 @@ NCCL should print the reason when the environment variable NCCL_DEBUG is set to
 <h4>NCCL_MAJOR, NCCL_MINOR</h4>
 <p>NCCL defines two constants NCCL_MAJOR and NCCL_MINOR to help distinguish
 between API changes, in particular between NCCL 1.x and NCCL 2.x.
+<h2>Examples</h2>
+<p>This section gives examples of how to use NCCL in various environments (multi-process, multi-thread, ...).
+<p>Note that return codes from NCCL functions should always be checked. However,
+for clarity, those examples do not have any error checking.
+<p>The examples with multiple processes use MPI as parallel runtime environment,
+but any multi-process system should be able to work similarly.
+<h3>Communicator creation and destruction</h3>
+<h4>Single process, single thread, multiple devices</h4>
+<p>In the specific case of a single process, ncclCommInitAll can be used. Here
+is an example creating a communicator for 4 devices, hence 4 communicator
+objects :
+<pre>
+ncclComm_t comms[4];
+int devs[4] = { 0, 1, 2, 3 };
+ncclCommInitAll(comms, 4, devs);
+</pre>
+<p>Now can call NCCL collective operations using a single thread (and group 
+calls) or multiple threads, each provided with a comm object.
+<p>At the end of the program, we destroy all communicators objects :
+<pre>
+for (int i=0; i&lt;4; i++)
+  ncclCommDestroy(comms[i]);
+</pre>
+<h4>One device per process or thread</h4>
+<p>When one thread (or process) is affected to each thread, ncclCommInitRank can
+be used as a collective call to create a communicator. Each thread/process will
+get its own object.
+<p>Here is an example of a communicator creation in the context of MPI, using one device per MPI rank.
+<p>First we get MPI information about processes :
+<pre>
+int myRank, nRanks;
+MPI_Comm_rank(MPI_COMM_WORLD, &amp;myRank);
+MPI_Comm_size(MPI_COMM_WORLD, &amp;nRanks);
+</pre>
+<p>Then a single rank will create a unique ID and send it to all other ranks to
+make sure everyone has it :
+</pre>
+ncclUniqueId id;
+if (myRank == 0) ncclGetUniqueId(&amp;id);
+MPI_Bcast(id, sizeof(id), MPI_BYTE, 0, 0, MPI_COMM_WORLD);
+</pre>
+<p>Finally, we create the communicator :
+<pre>
+ncclComm_t comm;
+ncclCommInitRank(&amp;comm, nRanks, id, myRank);
+</pre>
+<p>Now we can call collective operations (see "one process per device" below).
+<p>We can finally destroy the communicator object :
+<pre>
+ncclCommDestroy(comm);
+</pre>
+<h4>Multiple devices per thread</h4>
+<p>We can combine both multiple process/threads and multiple device per
+process/thread. In this case, we need to use group semantics.
+<p>Here is an example combining MPI and multiple devices per process (=MPI rank) :
+<p>First we get MPI information about processes :
+<pre>
+int myRank, nRanks;
+MPI_Comm_rank(MPI_COMM_WORLD, &amp;myRank);
+MPI_Comm_size(MPI_COMM_WORLD, &amp;nRanks);
+</pre>
+<p>Then a single rank will create a unique ID and send it to all other ranks to
+make sure everyone has it :
+<pre>
+ncclUniqueId id;
+if (myRank == 0) ncclGetUniqueId(&amp;id);
+MPI_Bcast(id, sizeof(id), MPI_BYTE, 0, 0, MPI_COMM_WORLD);
+</pre>
+<p>And create our ngpus communicator objects, which are part of a larger group 
+of ngpus*nRanks :
+<pre>
+ncclComm_t comms[ngpus];
+ncclGroupStart();
+for (int i=0; i&lt;ngpus; i++) {
+  cudaSetDevice(devs[i]);
+  ncclCommInitRank(comms+i, ngpus*nRanks, id, myRank*ngpus+i);
+}
+ncclGroupEnd();
+</pre>
+<p>Now can call NCCL collective operations using a single thread (and group 
+calls) or multiple threads, each provided with a comm object.
+<p>At the end of the program, we destroy all communicators objects :
+<pre>
+for (int i=0; i&lt;ngpus; i++)
+  ncclCommDestroy(comms[i]);
+</pre>
+<p>Note : ncclCommInitAll is actually equivalent to a combination of
+ncclCommInitRank and group semantics. Here is a simplified
+implementation of ncclCommInitAll :
+<pre>
+ncclResult_t ncclCommInitAll(ncclComm_t* comm, int ndev, const int* devlist) {
+  ncclUniqueId Id;
+  ncclGetUniqueId(&amp;Id);
+  ncclGroupStart();
+  for (int i=0; i&lt;ndev; i++) {
+    cudaSetDevice(devlist[i]);
+    ncclCommInitRank(comm+i, ndev, Id, i);
+  }
+  ncclGroupEnd();
+}  
+</pre>
+<h3>Communication</h3>
+<h4>One device per process or thread</h4>
+<p>If we have a thread/process per device, then each thread will just call the
+collective operation for its device, e.g. for allreduce :
+<pre>
+ncclAllReduce(sendbuff, recvbuff, count, datatype, op, comm, stream);
+</pre>
+<p>after the call, the operation has been enqueued to the stream so we can now
+call cudaStreamSynchronize if we want to wait for the operation to be
+complete :
+<pre>
+cudaStreamSynchronize(stream);
+</pre>
+<h4>Multiple devices per thread</h4>
+<p>When a single thread is managing multiple devices, we need to use group
+semantics to launch the operation on multiple devices at once :
+<pre>
+ncclGroupStart();
+for (int i=0; i&lt;ngpus; i++)
+  ncclAllReduce(sendbuffs[i], recvbuff[i], count, datatype, op, comms[i], streams[i]);
+ncclGroupEnd();
+</pre>
+<p>After ncclGroupEnd, all operations have been enqueued to the stream so we can
+now call cudaStreamSynchronize if we want to wait for the operation to be
+complete :
+<pre>
+for (int i=0; i&lt;ngpus; i++)
+  cudaStreamSynchronize(streams[i]);
+</pre>
 </div>
 </div>
 <div class="menu">
