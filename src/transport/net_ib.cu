@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <poll.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -35,8 +36,15 @@ struct ncclIbDev {
   char devName[MAXNAMESIZE];
 };
 
+#define MAX_IB_PORT 16
+struct userIbDev {
+  char devName[MAXNAMESIZE];
+  uint16_t port_en;
+};
+
 #define MAX_IB_DEVS 16
 struct ncclIbDev ncclIbDevs[MAX_IB_DEVS];
+struct userIbDev userIbDevs[MAX_IB_DEVS];
 int ncclIbTimeout = 14;
 pthread_mutex_t ncclIbLock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -80,8 +88,57 @@ static void initDevices() {
       int nIbDevs;
       ncclNIbDevs = 0;
       struct ibv_device** devices;
+      
+      // Check if user defined which IB device:port to use
+      char* userIbEnv = getenv("NCCL_IB_HCA");
+      bool user_defined_ib = false;
+      if (userIbEnv && strlen(userIbEnv)) {
+        const char *delim = ",", *subdelim = ":";
+        char *str1, *str2;
+        char *token, *subtoken, *saveptr1, *saveptr2;
+        int j, k;
+        user_defined_ib = true;
+        for (j = 0, str1 = userIbEnv; ; j++, str1 = NULL) {
+          token = strtok_r(str1, delim, &saveptr1);
+          if (token == NULL) {
+            break;
+          }
+          INFO("IB %d: %s", j, token);
+          for (k = 0, str2 = token; ; k++, str2 = NULL) {
+            subtoken = strtok_r(str2, subdelim, &saveptr2);
+            if (str2) {  
+              strcpy(userIbDevs[j].devName, subtoken);
+            }
+            else if (subtoken == NULL) {
+              if (k == 1) {
+                userIbDevs[j].port_en |= 0xFFFE;
+              }
+              break;
+            } else {
+              int port = atoi(subtoken);
+              userIbDevs[j].port_en |= 0x0001 << port;
+            }
+            INFO(" --> %s", subtoken);
+          }
+          INFO("Port-enable code: %04x", userIbDevs[j].port_en);
+        }
+      }
+
       if (ncclSuccess != wrap_ibv_get_device_list(&devices, &nIbDevs)) { return; }
       for (int d=0; d<nIbDevs; d++) {
+        // check against user defined device list
+        int found_dev = -1;
+        if (user_defined_ib) {
+          for (int j = 0; j < MAX_IB_DEVS; j++) {
+            if (strcmp(devices[d]->name, userIbDevs[j].devName) == 0) {
+              found_dev = j;
+              break;
+            }
+          }
+          if (found_dev < 0) {
+            continue;
+          }
+        }
         struct ibv_context * context; 
         if (ncclSuccess != wrap_ibv_open_device(&context, devices[d])) { return; }
         int found = 0;
@@ -92,6 +149,11 @@ static void initDevices() {
               struct ibv_port_attr portAttr;
               if (ncclSuccess != wrap_ibv_query_port(context, port, &portAttr)) continue; /*XXX: ncclInternalError is unhandled*/
               if (portAttr.state != IBV_PORT_ACTIVE) continue;
+              // check against user defined ports
+              if (user_defined_ib) {
+                if (!(userIbDevs[found_dev].port_en & 0x0001 << port)) continue;
+              }
+              INFO("Using %s port %d", devices[d]->name, port);
               ncclIbDevs[ncclNIbDevs].device = d;
               ncclIbDevs[ncclNIbDevs].port = port;
               ncclIbDevs[ncclNIbDevs].context = context;
