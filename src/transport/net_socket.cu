@@ -8,6 +8,7 @@
 #include "core.h"
 #include "socket.h"
 #include "net.h"
+#include "utils.h"
 
 #include <assert.h>
 #include <pthread.h>
@@ -38,7 +39,23 @@ static void initDevices() {
       char* env = getenv("NCCL_SOCKET_IFNAME");
       if (env && strlen(env) > 1) {
         // Specified by user : find or fail
-        ncclNetIfs = findInterfaces(env, ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
+        char* tokens[MAX_IFS];
+        int nSocketIFs = parseStringList(env, ",", tokens, MAX_IFS);
+        if (!nSocketIFs) {
+          WARN("NET/Socket : No socket specified after NCCL_SOCKET_IFNAME");
+          return;
+        }
+        INFO("NET/Socket : User specified %d socket prefixes: %s", nSocketIFs, env);
+        for (int j = 0; j < nSocketIFs; j++) {
+          int nIF = findInterfaces(tokens[j], ncclNetIfNames+ncclNetIfs*MAX_IF_NAME_SIZE, ncclNetIfAddrs+ncclNetIfs, MAX_IF_NAME_SIZE, MAX_IFS-ncclNetIfs);
+          if (nIF == 0)
+          {
+            WARN("NET/Socket : No socket interface found (starting with %s).", tokens[j]);
+          } else {
+            INFO("NET/Socket : Found %d interfaces starting with %s", nIF, tokens[j]);
+            ncclNetIfs += nIF;
+          }
+        }
       } else {
         // Try to automatically pick the right one
         // Start with IB

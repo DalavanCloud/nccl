@@ -9,6 +9,7 @@
 #include "socket.h"
 #include "net.h"
 #include "topo.h"
+#include "utils.h"
 
 #include <assert.h>
 #include <pthread.h>
@@ -36,7 +37,8 @@ struct ncclIbDev {
   char devName[MAXNAMESIZE];
 };
 
-#define MAX_IB_PORT 16
+#define MAX_OOB_IFS 32
+#define MAX_IB_PORT 15
 struct userIbDev {
   char devName[MAXNAMESIZE];
   uint16_t port_en;
@@ -72,8 +74,28 @@ static void initDevices() {
       char* env = getenv("NCCL_SOCKET_IFNAME");
       if (env && strlen(env) > 1) {
         // Specified by user : find or fail
-        if (findInterfaces(env, ncclIbIfName, &ncclIbIfAddr, MAX_IF_NAME_SIZE, 1) == 0) {
-          WARN("NET/IB : No IP interface found (starting with %s).", env);
+        int nSocFound = 0;
+        char* tokens[MAX_OOB_IFS];
+        int nSocketIFs = parseStringList(env, ",", tokens, MAX_OOB_IFS);
+        if (!nSocketIFs) {
+          WARN("NET/IB : No IP interface specified after NCCL_SOCKET_IFNAME");
+          return;
+        }
+        INFO("NET/IB : User specified %d socket prefixes: %s", nSocketIFs, env);
+        for (int j = 0; j < nSocketIFs; j++) {
+          int nIF = findInterfaces(tokens[j], ncclIbIfName, &ncclIbIfAddr, MAX_IF_NAME_SIZE, 1);
+          if (nIF == 0)
+          {
+            WARN("NET/IB : No IP interface found (starting with %s).", tokens[j]);
+          } else {
+            INFO("NET/IB : Found %d interfaces starting with %s", nIF, tokens[j]);
+            nSocFound += nIF;
+            // Will use the first interface found
+            break;  
+          }
+        }
+        if (nSocFound == 0) {
+          WARN("NET/IB : No IP interface found.");
           return;
         }
       } else {
@@ -92,12 +114,12 @@ static void initDevices() {
       // Check if user defined which IB device:port to use
       char* userIbEnv = getenv("NCCL_IB_HCA");
       bool user_defined_ib = false;
+      int nUserDevs = 0;
       if (userIbEnv && strlen(userIbEnv)) {
-        const char *delim = ",", *subdelim = ":";
+        /*const char *delim = ",", *subdelim = ":";
         char *str1, *str2;
         char *token, *subtoken, *saveptr1, *saveptr2;
         int j, k;
-        user_defined_ib = true;
         for (j = 0, str1 = userIbEnv; ; j++, str1 = NULL) {
           token = strtok_r(str1, delim, &saveptr1);
           if (token == NULL) {
@@ -121,7 +143,31 @@ static void initDevices() {
             INFO(" --> %s", subtoken);
           }
           INFO("Port-enable code: %04x", userIbDevs[j].port_en);
+        }*/
+        char* tokens[MAX_IB_DEVS];
+        nUserDevs = parseStringList(userIbEnv, ",", tokens, MAX_IB_DEVS);
+        if (nUserDevs == 0) {
+          WARN("NET/IB : No IB device specified after NCCL_IB_HSA");
+          return;
         }
+        for (int j = 0; j < nUserDevs; j++) {
+          INFO("IB %d: %s", j, tokens[j]);
+          char* subtokens[MAX_IB_PORT+1];
+          int nSubs = parseStringList(tokens[j], ":", subtokens, MAX_IB_PORT+1);
+          strcpy(userIbDevs[j].devName, subtokens[0]);
+          INFO(" --> %s", userIbDevs[j].devName);
+          if (nSubs == 1) {
+            userIbDevs[j].port_en |= 0xFFFE;
+          } else {
+            for (int k = 1; k < nSubs; k++) {
+              int port = atoi(subtokens[k]);
+              userIbDevs[j].port_en |= 0x0001 << port;
+              INFO(" --> %d", port);
+            }
+          }
+          INFO("Port-enable code: %04x", userIbDevs[j].port_en);
+        }
+        user_defined_ib = true;
       }
 
       if (ncclSuccess != wrap_ibv_get_device_list(&devices, &nIbDevs)) { return; }
@@ -129,7 +175,7 @@ static void initDevices() {
         // check against user defined device list
         int found_dev = -1;
         if (user_defined_ib) {
-          for (int j = 0; j < MAX_IB_DEVS; j++) {
+          for (int j = 0; j < nUserDevs; j++) {
             if (strcmp(devices[d]->name, userIbDevs[j].devName) == 0) {
               found_dev = j;
               break;
