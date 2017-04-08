@@ -37,7 +37,6 @@ struct ncclIbDev {
   char devName[MAXNAMESIZE];
 };
 
-#define MAX_OOB_IFS 32
 #define MAX_IB_PORT 15
 struct userIbDev {
   char devName[MAXNAMESIZE];
@@ -74,28 +73,8 @@ static void initDevices() {
       char* env = getenv("NCCL_SOCKET_IFNAME");
       if (env && strlen(env) > 1) {
         // Specified by user : find or fail
-        int nSocFound = 0;
-        char* tokens[MAX_OOB_IFS];
-        int nSocketIFs = parseStringList(env, ",", tokens, MAX_OOB_IFS);
-        if (!nSocketIFs) {
-          WARN("NET/IB : No IP interface specified after NCCL_SOCKET_IFNAME");
-          return;
-        }
-        INFO("NET/IB : User specified %d socket prefixes: %s", nSocketIFs, env);
-        for (int j = 0; j < nSocketIFs; j++) {
-          int nIF = findInterfaces(tokens[j], ncclIbIfName, &ncclIbIfAddr, MAX_IF_NAME_SIZE, 1);
-          if (nIF == 0)
-          {
-            WARN("NET/IB : No IP interface found (starting with %s).", tokens[j]);
-          } else {
-            INFO("NET/IB : Found %d interfaces starting with %s", nIF, tokens[j]);
-            nSocFound += nIF;
-            // Will use the first interface found
-            break;  
-          }
-        }
-        if (nSocFound == 0) {
-          WARN("NET/IB : No IP interface found.");
+        if (findInterfaces(env, ncclIbIfName, &ncclIbIfAddr, MAX_IF_NAME_SIZE, 1) == 0) {
+          WARN("NET/IB : No IP interface found (starting with %s).", env);
           return;
         }
       } else {

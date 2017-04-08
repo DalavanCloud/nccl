@@ -14,9 +14,13 @@
 #include <netdb.h>
 #include <ifaddrs.h>
 
-static int findInterfaces(const char* ifNamePrefix, char* names, struct in_addr* addrs, int maxIfNameSize, int maxIfs) {
-  bool searchNot = (strlen(ifNamePrefix) > 0 && ifNamePrefix[0] == '^');
-  if (searchNot) /* Skip the '^' */ ifNamePrefix++;
+#include "utils.h"
+
+static int findInterfaces(const char* prefixList, char* names, struct in_addr* addrs, int maxIfNameSize, int maxIfs) {
+  bool searchNot = (strlen(prefixList) > 0 && prefixList[0] == '^');
+  char* tokens[maxIfs];
+  int nTokens = parseStringList(prefixList, ",", tokens, maxIfs);
+
   int found = 0;
   struct ifaddrs *interfaces, *interface;
   getifaddrs(&interfaces);
@@ -24,17 +28,22 @@ static int findInterfaces(const char* ifNamePrefix, char* names, struct in_addr*
     if (interface->ifa_addr == NULL || interface->ifa_addr->sa_family != AF_INET) continue;
     if (strncmp("lo", interface->ifa_name, strlen("lo")) == 0) continue; // Do not use loopback interfaces
 
-    int matchLength = min((int)strlen(ifNamePrefix), maxIfNameSize);
-    int match = strncmp(interface->ifa_name, ifNamePrefix, matchLength);
-    if ((match == 0) ^ searchNot) {
-      // Store the interface name
-      strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
-      // Store the IP address
-      struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
-      memcpy(addrs+found, &sa->sin_addr, sizeof(struct in_addr));
-      //INFO("NET : Using interface %s, %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
-      found++;
-      if (found == maxIfs) break;
+    for (int i = 0; i < nTokens; i++) {
+      char* ifNamePrefix = tokens[i];
+      if (ifNamePrefix[0] == '^') /* Skip the '^' */ ifNamePrefix++;
+
+      int matchLength = min((int)strlen(ifNamePrefix), maxIfNameSize);
+      int match = strncmp(interface->ifa_name, ifNamePrefix, matchLength);
+      if ((match == 0) ^ searchNot) {
+        // Store the interface name
+        strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
+        // Store the IP address
+        struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
+        memcpy(addrs+found, &sa->sin_addr, sizeof(struct in_addr));
+        INFO("NET : Using interface %s, %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
+        found++;
+        if (found == maxIfs) break;
+      }
     }
   }
   freeifaddrs(interfaces);
