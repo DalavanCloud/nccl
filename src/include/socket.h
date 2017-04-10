@@ -28,23 +28,28 @@ static int findInterfaces(const char* prefixList, char* names, struct in_addr* a
     if (interface->ifa_addr == NULL || interface->ifa_addr->sa_family != AF_INET) continue;
     if (strncmp("lo", interface->ifa_name, strlen("lo")) == 0) continue; // Do not use loopback interfaces
 
+    int match = -1;
     for (int i = 0; i < nTokens; i++) {
       char* ifNamePrefix = tokens[i];
       if (ifNamePrefix[0] == '^') /* Skip the '^' */ ifNamePrefix++;
-
       int matchLength = min((int)strlen(ifNamePrefix), maxIfNameSize);
-      int match = strncmp(interface->ifa_name, ifNamePrefix, matchLength);
-      if ((match == 0) ^ searchNot) {
-        // Store the interface name
-        strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
-        // Store the IP address
-        struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
-        memcpy(addrs+found, &sa->sin_addr, sizeof(struct in_addr));
-        INFO("NET : Using interface %s, %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
-        found++;
-        if (found == maxIfs) break;
+      match = strncmp(interface->ifa_name, ifNamePrefix, matchLength);
+      if (match == 0) {
+        break;   // no more need for matching
       }
     }
+    if ((match == 0) ^ searchNot) {
+      // Store the interface name
+      strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
+      // Store the IP address
+      struct sockaddr_in* sa = (struct sockaddr_in*)(interface->ifa_addr);
+      memcpy(addrs+found, &sa->sin_addr, sizeof(struct in_addr));
+      INFO("NET : Using interface %s, %s", interface->ifa_name, inet_ntoa(sa->sin_addr));
+      found++;
+    } else {
+      continue;
+    }
+    if (found == maxIfs) break;
   }
   freeifaddrs(interfaces);
   return found;
