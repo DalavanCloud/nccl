@@ -11,8 +11,8 @@ KEEP ?= 0
 DEBUG ?= 0
 PROFAPI ?= 0
 
-CUDA_LIB = $(CUDA_HOME)/lib64
-CUDA_INC = $(CUDA_HOME)/include
+CUDA_LIB ?= $(CUDA_HOME)/lib64
+CUDA_INC ?= $(CUDA_HOME)/include
 NVCC = $(CUDA_HOME)/bin/nvcc
 
 # Better define NVCC_GENCODE in your environment to the minimal set
