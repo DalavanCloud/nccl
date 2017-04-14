@@ -18,13 +18,14 @@ void print_line_header (int size, int count, const char *typeName, const char *o
   PRINT("%12i  %12i  %6s  %6s  %6i", size, count, typeName, opName, root);
 }
 
-void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedCount, int *sameExpected, size_t count, int nranks) {
+void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *paramcount, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedCount, int *sameExpected, size_t count, int nranks) {
     *sendcount = count;
     *recvcount = count;
     *sameExpected = 0;
     *procSharedCount = count;
     *sendInplaceOffset = 0;
     *recvInplaceOffset = 0;
+    *paramcount = *sendcount;
  }
 
 void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first) {

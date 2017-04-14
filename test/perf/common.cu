@@ -573,13 +573,13 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
 void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName, int root, int inPlace) {
   size_t size;
   int nranks = args->nProcs*args->nGpus*args->nThreads; 
-  size_t count, sendCount, recvCount, sendInplaceOffset, recvInplaceOffset, procSharedCount;
+  size_t count, sendCount, recvCount, paramCount, sendInplaceOffset, recvInplaceOffset, procSharedCount;
   int sameExpected;
   for (size = args->minbytes; size<=args->maxbytes; size = ((args->stepfactor > 1) ? size*args->stepfactor : size+args->stepbytes)) { 
       count = size / wordSize(type);
-      getCollByteCount(&sendCount, &recvCount, &sendInplaceOffset, &recvInplaceOffset, &procSharedCount, &sameExpected, (size_t)count, (size_t)nranks);
+      getCollByteCount(&sendCount, &recvCount, &paramCount, &sendInplaceOffset, &recvInplaceOffset, &procSharedCount, &sameExpected, (size_t)count, (size_t)nranks);
 
-      args->nbytes = count * wordSize(type); 
+      args->nbytes = paramCount * wordSize(type); 
       args->sendBytes = sendCount * wordSize(type); 
       args->expectedBytes = recvCount * wordSize(type);
       args->sendInplaceOffset = sendInplaceOffset * wordSize(type);
@@ -874,10 +874,10 @@ int main(int argc, char* argv[]) {
   void* expected[nGpus*nThreads];
   void* expectedHost[nGpus*nThreads];
   void *procSharedHost, *procShared;
-  size_t sendBytes, recvBytes, procSharedBytes, sendInplaceOffset, recvInplaceOffset; 
+  size_t sendBytes, recvBytes, paramBytes, procSharedBytes, sendInplaceOffset, recvInplaceOffset; 
   int sameExpected;
 
-  getCollByteCount(&sendBytes, &recvBytes, &sendInplaceOffset, &recvInplaceOffset, &procSharedBytes, &sameExpected, (size_t)maxBytes, (size_t)nProcs*nGpus*nThreads);
+  getCollByteCount(&sendBytes, &recvBytes, &paramBytes, &sendInplaceOffset, &recvInplaceOffset, &procSharedBytes, &sameExpected, (size_t)maxBytes, (size_t)nProcs*nGpus*nThreads);
 
   for (int i=0; i<nGpus*nThreads; i++) {
     CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
