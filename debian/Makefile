@@ -32,6 +32,7 @@ $(DEBIANDIR)/% : %.in
 	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
 	    -e "s/\$${cuda:Major}/$(CUDA_MAJOR)/g" \
 	    -e "s/\$${cuda:Minor}/$(CUDA_MINOR)/g" \
+	    -e "s/\$${cuda:Build}/$(CUDA_BUILD)/g" \
 	    -e "s/\$${deb:Revision}/$(DEB_REVISION)/g" \
 	    -e "s/\$${deb:Timestamp}/$(DEB_TIMESTAMP)/g" \
 	    -e "s/\$${deb:Arch}/$(DEB_ARCH)/g" \
