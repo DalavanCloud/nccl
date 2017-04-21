@@ -1,3 +1,0 @@
-include/nccl.h /usr/include
-lib/libnccl.so /usr/lib/x86_64-linux-gnu
-lib/libnccl_static.a /usr/lib/x86_64-linux-gnu

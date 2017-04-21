@@ -12,6 +12,7 @@ DEBTARGETS := $(patsubst %, $(DEBIANDIR)/%, $(DEBFILES))
 DEB_REVISION   ?= RC2
 DEB_TIMESTAMP  := $(shell date -R)
 DEB_ARCH       ?= amd64
+DEB_MULTIARCH  ?= $(shell gcc -print-multiarch)
 
 build : $(DEBTARGETS)
 
@@ -36,6 +37,7 @@ $(DEBIANDIR)/% : %.in
 	    -e "s/\$${deb:Revision}/$(DEB_REVISION)/g" \
 	    -e "s/\$${deb:Timestamp}/$(DEB_TIMESTAMP)/g" \
 	    -e "s/\$${deb:Arch}/$(DEB_ARCH)/g" \
+	    -e "s/\$${deb:MultiArch}/$(DEB_MULTIARCH)/g" \
 	    $< > $@
 
 $(DEBIANDIR)/% : %
