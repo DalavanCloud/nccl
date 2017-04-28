@@ -62,12 +62,6 @@ static int getNvlinkCount(const char* busId1, const char* busId2) {
   if (res != ncclSuccess) return 0;
 
   for(int l=0; l<NVML_NVLINK_MAX_LINKS; ++l) {
-    // nvmlDeviceGetNvLinkState() reports whether a link is enabled or not.
-    // Works only on Pascal and later
-    nvmlEnableState_t linkState;
-    if (wrapNvmlDeviceGetNvLinkState(nvmlDev, l, &linkState) != ncclSuccess) return 0;
-    if (linkState == NVML_FEATURE_DISABLED) continue;
-
     // nvmlDeviceGetNvLinkCapability(NVML_NVLINK_CAP_P2P_SUPPORTED) would seem to
     // report whether the NVLink connects to a peer GPU (versus a POWER CPU?). I
     // don't know whether nvmlDeviceGetNvLinkRemotePciInfo() would succeed in
