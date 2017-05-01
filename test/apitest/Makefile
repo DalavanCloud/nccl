@@ -11,9 +11,8 @@ DEP_FILES	:= $(OBJ_FILES:%.o=%.dep)
 ### cc
 NVCUFLAGS += -I${BUILDDIR}/include/ -include nccl.h ${CPPFLAGS} ${GTEST_CPPFLAGS}
 ### ld
-LIBRARIES += curand nvToolsExt nccl
 LIBDIR := ${BUILDDIR}/lib
-NVLDFLAGS   += -L${LIBDIR} $(LIBRARIES:%=-l%) ${GTEST_LIBS}
+NVLDFLAGS   += -L${LIBDIR} ${GTEST_LIBS}
 ### rules
 .PHONY:
 
@@ -25,7 +24,7 @@ ${DST_DIR}/%.dep:%.cu
 	| sed "0,/^$*.o :/s//$(subst /,\/,${DST_DIR}/$*.o) :/" \
 	> $@
 endif
-all:${DST_DIR}/apitest
+all:${DST_DIR}/apitest ${DST_DIR}/apitest_static
 
 clean:
 	rm -rf ${DST_DIR}
@@ -34,7 +33,10 @@ test: ${DST_DIR}/apitest
 	/bin/bash -c "LD_LIBRARY_PATH+=:$(LIBDIR) $^"
 
 ${DST_DIR}/apitest:${OBJ_FILES}
-	${NVCC} -o $@ ${NVCUFLAGS} ${NVLDFLAGS} $^
+	${NVCC} -o $@ ${NVCUFLAGS} ${NVLDFLAGS} $^ -lnccl
+
+${DST_DIR}/apitest_static:${OBJ_FILES}
+	${NVCC} -o $@ ${NVCUFLAGS} ${NVLDFLAGS} $^ -lnccl_static
 
 ${DST_DIR}/%.o: %.cu
 	@mkdir -p ${DST_DIR}
