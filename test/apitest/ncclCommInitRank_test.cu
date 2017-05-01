@@ -30,6 +30,15 @@ TEST_F(ncclCommInitRank_test, commId_uninitialized) {
         << "should an uninitialized unique id be used?";
 }
 #endif
+TEST_F(ncclCommInitRank_test, id_dup) {
+    ncclUniqueId* id1 = (ncclUniqueId*)malloc(sizeof(ncclUniqueId));
+    EXPECT_EQ(ncclSuccess, ncclGetUniqueId(id1));
+    ncclUniqueId* id2 = (ncclUniqueId*)malloc(sizeof(ncclUniqueId));
+    memcpy(id2, id1, sizeof(ncclUniqueId));
+    memset(id1, 0, sizeof(ncclUniqueId));
+    free(id1);
+    EXPECT_EQ(ncclSuccess, ncclCommInitRank(&comm, 1, *id2, 0));
+}
 TEST_F(ncclCommInitRank_test, ndev_zero) {
     ASSERT_EQ(ncclInvalidArgument,
               ncclCommInitRank(&comm, 0, commId, rank));
