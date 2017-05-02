@@ -10,14 +10,23 @@
 #include "core.h"
 #include <stdio.h>
 
+#include <unistd.h>
+#include <sys/syscall.h>
+#define gettid() (pid_t) syscall(SYS_gettid)
+
 typedef enum {NONE=0, VERSION=1, WARN=2, INFO=3, ABORT=4} DebugLevel;
 extern DebugLevel ncclDebugLevel;
 extern pthread_mutex_t ncclDebugOutputLock;
+extern void getHostName(char* hostname, int maxlen);
 
 #define WARN(...) do {                                           \
   if (ncclDebugLevel >= WARN) {                                  \
+    char hostname[1024];                                         \
+    getHostName(hostname, 1024);                                 \
+    int cudaDev;                                                 \
+    cudaGetDevice(&cudaDev);                                     \
     pthread_mutex_lock(&ncclDebugOutputLock);                    \
-    printf("\nWARN %s:%d ", __FILE__, __LINE__);                 \
+    printf("\n%s:%d:%d [%d] %s:%d WARN ", hostname, getpid(), gettid(), cudaDev, __FILE__, __LINE__); \
     printf(__VA_ARGS__);                                         \
     printf("\n");                                                \
     fflush(stdout);                                              \
@@ -28,8 +37,12 @@ extern pthread_mutex_t ncclDebugOutputLock;
 
 #define INFO(...) do {                                           \
   if (ncclDebugLevel >= INFO) {                                  \
+    char hostname[1024];                                         \
+    getHostName(hostname, 1024);                                 \
+    int cudaDev;                                                 \
+    cudaGetDevice(&cudaDev);                                     \
     pthread_mutex_lock(&ncclDebugOutputLock);                    \
-    printf("INFO "); printf(__VA_ARGS__); printf("\n");          \
+    printf("%s:%d:%d [%d] INFO ", hostname, getpid(), gettid(), cudaDev); printf(__VA_ARGS__); printf("\n"); \
     fflush(stdout);                                              \
     pthread_mutex_unlock(&ncclDebugOutputLock);                  \
   }                                                              \
