@@ -9,7 +9,7 @@ class ncclCommInitRank_test : public ::testing::Test {
     };
     virtual void TearDown() {
         if (comm == NULL) {
-          // This is needed to free the Unique Id
+          // This is needed to free resources allocated to the Id
           ASSERT_EQ(ncclSuccess, ncclCommInitRank(&comm, 1, commId, 0));
         }
         ASSERT_EQ(ncclSuccess, ncclCommDestroy(comm));
@@ -38,6 +38,7 @@ TEST_F(ncclCommInitRank_test, id_dup) {
     memset(id1, 0, sizeof(ncclUniqueId));
     free(id1);
     EXPECT_EQ(ncclSuccess, ncclCommInitRank(&comm, 1, *id2, 0));
+    free(id2);
 }
 TEST_F(ncclCommInitRank_test, ndev_zero) {
     ASSERT_EQ(ncclInvalidArgument,
