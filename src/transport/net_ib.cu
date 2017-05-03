@@ -25,7 +25,7 @@
 #define MAX_IF_NAME_SIZE 16
 #define MAXNAMESIZE 64
 static char ncclIbIfName[MAX_IF_NAME_SIZE];
-static struct in_addr ncclIbIfAddr;
+static union socketAddress ncclIbIfAddr;
 static int ncclNIbDevs = -1;
 struct ncclIbDev {
   int device;
@@ -60,17 +60,19 @@ static void initDevices() {
   if (ncclNIbDevs == -1) {
     pthread_mutex_lock(&ncclIbLock);
     if (ncclNIbDevs == -1) {
+      // Allow user to force the INET socket family selection
+      int family = envSocketFamily();
       // Get an IP card for OOB transport
       char* env = getenv("NCCL_SOCKET_IFNAME");
       if (env && strlen(env) > 1) {
         // Specified by user : find or fail
-        if (findInterfaces(env, ncclIbIfName, &ncclIbIfAddr, MAX_IF_NAME_SIZE, 1) == 0) {
+        if (findInterfaces(env, ncclIbIfName, &ncclIbIfAddr, family, MAX_IF_NAME_SIZE, 1) == 0) {
           WARN("NET/IB : No IP interface found (starting with %s).", env);
           return;
         }
       } else {
         // Try to automatically pick one that will work, but not loopback
-        if (findInterfaces("^lo", ncclIbIfName, &ncclIbIfAddr, MAX_IF_NAME_SIZE, 1) == 0) {
+        if (findInterfaces("^lo", ncclIbIfName, &ncclIbIfAddr, family, MAX_IF_NAME_SIZE, 1) == 0) {
           WARN("NET/IB : No IP interface found.");
           return;
         }
@@ -172,9 +174,9 @@ int ncclIbPtrSupport(int dev, int* supportedTypes) {
   return 0;
 }
 
-static ncclResult_t GetIpAddr(struct in_addr* addr) {
+static ncclResult_t GetSocketAddr(union socketAddress* addr) {
   if (ncclNIbDevs == -1) initDevices();
-  memcpy(addr, &ncclIbIfAddr, sizeof(struct in_addr));
+  memcpy(addr, &ncclIbIfAddr, sizeof(*addr));
   return ncclSuccess;
 }
 
@@ -189,7 +191,7 @@ struct ncclIbQpInfo {
 };
 
 struct ncclIbHandle {
-  struct socketAddress connectAddr;
+  union socketAddress connectAddr;
   struct ncclIbQpInfo qpInfo;
 };
 
@@ -352,8 +354,8 @@ int ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {
   struct ncclIbHandle* handle = (struct ncclIbHandle*) opaqueHandle;
   static_assert(sizeof(struct ncclIbHandle) < NCCL_NET_HANDLE_MAXSIZE, "ncclIbHandle size too large");
   comm->dev = dev;
-  NCCLCHECK(GetIpAddr(&(handle->connectAddr.ip_addr)));
-  NCCLCHECK(createListenSocket(&comm->fd, handle->connectAddr.ip_addr, &handle->connectAddr.port));
+  NCCLCHECK(GetSocketAddr(&(handle->connectAddr)));
+  NCCLCHECK(createListenSocket(&comm->fd, &handle->connectAddr));
   *listenComm = comm;
   return 0;
 }
@@ -362,7 +364,7 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)malloc(sizeof(struct ncclIbSendComm));
   memset(comm, 0, sizeof(struct ncclIbSendComm));
   struct ncclIbHandle* handle = (struct ncclIbHandle*) opaqueHandle;
-  NCCLCHECK(connectAddress(&handle->connectAddr, ncclIbIfAddr, &comm->fd));
+  NCCLCHECK(connectAddress(&handle->connectAddr, &ncclIbIfAddr, &comm->fd));
   *sendComm = comm;
   
   // IB Setup
