@@ -33,20 +33,18 @@ static void initDevices() {
   if (ncclNetIfs == -1) {
     pthread_mutex_lock(&ncclSocketLock);
     if (ncclNetIfs == -1) {
-      // Allow user to force the INET socket family selection
-      int family = envSocketFamily();
       ncclNetIfs = 0;
       // User specified interface
       char* env = getenv("NCCL_SOCKET_IFNAME");
       if (env && strlen(env) > 1) {
         // Specified by user : find or fail
-        ncclNetIfs = findInterfaces(env, ncclNetIfNames, ncclNetIfAddrs, family, MAX_IF_NAME_SIZE, MAX_IFS);
+        ncclNetIfs = findInterfaces(env, ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
       } else {
         // Try to automatically pick the right one
         // Start with IB
-        ncclNetIfs = findInterfaces("ib", ncclNetIfNames, ncclNetIfAddrs, family, MAX_IF_NAME_SIZE, MAX_IFS);
+        ncclNetIfs = findInterfaces("ib", ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
         // Then look for anything else (but not loopback)
-        if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("^lo", ncclNetIfNames, ncclNetIfAddrs, family, MAX_IF_NAME_SIZE, MAX_IFS);
+        if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("^lo", ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
         // Don't try loopback. If we are we running intra-node we can always set env="lo".
         //if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("lo", ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
       }
