@@ -28,8 +28,8 @@ union socketAddress {
 static inline void displaySocket(const char *prefix, struct sockaddr *saddr) {
   char host[NI_MAXHOST], service[NI_MAXSERV];
   int salen = (saddr->sa_family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
-  (void) getnameinfo(saddr, salen, host, NI_MAXHOST, service, NI_MAXSERV, NI_NUMERICSERV);
-  INFO("%s %s:%s<%s>", prefix, (saddr->sa_family == AF_INET) ? "IPv4" : "IPv6", host, service);
+  (void) getnameinfo(saddr, salen, host, NI_MAXHOST, service, NI_MAXSERV, NI_NUMERICHOST|NI_NUMERICSERV);
+  INFO("%s%s:%s<%s>", prefix, (saddr->sa_family == AF_INET) ? "IPv4" : "IPv6", host, service);
 }
 
 /* Allow the user to force the IPv4/IPv6 interface selection */
@@ -81,8 +81,9 @@ static int findInterfaces(const char* ifNamePrefix, char* names, union socketAdd
       /* IPv4/IPv6 support */
       int salen = (family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
       memcpy(addrs+found, interface->ifa_addr, salen);
-      INFO("NET : Using interface %s", interface->ifa_name);
-      displaySocket("NET : IP addr", interface->ifa_addr);
+      char prefix[1024];
+      sprintf(prefix, "NET : Using interface %s:", interface->ifa_name);
+      displaySocket(prefix, interface->ifa_addr);
       found++;
       if (found == maxIfs) break;
     }
@@ -140,7 +141,7 @@ static ncclResult_t connectAddress(union socketAddress* remoteAddr, union socket
   SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_SNDBUF, (char*)&bufsize, sizeof(int)), "setsockopt");
   SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_RCVBUF, (char*)&bufsize, sizeof(int)), "setsockopt");*/
 
-  displaySocket("Connecting to socket", &remoteAddr->sa);
+  displaySocket("Connecting to socket ", &remoteAddr->sa);
 
   SYSCHECK(connect(*fd, &remoteAddr->sa, salen), "connect");
   return ncclSuccess;
