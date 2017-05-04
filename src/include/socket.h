@@ -34,11 +34,12 @@ static inline void displaySocket(const char *prefix, struct sockaddr *saddr) {
 
 /* Allow the user to force the IPv4/IPv6 interface selection */
 static inline int envSocketFamily(void) {
-  int family;
+  int family = -1; // Family selection is not forced, will use first one found
   char* env = getenv("NCCL_SOCKET_FAMILY");
   if (env == NULL)
-    family = -1; // Family selection is not forced, will use first one found
-  else if (strcmp(env, "AF_INET") == 0)
+    return family;
+  
+  if (strcmp(env, "AF_INET") == 0)
     family = AF_INET;  // IPv4
   else if (strcmp(env, "AF_INET6") == 0)
     family = AF_INET6; // IPv6
