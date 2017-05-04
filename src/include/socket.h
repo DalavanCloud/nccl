@@ -21,15 +21,17 @@ union socketAddress {
   struct sockaddr_in6 sin6;
 };
 
-/* Display a (struct sockaddr *) socket address using getnameinfo()
+/* Format a string representation of a (struct sockaddr *) socket address using getnameinfo()
  *
- * Output: <prefix> [IPv4:IPv6]:<IP address>:<port>
+ * Output: "IPv4/IPv6 address<port>"
  */
-static inline void displaySocket(const char *prefix, struct sockaddr *saddr) {
+static inline const char *socketToString(struct sockaddr *saddr, char *buf) {
+  if (buf == NULL || saddr == NULL) return NULL;
+  if (saddr->sa_family != AF_INET && saddr->sa_family != AF_INET6) { buf[0]='\0'; return buf; }
   char host[NI_MAXHOST], service[NI_MAXSERV];
-  int salen = (saddr->sa_family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
-  (void) getnameinfo(saddr, salen, host, NI_MAXHOST, service, NI_MAXSERV, NI_NUMERICHOST|NI_NUMERICSERV);
-  INFO("%s%s:%s<%s>", prefix, (saddr->sa_family == AF_INET) ? "IPv4" : "IPv6", host, service);
+  (void) getnameinfo(saddr, sizeof(union socketAddress), host, NI_MAXHOST, service, NI_MAXSERV, NI_NUMERICHOST|NI_NUMERICSERV);
+  sprintf(buf, "%s<%s>", host, service);
+  return buf;
 }
 
 /* Allow the user to force the IPv4/IPv6 interface selection */
@@ -47,6 +49,7 @@ static inline int envSocketFamily(void) {
 }
 
 static int findInterfaces(const char* ifNamePrefix, char* names, union socketAddress *addrs, int maxIfNameSize, int maxIfs) {
+  char line[1024];
   // Allow user to force the INET socket family selection
   int sock_family = envSocketFamily();
   bool searchNot = (strlen(ifNamePrefix) > 0 && ifNamePrefix[0] == '^');
@@ -62,14 +65,17 @@ static int findInterfaces(const char* ifNamePrefix, char* names, union socketAdd
     int family = interface->ifa_addr->sa_family;
     if (family != AF_INET && family != AF_INET6)
       continue;
+
+//    INFO("Found interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
+
     /* Allow the caller to force the socket family type */
     if (sock_family != -1 && family != sock_family)
       continue;
 
-    /* IPv6: We need to skip link local addresses (i.e. where scope_id != 0) */
+    /* We also need to skip IPv6 loopback interfaces */
     if (family == AF_INET6) {
       struct sockaddr_in6* sa = (struct sockaddr_in6*)(interface->ifa_addr);
-      if (sa->sin6_scope_id != 0) continue;
+      if (IN6_IS_ADDR_LOOPBACK(&sa->sin6_addr)) continue;
     }
 
     int matchLength = min((int)strlen(ifNamePrefix), maxIfNameSize);
@@ -81,9 +87,7 @@ static int findInterfaces(const char* ifNamePrefix, char* names, union socketAdd
       /* IPv4/IPv6 support */
       int salen = (family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
       memcpy(addrs+found, interface->ifa_addr, salen);
-      char prefix[1024];
-      sprintf(prefix, "NET : Using interface %s:", interface->ifa_name);
-      displaySocket(prefix, interface->ifa_addr);
+      INFO("NET : Using interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
       found++;
       if (found == maxIfs) break;
     }
@@ -111,7 +115,11 @@ static ncclResult_t createListenSocket(int *fd, union socketAddress *localAddr) 
   /* Get the assigned Port */
   socklen_t size = salen;
   SYSCHECK(getsockname(sockfd, &localAddr->sa, &size), "getsockname");
-//  displaySocket("Listening on socket ", &localAddr->sa);
+
+#if ENABLE_TRACE
+  char line[1024];
+  TRACE("Listening on socket %s", socketToString(&localAddr->sa, line));
+#endif
 
   /* Put the socket in listen mode */
   SYSCHECK(listen(sockfd, 128), "listen");
@@ -141,7 +149,10 @@ static ncclResult_t connectAddress(union socketAddress* remoteAddr, union socket
   SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_SNDBUF, (char*)&bufsize, sizeof(int)), "setsockopt");
   SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_RCVBUF, (char*)&bufsize, sizeof(int)), "setsockopt");*/
 
-//  displaySocket("Connecting to socket ", &remoteAddr->sa);
+#if ENABLE_TRACE
+  char line[1024];
+  TRACE("Connecting to socket %s", socketToString(&remoteAddr->sa, line));
+#endif
 
   SYSCHECK(connect(*fd, &remoteAddr->sa, salen), "connect");
   return ncclSuccess;
