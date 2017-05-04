@@ -111,7 +111,7 @@ static ncclResult_t createListenSocket(int *fd, union socketAddress *localAddr) 
   /* Get the assigned Port */
   socklen_t size = salen;
   SYSCHECK(getsockname(sockfd, &localAddr->sa, &size), "getsockname");
-  displaySocket("Listening on socket ", &localAddr->sa);
+//  displaySocket("Listening on socket ", &localAddr->sa);
 
   /* Put the socket in listen mode */
   SYSCHECK(listen(sockfd, 128), "listen");
@@ -141,7 +141,7 @@ static ncclResult_t connectAddress(union socketAddress* remoteAddr, union socket
   SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_SNDBUF, (char*)&bufsize, sizeof(int)), "setsockopt");
   SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_RCVBUF, (char*)&bufsize, sizeof(int)), "setsockopt");*/
 
-  displaySocket("Connecting to socket ", &remoteAddr->sa);
+//  displaySocket("Connecting to socket ", &remoteAddr->sa);
 
   SYSCHECK(connect(*fd, &remoteAddr->sa, salen), "connect");
   return ncclSuccess;
