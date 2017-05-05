@@ -116,7 +116,7 @@ static ncclResult_t createListenSocket(int *fd, union socketAddress *localAddr) 
   socklen_t size = salen;
   SYSCHECK(getsockname(sockfd, &localAddr->sa, &size), "getsockname");
 
-#if ENABLE_TRACE
+#ifdef ENABLE_TRACE
   char line[1024];
   TRACE("Listening on socket %s", socketToString(&localAddr->sa, line));
 #endif
@@ -149,7 +149,7 @@ static ncclResult_t connectAddress(union socketAddress* remoteAddr, union socket
   SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_SNDBUF, (char*)&bufsize, sizeof(int)), "setsockopt");
   SYSCHECK(setsockopt(*fd, SOL_SOCKET, SO_RCVBUF, (char*)&bufsize, sizeof(int)), "setsockopt");*/
 
-#if ENABLE_TRACE
+#ifdef ENABLE_TRACE
   char line[1024];
   TRACE("Connecting to socket %s", socketToString(&remoteAddr->sa, line));
 #endif
