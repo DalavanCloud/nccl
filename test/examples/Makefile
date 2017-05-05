@@ -12,15 +12,14 @@ LIBRARIES += nccl
 NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
 
 DST_DIR := $(BUILDDIR)/test/examples
-SRC_FILES := $(wildcard *.cu)
-OBJ_FILES := $(SRC_FILES:%.cu=${DST_DIR}/%.o)
-ifeq ($(MPI), 1)
-BIN_FILES_LIST := multiproc_multigpu multiproc_singlegpu singleproc_multigpu
-else 
 BIN_FILES_LIST := singleproc_multigpu
+ifeq ($(MPI), 1)
+BIN_FILES_LIST += multiproc_multigpu multiproc_singlegpu
 endif
 BIN_FILES := $(BIN_FILES_LIST:%=${DST_DIR}/%)
-DEP_FILES := $(OBJ_FILES:%.o=%.dep)
+SRC_FILES := $(BIN_FILES:%=%.cu)
+OBJ_FILES := $(BIN_FILES:%=%.o)
+DEP_FILES := $(BIN_FILES:%=%.dep)
 
 all: ${BIN_FILES}
 
