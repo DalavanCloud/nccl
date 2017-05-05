@@ -11,6 +11,7 @@
 #ifdef MPI_SUPPORT
 #include "mpi.h"
 #endif
+#include <pthread.h>
 
 #define CUDACHECK(cmd) do {                         \
   cudaError_t e = cmd;                              \
