@@ -34,17 +34,38 @@ static void initDevices() {
     pthread_mutex_lock(&ncclSocketLock);
     if (ncclNetIfs == -1) {
       ncclNetIfs = 0;
+      // Allow user to force the INET socket family selection
+      int sock_family = envSocketFamily();
       // User specified interface
       char* env = getenv("NCCL_SOCKET_IFNAME");
       if (env && strlen(env) > 1) {
         // Specified by user : find or fail
-        ncclNetIfs = findInterfaces(env, ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
+        ncclNetIfs = findInterfaces(env, ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
       } else {
         // Try to automatically pick the right one
         // Start with IB
-        ncclNetIfs = findInterfaces("ib", ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
+        if (sock_family != -1) {
+          // User forced an INET family
+          ncclNetIfs = findInterfaces("ib", ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
+        }
+        else {
+          // Try IPv4, then IPv6
+          ncclNetIfs = findInterfaces("ib", ncclNetIfNames, ncclNetIfAddrs, AF_INET, MAX_IF_NAME_SIZE, MAX_IFS);
+          if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("ib", ncclNetIfNames, ncclNetIfAddrs, AF_INET6, MAX_IF_NAME_SIZE, MAX_IFS);
+        }
+
         // Then look for anything else (but not loopback)
-        if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("^lo", ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
+        if (ncclNetIfs == 0) {
+          if (sock_family != -1) {
+            // User forced an INET family
+            ncclNetIfs = findInterfaces("^lo", ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
+          }
+          else {
+            // Try IPv4, then IPv6
+            ncclNetIfs = findInterfaces("^lo", ncclNetIfNames, ncclNetIfAddrs, AF_INET, MAX_IF_NAME_SIZE, MAX_IFS);
+            if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("^lo", ncclNetIfNames, ncclNetIfAddrs, AF_INET6, MAX_IF_NAME_SIZE, MAX_IFS);
+          }
+        }
         // Don't try loopback. If we are we running intra-node we can always set env="lo".
         //if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("lo", ncclNetIfNames, ncclNetIfAddrs, MAX_IF_NAME_SIZE, MAX_IFS);
       }
