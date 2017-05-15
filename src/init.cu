@@ -304,13 +304,8 @@ static ncclResult_t buildRings(int nrings, int* rings, int rank, int nranks, int
 }
 
 /* Get the default number of threads based on the GPU generation */
-ncclResult_t getDefaultThreads(int* nthreads) {
-  int cudaDev;
-  CUDACHECK(cudaGetDevice(&cudaDev));
-  int ccMajor;
-  CUDACHECK(cudaDeviceGetAttribute(&ccMajor, cudaDevAttrComputeCapabilityMajor, cudaDev));
-  *nthreads = (ccMajor > 5) ? 256 : 512;
-  return ncclSuccess;
+static int getDefaultThreads() {
+  return cudaCompCap() > 5 ? 256 : 512;
 }
 
 static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* commId) {
@@ -334,7 +329,7 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   int nrings;
   int prev[nranks*MAXRINGS];
   int next[nranks*MAXRINGS];
-  NCCLCHECK(getDefaultThreads(&comm->nThreads));
+  comm->nThreads = getDefaultThreads();
   NCCLCHECK(ncclGetRings(&nrings, &comm->nThreads, rank, nranks, connectTransport, connectValue, prev, next));
 
   // Find max nThreads
@@ -471,9 +466,8 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   int nextFinal[nranks*MAXRINGS];
   int nthreads = 512;
   for (int rank=0; rank<nranks; rank++) {
-    int nt;
     CUDACHECK(cudaSetDevice(devs[rank]));
-    NCCLCHECK(getDefaultThreads(&nt));
+    int nt = getDefaultThreads();
     nthreads = max(nthreads, nt);
   }
   INFO("Using %d threads", nthreads);

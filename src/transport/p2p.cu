@@ -57,11 +57,12 @@ ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
 static int getNvlinkCount(const char* busId1, const char* busId2) {
   // Determine if that connection is through NVLink
   int links = 0;
+  int maxNvLinks = cudaCompCap() > 6 ? 6 : 4;
   nvmlDevice_t nvmlDev;
   ncclResult_t res = wrapNvmlDeviceGetHandleByPciBusId(busId1, &nvmlDev);
   if (res != ncclSuccess) return 0;
 
-  for(int l=0; l<NVML_NVLINK_MAX_LINKS; ++l) {
+  for(int l=0; l<maxNvLinks; ++l) {
     // nvmlDeviceGetNvLinkCapability(NVML_NVLINK_CAP_P2P_SUPPORTED) would seem to
     // report whether the NVLink connects to a peer GPU (versus a POWER CPU?). I
     // don't know whether nvmlDeviceGetNvLinkRemotePciInfo() would succeed in
@@ -239,7 +240,7 @@ int p2pComputeRings(int* values, int nranks, int* rings, int nrings, int* prev, 
       for (int i=0; i<nranks; i++) rings[(r+compNrings)*nranks+i] = rings[r*nranks+i];
     }
     compNrings *= 2;
-    *nthreads = 128;
+    if (cudaCompCap() == 6) *nthreads /= 2;
   }
   return compNrings;
 }

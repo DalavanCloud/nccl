@@ -158,5 +158,13 @@ struct ncclComm {
     ret func(args)
 #endif // end PROFAPI
 
+static inline int cudaCompCap() {
+  int cudaDev;
+  if (cudaGetDevice(&cudaDev) != cudaSuccess) return 0;
+  int ccMajor;
+  if (cudaDeviceGetAttribute(&ccMajor, cudaDevAttrComputeCapabilityMajor, cudaDev) != cudaSuccess) return 0;
+  return ccMajor;
+}
+
 #endif // end include guard
 
