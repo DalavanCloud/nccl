@@ -7,6 +7,12 @@
 #include "nccl.h"
 #include "core.h"
 #include "rings.h"
+
+int testCudaCompCap = 0;
+int ncclCudaCompCap() {
+  return testCudaCompCap;
+}
+
 /*=========== Topologies definitions =============*/
 int PCI2_tr[] = 
   { 0, 0,
@@ -557,7 +563,7 @@ static void dumpRings(int nrings, int *rings, int nranks, const char* toponame, 
 }
 
 /*=========== Main test function =============*/
-static ncclResult_t getRings(int nranks, int* transports, int* values, const char* toponame, int expectedNrings, int expectedNthreads) {
+static ncclResult_t getRings(int compCap, int nranks, int* transports, int* values, const char* toponame, int expectedNrings, int expectedNthreads) {
   int nrings_final = -1;
   int nthreads_final = -1;
   int prev[MAXRINGS*nranks];
@@ -568,9 +574,11 @@ static ncclResult_t getRings(int nranks, int* transports, int* values, const cha
 
   int rings[MAXRINGS*nranks];
 
+  testCudaCompCap = compCap;
+
   for (int rank=0; rank<nranks; rank++) {
     int nrings = MAXRINGS;
-    int nthreads = 512;
+    int nthreads = getDefaultThreads();
     ncclResult_t ret = ncclGetRings(&nrings, &nthreads, rank, nranks, transports, values, prev, next);
     if (ret != ncclSuccess) {
       sprintf(errortext, "Error : getRings returned %s", ncclGetErrorString(ret));
@@ -642,29 +650,29 @@ end:
 int main() {
   int err = 0;
   writeHeader();
-  CHECK(getRings(2, PCI2_tr, PCI2_vl, "PCI  2", 1, 512));
-  CHECK(getRings(4, PCI4_tr, PCI4_vl, "PCI  4", 1, 512));
-  CHECK(getRings(8, PCI8_tr, PCI8_vl, "PCI  8", 1, 512));
-  CHECK(getRings(16, PCI16_tr, PCI16_vl, "PCI 16", 1, 512));
-  CHECK(getRings(4, QPI4_tr, QPI4_vl, "QPI  4", 1, 512));
-  CHECK(getRings(8, QPI8_tr, QPI8_vl, "QPI  8", 1, 512));
-  CHECK(getRings(16, QPI16_tr, QPI16_vl, "QPI 16", 2, 512));
-  CHECK(getRings(4, QPU4_tr, QPU4_vl, "QPU  4", 1, 512));
-  CHECK(getRings(6, QPI6_tr, QPI6_vl, "QPI  6", 1, 512));
-  CHECK(getRings(6, QPU6_tr, QPU6_vl, "QPU  6", 1, 512));
-  CHECK(getRings(8, QPU8_tr, QPU8_vl, "QPU  8", 1, 512));
-  CHECK(getRings(16, QPU16_tr, QPU16_vl, "QPU 16", 1, 512));
-  CHECK(getRings(9, QPX9_tr, QPX9_vl, "QPX  9", 2, 512));
-  CHECK(getRings(4, NVL4_tr, NVL4_vl, "NVL  4", 8, 128));
-  CHECK(getRings(6, NVL6_tr, NVL6_vl, "NVL  6", 4, 128));
-  CHECK(getRings(4, NVH4_tr, NVH4_vl, "NVH  4", 12, 128));
-  CHECK(getRings(8, NVL8_tr, NVL8_vl, "NVL  8", 8, 128));
-  CHECK(getRings(8, NVLX8_tr, NVLX8_vl, "NVL X8", 2, 512));
-  CHECK(getRings(16, NVL16_tr, NVL16_vl, "NVL 16", 4, 512));
-  CHECK(getRings(32, NVL32_tr, NVL32_vl, "NVL 32", 4, 512));
-  CHECK(getRings(8, NVG8_tr, NVG8_vl, "NVG  8", 8, 128));
-  CHECK(getRings(16, NVG16_tr, NVG16_vl, "NVG 16", 1, 512));
-  CHECK(getRings(8, NVV8_tr, NVV8_vl, "NVV  8", 12, 128));
+  CHECK(getRings(3, 2, PCI2_tr, PCI2_vl, "PCI  2", 1, 512));
+  CHECK(getRings(3, 4, PCI4_tr, PCI4_vl, "PCI  4", 1, 512));
+  CHECK(getRings(3, 8, PCI8_tr, PCI8_vl, "PCI  8", 1, 512));
+  CHECK(getRings(3, 16, PCI16_tr, PCI16_vl, "PCI 16", 1, 512));
+  CHECK(getRings(3, 4, QPI4_tr, QPI4_vl, "QPI  4", 1, 512));
+  CHECK(getRings(3, 8, QPI8_tr, QPI8_vl, "QPI  8", 1, 512));
+  CHECK(getRings(3, 16, QPI16_tr, QPI16_vl, "QPI 16", 2, 512));
+  CHECK(getRings(5, 4, QPU4_tr, QPU4_vl, "QPU  4", 1, 256));
+  CHECK(getRings(3, 6, QPI6_tr, QPI6_vl, "QPI  6", 1, 512));
+  CHECK(getRings(5, 6, QPU6_tr, QPU6_vl, "QPU  6", 1, 256));
+  CHECK(getRings(5, 8, QPU8_tr, QPU8_vl, "QPU  8", 1, 256));
+  CHECK(getRings(5, 16, QPU16_tr, QPU16_vl, "QPU 16", 1, 256));
+  CHECK(getRings(3, 9, QPX9_tr, QPX9_vl, "QPX  9", 2, 512));
+  CHECK(getRings(6, 4, NVL4_tr, NVL4_vl, "NVL  4", 8, 128));
+  CHECK(getRings(6, 6, NVL6_tr, NVL6_vl, "NVL  6", 4, 128));
+  CHECK(getRings(6, 4, NVH4_tr, NVH4_vl, "NVH  4", 12, 128));
+  CHECK(getRings(6, 8, NVL8_tr, NVL8_vl, "NVL  8", 8, 128));
+  CHECK(getRings(6, 8, NVLX8_tr, NVLX8_vl, "NVL X8", 2, 256));
+  CHECK(getRings(6, 16, NVL16_tr, NVL16_vl, "NVL 16", 4, 256));
+  CHECK(getRings(6, 32, NVL32_tr, NVL32_vl, "NVL 32", 4, 256));
+  CHECK(getRings(6, 8, NVG8_tr, NVG8_vl, "NVG  8", 8, 128));
+  CHECK(getRings(6, 16, NVG16_tr, NVG16_vl, "NVG 16", 1, 256));
+  CHECK(getRings(7, 8, NVV8_tr, NVV8_vl, "NVV  8", 12, 256));
   writeFooter(err);
   return err;
 }

@@ -34,6 +34,16 @@ int ncclPrintCRCs;
 extern "C" __attribute__ ((visibility("default")))
 ncclNet_t* ncclNet = NULL;
 
+// We define this as weak to let unit test redefine their own
+#pragma weak ncclCudaCompCap
+int ncclCudaCompCap() {
+  int cudaDev;
+  if (cudaGetDevice(&cudaDev) != cudaSuccess) return 0;
+  int ccMajor;
+  if (cudaDeviceGetAttribute(&ccMajor, cudaDevAttrComputeCapabilityMajor, cudaDev) != cudaSuccess) return 0;
+  return ccMajor;
+}
+
 void initNet() {
   if (ncclNet != NULL) {
     INFO("Using external Network %s", ncclNetName());
@@ -301,11 +311,6 @@ static ncclResult_t buildRings(int nrings, int* rings, int rank, int nranks, int
     }
   }
   return ncclSuccess;
-}
-
-/* Get the default number of threads based on the GPU generation */
-static int getDefaultThreads() {
-  return cudaCompCap() > 5 ? 256 : 512;
 }
 
 static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* commId) {

@@ -57,7 +57,7 @@ ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
 static int getNvlinkCount(const char* busId1, const char* busId2) {
   // Determine if that connection is through NVLink
   int links = 0;
-  int maxNvLinks = cudaCompCap() > 6 ? 6 : 4;
+  int maxNvLinks = ncclCudaCompCap() > 6 ? 6 : 4;
   nvmlDevice_t nvmlDev;
   ncclResult_t res = wrapNvmlDeviceGetHandleByPciBusId(busId1, &nvmlDev);
   if (res != ncclSuccess) return 0;
@@ -240,7 +240,7 @@ int p2pComputeRings(int* values, int nranks, int* rings, int nrings, int* prev, 
       for (int i=0; i<nranks; i++) rings[(r+compNrings)*nranks+i] = rings[r*nranks+i];
     }
     compNrings *= 2;
-    if (cudaCompCap() == 6) *nthreads /= 2;
+    if (ncclCudaCompCap() == 6) *nthreads /= 2;
   }
   return compNrings;
 }
