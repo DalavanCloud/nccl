@@ -57,7 +57,7 @@ struct FuncSum<int8_t> {
     int32_t rv, z=0;
     asm("vadd4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
     return rv;
-#elif (__CUDA_ARCH__ >= 500)
+#elif (__CUDA_ARCH__ >= 500) && (__CUDA_ARCH__ < 700)
     int32_t rv;
     asm("vadd.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
         "vadd.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
@@ -90,7 +90,7 @@ struct FuncSum<uint8_t> {
     int32_t rv, z=0;
     asm("vadd4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
     return rv;
-#elif (__CUDA_ARCH__ >= 500)
+#elif (__CUDA_ARCH__ >= 500) && (__CUDA_ARCH__ < 700)
     int32_t rv;
     asm("vadd.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
         "vadd.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
@@ -170,7 +170,7 @@ struct FuncMax<int8_t> {
     int32_t rv, z=0;
     asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
     return rv;
-#elif (__CUDA_ARCH__ >= 500)
+#elif (__CUDA_ARCH__ >= 500) && (__CUDA_ARCH__ < 700)
     int32_t rv;
     asm("vmax.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
         "vmax.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
@@ -194,13 +194,13 @@ struct FuncMax<int8_t> {
 };
 template<>
 struct FuncMax<uint8_t> {
-  union converter { uint32_t storage; char4 a; };
+  union converter { uint32_t storage; uchar4 a; };
   __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
 #if (__CUDA_ARCH__ >= 300) && (__CUDA_ARCH__ < 500)
     int32_t rv, z=0;
     asm("vmax4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
     return rv;
-#elif (__CUDA_ARCH__ >= 500)
+#elif (__CUDA_ARCH__ >= 500) && (__CUDA_ARCH__ < 700)
     int32_t rv;
     asm("vmax.u32.u32.u32 %0,    %1.b0, %2.b0;    \n\t"
         "vmax.u32.u32.u32 %0.b1, %1.b1, %2.b1, %0;\n\t"
@@ -231,7 +231,7 @@ struct FuncMin<int8_t> {
     int32_t rv, z=0;
     asm("vmin4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
     return rv;
-#elif (__CUDA_ARCH__ >= 500)
+#elif (__CUDA_ARCH__ >= 500) && (__CUDA_ARCH__ < 700)
     int32_t rv;
     asm("vmin.s32.s32.s32 %0,    %1.b0, %2.b0;    \n\t"
         "vmin.s32.s32.s32 %0.b1, %1.b1, %2.b1, %0;\n\t"
@@ -255,13 +255,13 @@ struct FuncMin<int8_t> {
 };
 template<>
 struct FuncMin<uint8_t> {
-  union converter { uint32_t storage; char4 a; };
+  union converter { uint32_t storage; uchar4 a; };
   __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
 #if (__CUDA_ARCH__ >= 300) && (__CUDA_ARCH__ < 500)
     int32_t rv, z=0;
     asm("vmin4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
     return rv;
-#elif (__CUDA_ARCH__ >= 500)
+#elif (__CUDA_ARCH__ >= 500) && (__CUDA_ARCH__ < 700)
     int32_t rv;
     asm("vmin.u32.u32.u32 %0,    %1.b0, %2.b0;    \n\t"
         "vmin.u32.u32.u32 %0.b1, %1.b1, %2.b1, %0;\n\t"
