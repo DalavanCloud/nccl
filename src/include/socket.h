@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <ifaddrs.h>
+#include "utils.h"
 
 /* Common socket address storage structure for IPv4/IPv6 */
 union socketAddress {
@@ -48,10 +49,12 @@ static inline int envSocketFamily(void) {
   return family;
 }
 
-static int findInterfaces(const char* ifNamePrefix, char* names, union socketAddress *addrs, int sock_family, int maxIfNameSize, int maxIfs) {
+static int findInterfaces(const char* prefixList, char* names, union socketAddress *addrs, int sock_family, int maxIfNameSize, int maxIfs) {
   char line[1024];
-  bool searchNot = (strlen(ifNamePrefix) > 0 && ifNamePrefix[0] == '^');
-  if (searchNot) /* Skip the '^' */ ifNamePrefix++;
+  bool searchNot = (strlen(prefixList) > 0 && prefixList[0] == '^');
+  char* tokens[maxIfs];
+  int nTokens = parseStringList(prefixList, ",", tokens, maxIfs);
+
   int found = 0;
   struct ifaddrs *interfaces, *interface;
   getifaddrs(&interfaces);
@@ -76,24 +79,32 @@ static int findInterfaces(const char* ifNamePrefix, char* names, union socketAdd
       if (IN6_IS_ADDR_LOOPBACK(&sa->sin6_addr)) continue;
     }
 
-    int matchLength = min((int)strlen(ifNamePrefix), maxIfNameSize);
-    int match = strncmp(interface->ifa_name, ifNamePrefix, matchLength);
+    int match = -1;
+    for (int i = 0; i < nTokens; i++) {
+      char* ifNamePrefix = tokens[i];
+      if (ifNamePrefix[0] == '^') /* Skip the '^' */ ifNamePrefix++;
+      int matchLength = min((int)strlen(ifNamePrefix), maxIfNameSize);
+      match = strncmp(interface->ifa_name, ifNamePrefix, matchLength);
+      if (match == 0) {
+        break; // found
+      }
+    }
     if ((match == 0) ^ searchNot) {
       // Store the interface name
       strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
       // Store the IP address
-      /* IPv4/IPv6 support */
       int salen = (family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
       memcpy(addrs+found, interface->ifa_addr, salen);
       INFO("NET : Using interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
       found++;
-      if (found == maxIfs) break;
+    } else {
+      continue;
     }
+    if (found == maxIfs) break;
   }
   freeifaddrs(interfaces);
   return found;
 }
-
 
 static ncclResult_t createListenSocket(int *fd, union socketAddress *localAddr) {
   /* IPv4/IPv6 support */
