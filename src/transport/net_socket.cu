@@ -40,25 +40,23 @@ static void initDevices() {
       int sock_family = (user_sock_family != -1) ? user_sock_family : AF_INET;
       // User specified interface
       char* env = getenv("NCCL_SOCKET_IFNAME");
-      while (1) {
-        if (env && strlen(env) > 1) {
-          // Specified by user : find or fail
-          ncclNetIfs = findInterfaces(env, ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
-        } else {
-          // Try to automatically pick the right one
-          // Start with IB
-          ncclNetIfs = findInterfaces("ib", ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
-          // Then look for anything else (but not loopback)
-          if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("^lo", ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
-          // Don't try loopback. If we are we running intra-node we can always set env="lo".
-          //if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("lo", ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
-        }
-        if (ncclNetIfs == 0 && sock_family == AF_INET && user_sock_family == -1) {
-          // Nothing found, repeat and try IPv6
-          sock_family = AF_INET6;
-        } else {
-          break;
-        }
+retry_ipv6:
+      if (env && strlen(env) > 1) {
+        // Specified by user : find or fail
+        ncclNetIfs = findInterfaces(env, ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
+      } else {
+        // Try to automatically pick the right one
+        // Start with IB
+        ncclNetIfs = findInterfaces("ib", ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
+        // Then look for anything else (but not loopback)
+        if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("^lo", ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
+        // Don't try loopback. If we are we running intra-node we can always set env="lo".
+        //if (ncclNetIfs == 0) ncclNetIfs = findInterfaces("lo", ncclNetIfNames, ncclNetIfAddrs, sock_family, MAX_IF_NAME_SIZE, MAX_IFS);
+      }
+      if (ncclNetIfs == 0 && sock_family == AF_INET && user_sock_family == -1) {
+        // Nothing found, repeat and try IPv6
+        sock_family = AF_INET6;
+        goto retry_ipv6;
       }
       INFO("NET/Socket : %d interfaces found", ncclNetIfs);
     }
