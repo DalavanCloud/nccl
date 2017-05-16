@@ -51,14 +51,14 @@ static inline int envSocketFamily(void) {
 
 static int findInterfaces(const char* prefixList, char* names, union socketAddress *addrs, int sock_family, int maxIfNameSize, int maxIfs) {
   char line[1024];
-  bool searchNot = (strlen(prefixList) > 0 && prefixList[0] == '^');
-  char* tokens[maxIfs];
-  int nTokens = parseStringList(prefixList, ",", tokens, maxIfs);
+  struct netIf userIfs[maxIfs];
+  bool searchNot = prefixList && prefixList[0] == '^';
+  int nUserIfs = parseStringList(prefixList, userIfs, maxIfs);
 
   int found = 0;
   struct ifaddrs *interfaces, *interface;
   getifaddrs(&interfaces);
-  for (interface = interfaces; interface; interface = interface->ifa_next) {
+  for (interface = interfaces; interface && found < maxIfs; interface = interface->ifa_next) {
     if (interface->ifa_addr == NULL) continue;
     if (strncmp("lo", interface->ifa_name, strlen("lo")) == 0) continue; // Do not use loopback interfaces
 
@@ -79,28 +79,18 @@ static int findInterfaces(const char* prefixList, char* names, union socketAddre
       if (IN6_IS_ADDR_LOOPBACK(&sa->sin6_addr)) continue;
     }
 
-    int match = -1;
-    for (int i = 0; i < nTokens; i++) {
-      char* ifNamePrefix = tokens[i];
-      if (ifNamePrefix[0] == '^') /* Skip the '^' */ ifNamePrefix++;
-      int matchLength = min((int)strlen(ifNamePrefix), maxIfNameSize);
-      match = strncmp(interface->ifa_name, ifNamePrefix, matchLength);
-      if (match == 0) {
-        break; // found
-      }
-    }
-    if ((match == 0) ^ searchNot) {
-      // Store the interface name
-      strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
-      // Store the IP address
-      int salen = (family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
-      memcpy(addrs+found, interface->ifa_addr, salen);
-      INFO("NET : Using interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
-      found++;
-    } else {
+    // check against user specified interfaces
+    if (!(matchIfList(interface->ifa_name, -1, userIfs, nUserIfs) ^ searchNot)) {
       continue;
     }
-    if (found == maxIfs) break;
+    
+    // Store the interface name
+    strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
+    // Store the IP address
+    int salen = (family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
+    memcpy(addrs+found, interface->ifa_addr, salen);
+    INFO("NET : Using interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
+    found++;
   }
   freeifaddrs(interfaces);
   return found;
