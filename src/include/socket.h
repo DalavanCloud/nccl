@@ -48,10 +48,8 @@ static inline int envSocketFamily(void) {
   return family;
 }
 
-static int findInterfaces(const char* ifNamePrefix, char* names, union socketAddress *addrs, int maxIfNameSize, int maxIfs) {
+static int findInterfaces(const char* ifNamePrefix, char* names, union socketAddress *addrs, int sock_family, int maxIfNameSize, int maxIfs) {
   char line[1024];
-  // Allow user to force the INET socket family selection
-  int sock_family = envSocketFamily();
   bool searchNot = (strlen(ifNamePrefix) > 0 && ifNamePrefix[0] == '^');
   if (searchNot) /* Skip the '^' */ ifNamePrefix++;
   int found = 0;
