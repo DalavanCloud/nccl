@@ -69,28 +69,15 @@ static void initDevices() {
   if (ncclNIbDevs == -1) {
     pthread_mutex_lock(&ncclIbLock);
     if (ncclNIbDevs == -1) {
-      // Allow user to force the INET socket family selection
-      int sock_family = envSocketFamily();
-      // Get an IP card for OOB transport
-      char* env = getenv("NCCL_SOCKET_IFNAME");
-      if (env && strlen(env) > 1) {
-        // Specified by user : find or fail
-        if (findInterfaces(env, ncclIbIfName, &ncclIbIfAddr, sock_family, MAX_IF_NAME_SIZE, 1) == 0) {
-          WARN("NET/IB : No IP interface found (starting with %s).", env);
-          return;
-        }
-      } else {
-        // Try to automatically pick one that will work, but not loopback
-        if (findInterfaces("^lo", ncclIbIfName, &ncclIbIfAddr, sock_family, MAX_IF_NAME_SIZE, 1) == 0) {
+      ncclNIbDevs = 0;
+      if (findInterfaces(ncclIbIfName, &ncclIbIfAddr, MAX_IF_NAME_SIZE, 1) != 1) {
           WARN("NET/IB : No IP interface found.");
           return;
-        }
       }
       INFO("NET/IB : Using interface %s for sideband communication", ncclIbIfName);
 
       // Detect IB cards
       int nIbDevs;
-      ncclNIbDevs = 0;
       struct ibv_device** devices;
       
       // Check if user defined which IB device:port to use

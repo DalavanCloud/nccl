@@ -96,6 +96,33 @@ static int findInterfaces(const char* prefixList, char* names, union socketAddre
   return found;
 }
 
+static int findInterfaces(char* ifNames, union socketAddress *ifAddrs, int ifNameMaxSize, int maxIfs) {
+  int nIfs = 0;
+  // Allow user to force the INET socket family selection
+  int user_sock_family = envSocketFamily();
+  // First look for IPv4 interfaces, unless the user forced one
+  int sock_family = (user_sock_family != -1) ? user_sock_family : AF_INET;
+  // User specified interface
+  char* env = getenv("NCCL_SOCKET_IFNAME");
+retry_ipv6:
+  if (env && strlen(env) > 1) {
+    // Specified by user : find or fail
+    nIfs = findInterfaces(env, ifNames, ifAddrs, sock_family, ifNameMaxSize, maxIfs);
+  } else {
+    // Try to automatically pick the right one
+    // Start with IB
+    nIfs = findInterfaces("ib", ifNames, ifAddrs, sock_family, ifNameMaxSize, maxIfs);
+    // Then look for anything else (but not loopback)
+    if (nIfs == 0) nIfs = findInterfaces("^lo", ifNames, ifAddrs, sock_family, ifNameMaxSize, maxIfs);
+  }
+  if (nIfs == 0 && sock_family == AF_INET && user_sock_family == -1) {
+    // Nothing found, repeat and try IPv6
+    sock_family = AF_INET6;
+    goto retry_ipv6;
+  }
+  return nIfs;
+}
+
 static ncclResult_t createListenSocket(int *fd, union socketAddress *localAddr) {
   /* IPv4/IPv6 support */
   int family = localAddr->sa.sa_family;
