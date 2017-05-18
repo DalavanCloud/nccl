@@ -67,7 +67,7 @@ static int findInterfaces(const char* prefixList, char* names, union socketAddre
     if (family != AF_INET && family != AF_INET6)
       continue;
 
-//    INFO("Found interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
+    TRACE("Found interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
 
     /* Allow the caller to force the socket family type */
     if (sock_family != -1 && family != sock_family)
@@ -83,15 +83,25 @@ static int findInterfaces(const char* prefixList, char* names, union socketAddre
     if (!(matchIfList(interface->ifa_name, -1, userIfs, nUserIfs) ^ searchNot)) {
       continue;
     }
-    
-    // Store the interface name
-    strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
-    // Store the IP address
-    int salen = (family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
-    memcpy(addrs+found, interface->ifa_addr, salen);
-    INFO("NET : Using interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
-    found++;
+
+    // Check that this interface has not already been saved
+    // getifaddrs() normal order appears to be; IPv4, IPv6 Global, IPv6 Link
+    bool duplicate = false;
+    for (int i = 0; i < found; i++) {
+      if (strcmp(interface->ifa_name, names+i*maxIfNameSize) == 0) { duplicate = true; break; }
+    }
+
+    if (!duplicate) {
+      // Store the interface name
+      strncpy(names+found*maxIfNameSize, interface->ifa_name, maxIfNameSize);
+      // Store the IP address
+      int salen = (family == AF_INET) ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
+      memcpy(addrs+found, interface->ifa_addr, salen);
+      INFO("NET : Using interface %s:%s", interface->ifa_name, socketToString(interface->ifa_addr, line));
+      found++;
+    }
   }
+
   freeifaddrs(interfaces);
   return found;
 }
@@ -99,12 +109,9 @@ static int findInterfaces(const char* prefixList, char* names, union socketAddre
 static int findInterfaces(char* ifNames, union socketAddress *ifAddrs, int ifNameMaxSize, int maxIfs) {
   int nIfs = 0;
   // Allow user to force the INET socket family selection
-  int user_sock_family = envSocketFamily();
-  // First look for IPv4 interfaces, unless the user forced one
-  int sock_family = (user_sock_family != -1) ? user_sock_family : AF_INET;
+  int sock_family = envSocketFamily();
   // User specified interface
   char* env = getenv("NCCL_SOCKET_IFNAME");
-retry_ipv6:
   if (env && strlen(env) > 1) {
     // Specified by user : find or fail
     nIfs = findInterfaces(env, ifNames, ifAddrs, sock_family, ifNameMaxSize, maxIfs);
@@ -114,11 +121,6 @@ retry_ipv6:
     nIfs = findInterfaces("ib", ifNames, ifAddrs, sock_family, ifNameMaxSize, maxIfs);
     // Then look for anything else (but not loopback)
     if (nIfs == 0) nIfs = findInterfaces("^lo", ifNames, ifAddrs, sock_family, ifNameMaxSize, maxIfs);
-  }
-  if (nIfs == 0 && sock_family == AF_INET && user_sock_family == -1) {
-    // Nothing found, repeat and try IPv6
-    sock_family = AF_INET6;
-    goto retry_ipv6;
   }
   return nIfs;
 }
