@@ -14,7 +14,7 @@
 #include <sys/syscall.h>
 #define gettid() (pid_t) syscall(SYS_gettid)
 
-typedef enum {NONE=0, VERSION=1, WARN=2, INFO=3, ABORT=4} DebugLevel;
+typedef enum {NONE=0, VERSION=1, WARN=2, INFO=3, ABORT=4, TRACE=5} DebugLevel;
 extern DebugLevel ncclDebugLevel;
 extern pthread_mutex_t ncclDebugOutputLock;
 extern void getHostName(char* hostname, int maxlen);
@@ -48,6 +48,23 @@ extern void getHostName(char* hostname, int maxlen);
   }                                                              \
 } while(0)
 
+#ifdef ENABLE_TRACE
+#define TRACE(...) do {                                          \
+if (ncclDebugLevel == TRACE) {                                   \
+    char hostname[1024];                                         \
+    getHostName(hostname, 1024);                                 \
+    int cudaDev;                                                 \
+    cudaGetDevice(&cudaDev);                                     \
+    pthread_mutex_lock(&ncclDebugOutputLock);                    \
+    printf("%s:%d:%d [%d] %s:%d TRACE ", hostname, getpid(), gettid(), cudaDev, __func__, __LINE__); printf(__VA_ARGS__); printf("\n"); \
+    fflush(stdout);                                              \
+    pthread_mutex_unlock(&ncclDebugOutputLock);                  \
+  }                                                              \
+} while(0)
+#else
+#define TRACE(...)
+#endif
+
 extern int ncclPrintCRCs;
 
 static void initDebug() {
@@ -62,6 +79,8 @@ static void initDebug() {
     ncclDebugLevel = INFO;
   } else if (strcmp(nccl_debug, "ABORT") == 0) {
     ncclDebugLevel = ABORT;
+  } else if (strcmp(nccl_debug, "TRACE") == 0) {
+    ncclDebugLevel = TRACE;
   }
 
   const char* nccl_crc = getenv("NCCL_CRC");

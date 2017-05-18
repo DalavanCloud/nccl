@@ -9,6 +9,7 @@ PREFIX ?= /usr/local
 VERBOSE ?= 0
 KEEP ?= 0
 DEBUG ?= 0
+TRACE ?= 0
 PROFAPI ?= 0
 
 CUDA_LIB ?= $(CUDA_HOME)/lib64
@@ -54,6 +55,10 @@ NVCUFLAGS += -Xptxas -v -Xcompiler -Wall,-Wextra
 CXXFLAGS  += -Wall -Wextra
 else
 .SILENT:
+endif
+
+ifneq ($(TRACE), 0)
+CXXFLAGS  += -DENABLE_TRACE
 endif
 
 ifneq ($(KEEP), 0)
