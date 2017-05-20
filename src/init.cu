@@ -463,36 +463,35 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   for (int rank=0; rank<nranks; rank++)
     NCCLCHECK(fillConnect(allInfo, nranks, rank, connectTransport+nranks*rank, connectValue+nranks*rank));
   
-  int nrings;
-  int nringsFinal = MAXRINGS;
   int prev[nranks*MAXRINGS];
   int prevFinal[nranks*MAXRINGS];
   int next[nranks*MAXRINGS];
   int nextFinal[nranks*MAXRINGS];
-  int nthreads = 512;
+  int nrings;
+  int nthreads=0;
   for (int rank=0; rank<nranks; rank++) {
-    CUDACHECK(cudaSetDevice(devs[rank]));
-    int nt = getDefaultThreads();
-    nthreads = max(nthreads, nt);
-  }
-  INFO("Using %d threads", nthreads);
-
-  for (int rank=0; rank<nranks; rank++) {
-    comms[rank]->nThreads = nthreads;
-    NCCLCHECK(ncclGetRings(&nrings, &comms[rank]->nThreads, rank, nranks, connectTransport, connectValue, prev, next));
-    nringsFinal = min(nrings, nringsFinal);
+    cudaSetDevice(devs[rank]);
+    int nringsRank;
+    int nthreadsRank = getDefaultThreads();
+    NCCLCHECK(ncclGetRings(&nringsRank, &nthreadsRank, rank, nranks, connectTransport, connectValue, prev, next));
+    nrings = min(nrings, nringsRank);
+    nthreads = max(nthreads, nthreadsRank);
     for (int ring=0; ring<nrings; ring++) {
       int index = ring*nranks+rank;
       prevFinal[index] = prev[index];
       nextFinal[index] = next[index];
     }
   }
-  nrings = nringsFinal;
+
+  INFO("Using %d threads", nthreads);
+
   int rings[nranks*MAXRINGS];
   NCCLCHECK(buildRings(nrings, rings, 0, nranks, prevFinal, nextFinal));
 
-  for (int rank=0; rank<nranks; rank++)
+  for (int rank=0; rank<nranks; rank++) {
     comms[rank]->nRings = nrings;
+    comms[rank]->nThreads = nthreads;
+  }
 
   for (int r=0; r<nrings; r++) {
     struct ncclConnect connect[2*nranks];
