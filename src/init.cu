@@ -467,7 +467,7 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   int prevFinal[nranks*MAXRINGS];
   int next[nranks*MAXRINGS];
   int nextFinal[nranks*MAXRINGS];
-  int nrings;
+  int nrings = MAXRINGS;
   int nthreads=0;
   for (int rank=0; rank<nranks; rank++) {
     cudaSetDevice(devs[rank]);
