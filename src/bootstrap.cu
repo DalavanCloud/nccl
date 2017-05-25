@@ -125,6 +125,8 @@ out:
       if (extRecvComm[r]) ncclNetCloseRecv(extRecvComm[r]);
   }
   free(commId);
+  if (extSendComm) free(extSendComm);
+  if (extRecvComm) free(extRecvComm);
   return NULL;
 }
 
