@@ -12,6 +12,7 @@
 #include "mpi.h"
 #endif
 #include <pthread.h>
+#include "nccl1_compat.h"
 
 #define CUDACHECK(cmd) do {                         \
   cudaError_t e = cmd;                              \
@@ -120,20 +121,28 @@ static uint64_t getHostHash(const char* string) {
 
 static size_t wordSize(ncclDataType_t type) {
   switch(type) {
-//  case ncclChar:
-    case ncclInt8:
-    case ncclUint8: return 1;
-//  case ncclHalf:
-    case ncclFloat16: return 2;
-//  case ncclInt:
-    case ncclInt32:
+    case ncclChar:
+#if NCCL_MAJOR >= 2
+    //case ncclInt8:
+    case ncclUint8:
+#endif
+      return 1;
+    case ncclHalf:
+    //case ncclFloat16:
+      return 2;
+    case ncclInt:
+    case ncclFloat:
+#if NCCL_MAJOR >= 2
+    //case ncclInt32:
     case ncclUint32:
-//  case ncclFloat:
-    case ncclFloat32: return 4;
+    //case ncclFloat32:
+#endif
+      return 4;
     case ncclInt64:
     case ncclUint64:
-//  case ncclDouble:
-    case ncclFloat64: return 8;
+    case ncclDouble:
+    //case ncclFloat64: 
+      return 8;
     default: return 0;
   }
 }

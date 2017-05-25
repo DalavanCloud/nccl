@@ -82,7 +82,11 @@ void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw,
 }
 
 void RunColl(void* sendbuff, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
+#if NCCL_MAJOR >= 2
   NCCLCHECK(ncclAllGather(sendbuff, recvbuff, count, type, comm, stream));
+#else
+  NCCLCHECK(ncclAllGather(sendbuff, count, type, recvbuff, comm, stream));
+#endif
 }
 
 void RunTest(struct threadArgs_t* args, int root, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName) {

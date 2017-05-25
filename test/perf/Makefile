@@ -3,13 +3,14 @@ include ../../makefiles/common.mk
 .PHONY: all clean
 
 BUILDDIR := $(abspath ../../build)
-NVCUFLAGS += -I$(BUILDDIR)/include/ -I../include
+NCCLDIR := $(BUILDDIR)
+NVCUFLAGS += -I$(NCCLDIR)/include/ -I../include
 ifeq ($(MPI), 1)
 NVCUFLAGS += -DMPI_SUPPORT -I$(MPI_HOME)/include
 NVLDFLAGS += -L$(MPI_HOME)/lib -lmpi
 endif
 LIBRARIES += curand nccl nvToolsExt
-NVLDFLAGS   += -L$(BUILDDIR)/lib $(LIBRARIES:%=-l%)
+NVLDFLAGS   += -L$(NCCLDIR)/lib $(LIBRARIES:%=-l%)
 
 DST_DIR := $(BUILDDIR)/test/perf
 SRC_FILES := $(wildcard *.cu)
@@ -48,7 +49,7 @@ ${DST_DIR}/common_mpi.o:common.cu
 ${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
 	@printf "Compiling   %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
-	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
+	mpicc -std=c99 $(CXXFLAGS) -I$(NCCLDIR)/include/ -o $@ -c $<
 
 ${DST_DIR}/%_perf:${DST_DIR}/%.o ${DST_DIR}/common.o
 	@printf "Linking  %-35s > %s\n" $< $@
