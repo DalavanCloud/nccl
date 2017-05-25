@@ -96,6 +96,8 @@ int ncclSocketListen(int dev, void* opaqueHandle, void** listenComm) {
 }
 
 int ncclSocketConnect(int dev, void* opaqueHandle, void** sendComm) {
+  if (ncclNetIfs == -1) initDevices();
+  if (dev > ncclNetIfs) return ncclInternalError;
   struct ncclSocketComm* comm = ncclSocketNewComm();
   struct ncclSocketHandle* handle = (struct ncclSocketHandle*) opaqueHandle;
   NCCLCHECK(connectAddress(&handle->connectAddr, &ncclNetIfAddrs[dev], &comm->fd));
