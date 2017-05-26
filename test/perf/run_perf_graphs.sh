@@ -28,9 +28,9 @@ cat $result.out | grep float | awk "{ print \$1,\$$busbwcol; }" > $result.values
 cat > $result.plot << EOF
 set term png
 set output "$result.png"
-plot "$result.values" using 2:1 with lines, \
-     "ref/1.6.1/$gpumodel/$op.$ngpus.values" using 2:1 with lines, \
-     "ref/2.0.2/$gpumodel/$op.$ngpus.values" using 2:1 with lines
+plot "$result.values" using 1:2 with lines, \
+     "ref/1.6.1/$gpumodel/$op.$ngpus.values" using 1:2 with lines, \
+     "ref/2.0.2/$gpumodel/$op.$ngpus.values" using 1:2 with lines
 replot
 EOF
 
