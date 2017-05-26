@@ -376,7 +376,8 @@ static ncclResult_t p2pConnect(struct ncclConnect* connectInfo, struct ncclConne
           info->devIpc, cudaIpcMemLazyEnablePeerAccess);
     void** ipcPtrSave = (void**) malloc(sizeof(void*));
     *resources = ipcPtrSave;
-    *ipcPtrSave = *remDevMem = remPtr;
+    *ipcPtrSave = remPtr;
+    *remDevMem = (struct ncclSendRecvMem*)remPtr;
     if (err != cudaSuccess) {
       WARN("failed to open CUDA IPC handle : %s",
           cudaGetErrorString(err));

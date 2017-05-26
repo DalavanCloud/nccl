@@ -282,6 +282,7 @@ ncclResult_t netSendFree(void* transportResources) {
   struct netSendResources* resources = (struct netSendResources*)transportResources;
   CUDACHECK(cudaFreeHost(resources->hostMem));
   // TODO : unmap hostDevMem
+  NCCLCHECK(ncclNetCloseSend(resources->netSendComm));
   free(resources);
   return ncclSuccess;
 }
@@ -290,6 +291,7 @@ ncclResult_t netRecvFree(void* transportResources) {
   struct netRecvResources* resources = (struct netRecvResources*)transportResources;
   CUDACHECK(cudaFreeHost(resources->hostMem));
   // TODO : unmap hostDevMem
+  NCCLCHECK(ncclNetCloseRecv(resources->netRecvComm));
   free(resources);
   return ncclSuccess;
 }
