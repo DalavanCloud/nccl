@@ -363,15 +363,20 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
   return ncclSuccess;
 }
 
-static ncclResult_t p2pConnect(struct ncclConnect* connectInfo, struct ncclConnector* connector, struct ncclSendRecvMem** remDevMem) {
+static ncclResult_t p2pConnect(struct ncclConnect* connectInfo, struct ncclConnector* connector, struct ncclSendRecvMem** remDevMem, void** resources) {
   struct p2pConnectInfo* info = (struct p2pConnectInfo*)connectInfo;
   if (info->direct) {
     *remDevMem = info->directPtr;
     connector->conn.direct = 1;
     connector->conn.ptrExchange = &((*remDevMem)->ptrExchange);
+    *resources = NULL;
   } else {
-    cudaError_t err = cudaIpcOpenMemHandle((void**)remDevMem,
+    void* remPtr;
+    cudaError_t err = cudaIpcOpenMemHandle(&remPtr,
           info->devIpc, cudaIpcMemLazyEnablePeerAccess);
+    void** ipcPtrSave = (void**) malloc(sizeof(void*));
+    *resources = ipcPtrSave;
+    *ipcPtrSave = *remDevMem = remPtr;
     if (err != cudaSuccess) {
       WARN("failed to open CUDA IPC handle : %s",
           cudaGetErrorString(err));
@@ -384,7 +389,7 @@ static ncclResult_t p2pConnect(struct ncclConnect* connectInfo, struct ncclConne
 /* Connect to this peer */
 ncclResult_t p2pSendConnect(struct ncclConnect* connectInfo, struct ncclConnector* send) {
   struct ncclSendRecvMem* remDevMem;
-  NCCLCHECK(p2pConnect(connectInfo, send, &remDevMem));
+  NCCLCHECK(p2pConnect(connectInfo, send, &remDevMem, &send->transportResources));
   send->conn.buff = remDevMem->buff;
   send->conn.tail = &remDevMem->tail;
   send->conn.opCount = &remDevMem->opCount;
@@ -394,7 +399,7 @@ ncclResult_t p2pSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
 
 ncclResult_t p2pRecvConnect(struct ncclConnect* connectInfo, struct ncclConnector* recv) {
   struct ncclSendRecvMem* remDevMem;
-  NCCLCHECK(p2pConnect(connectInfo, recv, &remDevMem));
+  NCCLCHECK(p2pConnect(connectInfo, recv, &remDevMem, &recv->transportResources));
   // recv->conn->buff should have been set to devMem already
   // recv->conn->tail should have been set to devMem already
   // recv->conn->opCount should have been set to devMem already
@@ -403,6 +408,11 @@ ncclResult_t p2pRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
 }
 
 ncclResult_t p2pFree(void* resources) {
+  if (resources != NULL) {
+    void** ipcPtrSave = (void**) resources;
+    CUDACHECK(cudaIpcCloseMemHandle(*ipcPtrSave));
+    free(resources);
+  }
   return ncclSuccess;
 }
 
