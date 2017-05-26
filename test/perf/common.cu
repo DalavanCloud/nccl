@@ -30,8 +30,8 @@ void ncclMpiUnlock();
 ncclDataType_t test_types[ncclNumTypes] = {ncclInt8, ncclUint8, ncclInt32, ncclUint32, ncclInt64, ncclUint64, ncclHalf, ncclFloat, ncclDouble};
 const char *test_typenames[ncclNumTypes] = {"int8", "uint8", "int32", "uint32", "int64", "uint64", "half", "float", "double"};
 #else
-ncclDataType_t test_types[ncclNumTypes] = {ncclChar, ncclInt, ncclInt64, ncclUint64, ncclHalf, ncclFloat, ncclDouble};
-const char *test_typenames[ncclNumTypes] = {"char", "int", "int64", "uint64", "half", "float", "double"};
+ncclDataType_t test_types[ncclNumTypes] = {ncclChar, ncclInt, ncclHalf, ncclFloat, ncclDouble, ncclInt64, ncclUint64};
+const char *test_typenames[ncclNumTypes] = {"char", "int", "half", "float", "double", "int64", "uint64"};
 #endif
 ncclRedOp_t test_ops[ncclNumOps] = {ncclSum, ncclProd, ncclMax, ncclMin};
 const char *test_opnames[ncclNumOps] = {"sum", "prod", "max", "min"};
