@@ -2,13 +2,13 @@
 
 generate_perf() {
 gpumodel=$1
-op=$2
-ngpus=$3
+ngpus=$2
+op=$3
 busbwcol=$4
 
 result=results/$gpumodel/$op.$ngpus
 
-mkdir -p results
+mkdir -p results/$gpumodel/
 echo "Running test/perf/${op}_perf -g $ngpus ..."
 test/perf/${op}_perf -g $ngpus -b 5000 -e 955000 -i 5000 > $result.out
 test/perf/${op}_perf -g $ngpus -b 1000000 -e 19000000 -i 1000000 >> $result.out
@@ -30,11 +30,11 @@ gnuplot $result.plot
 
 ngpu_loop() {
 gpumodel=$1
-op=$2
-maxgpu=$3
+maxgpu=$2
+op=$3
 busbwcol=$4
 for ngpus in `seq 2 2 $maxgpu`; do
-  generate_perf $gpumodel $op $ngpus $busbwcol
+  generate_perf $gpumodel $ngpus $op $busbwcol
 done
 }
 
@@ -46,8 +46,8 @@ if [ "$maxgpu" == "" ]; then
   exit 1
 fi
 
-ngpu_loop reduce $gpumodel $maxgpu 12
-ngpu_loop broadcast $gpumodel $maxgpu 7
-ngpu_loop all_reduce $gpumodel $maxgpu 11
-ngpu_loop all_gather $gpumodel $maxgpu 10
-ngpu_loop reduce_scatter $gpumodel $maxgpu 11
+ngpu_loop $gpumodel $maxgpu reduce 12
+ngpu_loop $gpumodel $maxgpu broadcast 7
+ngpu_loop $gpumodel $maxgpu all_reduce 11
+ngpu_loop $gpumodel $maxgpu all_gather 10
+ngpu_loop $gpumodel $maxgpu reduce_scatter 11
