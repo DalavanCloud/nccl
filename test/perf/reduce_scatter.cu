@@ -18,10 +18,10 @@ void print_line_header (int size, int count, const char *typeName, const char *o
 }
 
 void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *paramcount, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedCount, int *sameExpected, size_t count, int nranks) {
-    *sendcount = count;
+    *sendcount = (count/nranks)*nranks;
     *recvcount = count/nranks;
     *sameExpected = 0;
-    *procSharedCount = count;
+    *procSharedCount = *sendcount;
     *sendInplaceOffset = 0;
     *recvInplaceOffset = count/nranks;
     *paramcount = *recvcount;
