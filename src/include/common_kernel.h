@@ -32,7 +32,7 @@
 
 __device__ unsigned int spinct;
 
-static __device__ int min(int a, size_t b) {
+static __device__ int min(int a, ssize_t b) {
   if (a < b) return a;
   return (int)b;
 }

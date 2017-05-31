@@ -37,7 +37,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
-  const size_t size = args.N;
+  const ssize_t size = args.N;
   const int nranks = comm->nRanks;
   const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
@@ -58,13 +58,13 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
-  for (size_t gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
+  for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
     ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
-    size_t chunkOffset = gridOffset + bid*chunkSize;
+    ssize_t chunkOffset = gridOffset + bid*chunkSize;
 
     /////////////// begin ReduceScatter steps ///////////////
-    size_t offset;
+    ssize_t offset;
     int maxOffset = min(chunkSize, size-chunkOffset);
     int rankDest;
 
