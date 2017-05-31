@@ -14,8 +14,8 @@ void print_header() {
       "time", "algbw", "busbw", "res", "time", "algbw", "busbw", "res");
 }
 
-void print_line_header (int size, int count, const char *typeName, const char *opName, int root) {
-  PRINT("%12i  %12i  %6s", size, count, typeName);
+void print_line_header (size_t size, size_t count, const char *typeName, const char *opName, int root) {
+  PRINT("%12li  %12li  %6s", size, count, typeName);
 }
 
 void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *paramcount, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedCount, int *sameExpected, size_t count, int nranks) {
@@ -82,11 +82,7 @@ void GetBw(size_t count, int typesize, double sec, double* algBw, double* busBw,
 }
 
 void RunColl(void* sendbuff, void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
-#if NCCL_MAJOR >= 2
   NCCLCHECK(ncclAllGather(sendbuff, recvbuff, count, type, comm, stream));
-#else
-  NCCLCHECK(ncclAllGather(sendbuff, count, type, recvbuff, comm, stream));
-#endif
 }
 
 void RunTest(struct threadArgs_t* args, int root, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName) {

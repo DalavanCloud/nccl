@@ -42,7 +42,7 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
-  const int size = args.N;
+  const size_t size = args.N;
   //const int rank = comm->rank;
   const int nranks = comm->nRanks;
   int buffSize = ring->buffSize;
@@ -78,13 +78,13 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
-  for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*nranks*sliceSize) {
+  for (size_t gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*nranks*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,nranks*gridDim.x));
     ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
-    int chunkOffset = gridOffset + bid*nranks*chunkSize;
+    size_t chunkOffset = gridOffset + bid*nranks*chunkSize;
 
     /////////////// begin AllReduce steps ///////////////
-    int offset;
+    size_t offset;
     int maxOffset;
     int slice;
 

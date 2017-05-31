@@ -79,9 +79,9 @@ struct threadArgs_t {
 // Provided by common.cu
 extern void Barrier(struct threadArgs_t* args);
 extern void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op,  const char* opName, int root, int inPlace);
-extern void Randomize(void* ptr, int count, ncclDataType_t type, int seed);
-extern void Accumulate(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op);
-extern void CheckDelta(void* expected, void* results, int count, ncclDataType_t type, double* devmax);
+extern void Randomize(void* ptr, size_t count, ncclDataType_t type, int seed);
+extern void Accumulate(void* out, void* in, size_t n, ncclDataType_t type, ncclRedOp_t op);
+extern void CheckDelta(void* expected, void* results, size_t count, ncclDataType_t type, double* devmax);
 extern double DeltaMaxValue(ncclDataType_t type);
 
 // Provided by each coll
@@ -93,7 +93,7 @@ extern double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedO
 extern void AllocateBuffs(void **sendbuff, void **recvbuff, void **expected, void **expectedHost, size_t nbytes, int nranks);
 extern void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op,  int root, int in_place, int is_first);
 extern void getCollByteCount(size_t *sendbytes, size_t *recvbytes, size_t *parambytes, size_t *sendInlineOffset, size_t *recvInlineOffset, size_t *procSharedBytes, int *sameexpected, size_t nbytes, int nranks);
-extern void print_line_header (int size, int count, const char *typeName, const char *opName, int root);
+extern void print_line_header (size_t size, size_t count, const char *typeName, const char *opName, int root);
 extern void print_header();
 
 #include <unistd.h>

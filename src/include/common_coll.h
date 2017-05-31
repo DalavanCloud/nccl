@@ -62,7 +62,7 @@ template<typename T>
 struct KernelArgs {
   // general parameters
   int root;
-  int N;
+  size_t N;
 
   // local and remote input, output, and buffer
   const T * __restrict__ ThisInput;

@@ -13,8 +13,8 @@ void print_header() {
       "time", "algbw", "busbw", "res", "time", "algbw", "busbw", "res");
 }
 
-void print_line_header (int size, int count, const char *typeName, const char *opName, int root) {
-  PRINT("%12i  %12i  %6s  %6s", size, count, typeName, opName);
+void print_line_header (size_t size, size_t count, const char *typeName, const char *opName, int root) {
+  PRINT("%12li  %12li  %6s  %6s", size, count, typeName, opName);
 }
 
 void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *paramcount, size_t *sendInplaceOffset, size_t *recvInplaceOffset, size_t *procSharedCount, int *sameExpected, size_t count, int nranks) {

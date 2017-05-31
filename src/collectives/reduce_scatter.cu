@@ -37,7 +37,7 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
-  const int size = args.N;
+  const size_t size = args.N;
   const int nranks = comm->nRanks;
   const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
@@ -58,20 +58,19 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
-  for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
+  for (size_t gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
     ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
-    int chunkOffset = gridOffset + bid*chunkSize;
+    size_t chunkOffset = gridOffset + bid*chunkSize;
 
     /////////////// begin ReduceScatter steps ///////////////
-    int offset;
-    int maxOffset;
+    size_t offset;
+    int maxOffset = min(chunkSize, size-chunkOffset);
     int rankDest;
 
     // step 0: push data to next GPU
     rankDest = ring->devUserRanks[nranks-1];
     offset = chunkOffset + rankDest * size;
-    maxOffset = min(chunkSize, size-chunkOffset);
 
     Prims::Copy(
         thisInput  + offset,
@@ -87,7 +86,6 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
     for (int j=2; j<nranks; ++j) {
       rankDest = ring->devUserRanks[nranks-j];
       offset = chunkOffset + rankDest * size;
-      maxOffset = min(chunkSize, size-chunkOffset);
 
       Prims::Reduce(
           prevInput  + poffset,
@@ -105,7 +103,6 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
     // result that we store in this data and push to the next GPU
     rankDest = ring->devUserRanks[0];
     offset = chunkOffset + rankDest * size;
-    maxOffset = min(chunkSize, size-chunkOffset);
 
     Prims::Reduce(
         prevInput  + poffset,

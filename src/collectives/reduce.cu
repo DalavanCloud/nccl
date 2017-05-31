@@ -36,7 +36,7 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
 
-  const int size = args.N;
+  const size_t size = args.N;
   const int nranks = comm->nRanks;
   const int buffSize = ring->buffSize / sizeof(T);
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
@@ -60,10 +60,10 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   T * __restrict__ prevInput = (T*)ring->recv.conn.buff;
   T * __restrict__ nextOutput = (T*)ring->send.conn.buff;
 
-  for (int gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
+  for (size_t gridOffset = 0; gridOffset < size; gridOffset += gridDim.x*sliceSize) {
     int chunkSize = min(sliceSize, DIVUP(size-gridOffset,gridDim.x));
     ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
-    int offset = gridOffset + bid*chunkSize;
+    size_t offset = gridOffset + bid*chunkSize;
     int maxOffset = min(chunkSize, size-offset);
     if (prevRank == root) {
       Prims::Copy(

@@ -106,7 +106,7 @@ float toFloat(half a) {
 
 
 template<typename T, int BSIZE> __global__
-void deltaKern(void* A_, void* B_, int count, double* max) {
+void deltaKern(void* A_, void* B_, size_t count, double* max) {
   const T* A = (const T*)A_;
   const T* B = (const T*)B_;
   __shared__ double temp[BSIZE];
@@ -135,7 +135,7 @@ void deltaKern(void* A_, void* B_, int count, double* max) {
 }
 
 
-void CheckDelta(void* expected, void* results, int count, ncclDataType_t type, double* devmax) {
+void CheckDelta(void* expected, void* results, size_t count, ncclDataType_t type, double* devmax) {
   switch (type) {
     case ncclHalf:
       deltaKern<half, 512><<<1, 512>>>(results, expected, count, devmax); break;
@@ -172,59 +172,59 @@ void CheckDelta(void* expected, void* results, int count, ncclDataType_t type, d
 
 template<typename T>
 void GenerateRandom(curandGenerator_t generator, T * const dest,
-    const int N);
+    const size_t N);
 
 template<>
 void GenerateRandom<int8_t>(curandGenerator_t generator, int8_t * const dest,
-    const int N) {
+    const size_t N) {
   CURAND_CHK(curandGenerate(generator, (unsigned int*)dest,
       N * sizeof(int8_t) / sizeof(int)));
 }
 template<>
 void GenerateRandom<uint8_t>(curandGenerator_t generator, uint8_t * const dest,
-    const int N) {
+    const size_t N) {
   CURAND_CHK(curandGenerate(generator, (unsigned int*)dest,
       N * sizeof(uint8_t) / sizeof(int)));
 }
 
 template<>
 void GenerateRandom<int32_t>(curandGenerator_t generator, int32_t * const dest,
-    const int N) {
+    const size_t N) {
   CURAND_CHK(curandGenerate(generator, (unsigned int*)dest, N));
 }
 
 template<>
 void GenerateRandom<uint32_t>(curandGenerator_t generator, uint32_t * const dest,
-    const int N) {
+    const size_t N) {
   CURAND_CHK(curandGenerate(generator, (unsigned int*)dest, N));
 }
 
 template<>
 void GenerateRandom<float>(curandGenerator_t generator, float * const dest,
-    const int N) {
+    const size_t N) {
   CURAND_CHK(curandGenerateUniform(generator, dest, N));
 }
 
 template<>
 void GenerateRandom<double>(curandGenerator_t generator, double * const dest,
-    const int N) {
+    const size_t N) {
   CURAND_CHK(curandGenerateUniformDouble(generator, dest, N));
 }
 
 template<>
 void GenerateRandom<uint64_t>(curandGenerator_t generator, uint64_t * const dest,
-    const int N) {
+    const size_t N) {
   CURAND_CHK(curandGenerate(generator, (unsigned int *)dest, N*2));
 }
 
 template<>
 void GenerateRandom<int64_t>(curandGenerator_t generator, int64_t * const dest,
-    const int N) {
+    const size_t N) {
   CURAND_CHK(curandGenerate(generator, (unsigned int *)dest, N*2));
 }
 
 template<typename T>
-void RandomizeType(void* dest, const int N, const int randomSeed) {
+void RandomizeType(void* dest, const size_t N, const int randomSeed) {
   T* ptr = (T*)dest;
   curandGenerator_t gen;
   CURAND_CHK(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_MTGP32));
@@ -234,13 +234,13 @@ void RandomizeType(void* dest, const int N, const int randomSeed) {
   CUDACHECK(cudaDeviceSynchronize());
 }
 
-__global__ void halve(const float * src, half* dest, int N) {
+__global__ void halve(const float * src, half* dest, size_t N) {
   for(int tid = threadIdx.x + blockIdx.x*blockDim.x;
       tid < N; tid += blockDim.x * gridDim.x)
     dest[tid] = __float2half(src[tid]);
 }
 
-void RandomizeHalf(void* dest, const int N, const int randomSeed) {
+void RandomizeHalf(void* dest, const size_t N, const int randomSeed) {
   half* ptr = (half*)dest;
   curandGenerator_t gen;
   CURAND_CHK(curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_MTGP32));
@@ -255,7 +255,7 @@ void RandomizeHalf(void* dest, const int N, const int randomSeed) {
   CUDACHECK(cudaDeviceSynchronize());
 }
 
-void Randomize(void* ptr, const int count, ncclDataType_t type, const int seed) {
+void Randomize(void* ptr, const size_t count, ncclDataType_t type, const int seed) {
   switch (type) {
     case ncclChar:   RandomizeType<int8_t>  (ptr, count, seed); break;
 #if NCCL_MAJOR >= 2
@@ -274,7 +274,7 @@ void Randomize(void* ptr, const int count, ncclDataType_t type, const int seed) 
 }
 
 template<typename T, int OP> __global__ static
-void accumKern(T* acum, const T* contrib, int N) {
+void accumKern(T* acum, const T* contrib, size_t N) {
   int tid = threadIdx.x + blockIdx.x*blockDim.x;
   int offset = blockDim.x*gridDim.x;
   for(int i=tid; i<N; i+=offset) {
@@ -293,7 +293,7 @@ void accumKern(T* acum, const T* contrib, int N) {
 }
 
 template<> __global__
-void accumKern<half, ncclSum>(half* acum, const half* contrib, int N) {
+void accumKern<half, ncclSum>(half* acum, const half* contrib, size_t N) {
   int tid = threadIdx.x + blockIdx.x*blockDim.x;
   int offset = blockDim.x*gridDim.x;
   for(int i=tid; i<N; i+=offset) {
@@ -304,7 +304,7 @@ void accumKern<half, ncclSum>(half* acum, const half* contrib, int N) {
 }
 
 template<> __global__
-void accumKern<half, ncclProd>(half* acum, const half* contrib, int N) {
+void accumKern<half, ncclProd>(half* acum, const half* contrib, size_t N) {
   int tid = threadIdx.x + blockIdx.x*blockDim.x;
   int offset = blockDim.x*gridDim.x;
   for(int i=tid; i<N; i+=offset) {
@@ -315,7 +315,7 @@ void accumKern<half, ncclProd>(half* acum, const half* contrib, int N) {
 }
 
 template<> __global__
-void accumKern<half, ncclMax>(half* acum, const half* contrib, int N) {
+void accumKern<half, ncclMax>(half* acum, const half* contrib, size_t N) {
   int tid = threadIdx.x + blockIdx.x*blockDim.x;
   int offset = blockDim.x*gridDim.x;
   for(int i=tid; i<N; i+=offset) {
@@ -326,7 +326,7 @@ void accumKern<half, ncclMax>(half* acum, const half* contrib, int N) {
 }
 
 template<> __global__
-void accumKern<half, ncclMin>(half* acum, const half* contrib, int N) {
+void accumKern<half, ncclMin>(half* acum, const half* contrib, size_t N) {
   int tid = threadIdx.x + blockIdx.x*blockDim.x;
   int offset = blockDim.x*gridDim.x;
   for(int i=tid; i<N; i+=offset) {
@@ -337,7 +337,7 @@ void accumKern<half, ncclMin>(half* acum, const half* contrib, int N) {
 }
 
 template<typename T>
-void accVecType(void* out, void* in, int n, ncclRedOp_t op) {
+void accVecType(void* out, void* in, size_t n, ncclRedOp_t op) {
   switch(op) {
     case ncclSum:  accumKern<T, ncclSum> <<<256,256>>>((T*)out, (T*)in, n); break;
     case ncclProd: accumKern<T, ncclProd><<<256,256>>>((T*)out, (T*)in, n); break;
@@ -349,7 +349,7 @@ void accVecType(void* out, void* in, int n, ncclRedOp_t op) {
   }
 }
 
-void Accumulate(void* out, void* in, int n, ncclDataType_t type, ncclRedOp_t op) {
+void Accumulate(void* out, void* in, size_t n, ncclDataType_t type, ncclRedOp_t op) {
   switch (type) {
     case ncclChar:   accVecType<int8_t>   (out, in, n, op); break;
 #if NCCL_MAJOR >= 2
@@ -393,7 +393,7 @@ void Barrier(struct threadArgs_t* args)
   args->barrier_idx=!args->barrier_idx;
 }
 
-void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type, ncclRedOp_t op, int seed, int rank) {
+void RandomizeAccumulate(void* data, void* accum, size_t count, ncclDataType_t type, ncclRedOp_t op, int seed, int rank) {
   Randomize(data, count, type, seed);
   if (rank == 0) {
     CUDACHECK(cudaMemcpy(accum, data, count*wordSize(type), cudaMemcpyDeviceToHost));
@@ -403,7 +403,7 @@ void RandomizeAccumulate(void* data, void* accum, int count, ncclDataType_t type
 }
 
 double CheckData(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
-  int count = args->expectedBytes/wordSize(type);
+  size_t count = args->expectedBytes/wordSize(type);
   double maxDelta = 0.0;
   for (int i=0; i<args->nGpus; i++) {
     int device;
