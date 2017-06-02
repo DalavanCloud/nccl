@@ -840,6 +840,8 @@ int main(int argc, char* argv[]) {
       }
   }
 
+  // Make sure everyline is flushed so that we see the progress of the test
+  setlinebuf(stdout);
 
 #ifdef MPI_SUPPORT
   MPI_Init(&argc, &argv);
