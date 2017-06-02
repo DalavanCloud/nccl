@@ -16,5 +16,5 @@ make -j test.build
 
 # test
 cd $BLDDIR
-LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8 bench
+LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8
 echo "NCCL_Complete" > state

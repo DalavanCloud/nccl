@@ -64,26 +64,8 @@ if [ "$maxgpu" == "" ]; then
   exit 1
 fi
 
-bench=1
-plot=1
-if [ "$3" == "bench" ]; then
-  plot=0
-elif [ "$3" == "plot" ]; then
-  bench=0
-fi
-
-if [ "$bench" == "1" ]; then
 perf_ngpu_loop $gpumodel $maxgpu reduce
 perf_ngpu_loop $gpumodel $maxgpu broadcast
 perf_ngpu_loop $gpumodel $maxgpu all_reduce
 perf_ngpu_loop $gpumodel $maxgpu all_gather
 perf_ngpu_loop $gpumodel $maxgpu reduce_scatter
-fi
-
-if [ "$plot" == "1" ]; then
-plot_ngpu_loop $gpumodel $maxgpu reduce 12
-plot_ngpu_loop $gpumodel $maxgpu broadcast 7
-plot_ngpu_loop $gpumodel $maxgpu all_reduce 11
-plot_ngpu_loop $gpumodel $maxgpu all_gather 10
-plot_ngpu_loop $gpumodel $maxgpu reduce_scatter 11
-fi
