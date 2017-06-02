@@ -18,7 +18,8 @@ OBJ_FILES := $(SRC_FILES:%.cu=${DST_DIR}/%.o)
 BIN_FILES_LIST := all_reduce all_gather broadcast reduce_scatter reduce
 BIN_FILES := $(BIN_FILES_LIST:%=${DST_DIR}/%_perf)
 ifeq ($(MPI), 1)
-BIN_FILES += $(BIN_FILES_LIST:%=${DST_DIR}/%_perf_mpi_transport)
+#This is broken anyway -- disable it
+#BIN_FILES += $(BIN_FILES_LIST:%=${DST_DIR}/%_perf_mpi_transport)
 endif
 DEP_FILES := $(OBJ_FILES:%.o=%.dep)
 
