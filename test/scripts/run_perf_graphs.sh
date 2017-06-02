@@ -10,9 +10,9 @@ result=results/$gpumodel/$op.$ngpus
 mkdir -p results/$gpumodel/
 echo "Running test/perf/${op}_perf -g $ngpus ..."
 #test/perf/${op}_perf -g $ngpus -b 5000 -e 50000 -i 5000 > $result.out
-test/perf/${op}_perf -g $ngpus -b 5000 -e 955000 -i 5000 -c 0 -w 10 -n 20 > $result.out
-test/perf/${op}_perf -g $ngpus -b 1000000 -e 19000000 -i 1000000 -c 0 -w 5 -n 5 >> $result.out
-test/perf/${op}_perf -g $ngpus -b 20000000 -e 400000000 -i 20000000 -c 0 -w 1 -n 1 >> $result.out
+test/perf/${op}_perf -g $ngpus -b 5000 -e 995000 -i 15000 -c 0 -w 10 -n 20 | tee $result.out
+test/perf/${op}_perf -g $ngpus -b 1000000 -e 19000000 -i 1000000 -c 0 -w 5 -n 5 | tee -a $result.out
+test/perf/${op}_perf -g $ngpus -b 20000000 -e 400000000 -i 20000000 -c 0 -w 1 -n 1 | tee -a $result.out
 }
 
 generate_plot() {
