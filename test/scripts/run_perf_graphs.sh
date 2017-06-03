@@ -3,56 +3,51 @@
 generate_perf() {
 gpumodel=$1
 ngpus=$2
-op=$3
+check=$3
+mpi=$4
+all=$5
+op=$6
 
 result=results/$gpumodel/$op.$ngpus
+
+timeout=2
+extra="-c $check "
+if [ "$all" == "1" ]; then
+  # This is way too long already
+  #extra+="-d all -o all "
+  extra+="-d all "
+  timeout=`expr $timeout \* 28`
+fi
+
+GPU_REORDER=""
+for gpu in `seq $ngpus -1 0`; do
+  GPU_REORDER+=",$gpu"
+done
+GPU_REORDER=`echo $GPU_REORDER | cut -c 4-`
 
 mkdir -p results/$gpumodel/
-echo "Running test/perf/${op}_perf -g $ngpus ..."
-#test/perf/${op}_perf -g $ngpus -b 5000 -e 50000 -i 5000 > $result.out
-test/perf/${op}_perf -g $ngpus -b 5000 -e 995000 -i 15000 -c 0 -w 10 -n 20 | tee $result.out
-test/perf/${op}_perf -g $ngpus -b 1000000 -e 19000000 -i 1000000 -c 0 -w 5 -n 5 | tee -a $result.out
-test/perf/${op}_perf -g $ngpus -b 20000000 -e 400000000 -i 20000000 -c 0 -w 1 -n 1 | tee -a $result.out
-}
-
-generate_plot() {
-gpumodel=$1
-ngpus=$2
-op=$3
-busbwcol=$4
-
-result=results/$gpumodel/$op.$ngpus
-
-cat $result.out | grep float | awk "{ print \$1,\$$busbwcol; }" > $result.values
-
-cat > $result.plot << EOF
-set term png
-set output "$result.png"
-plot "$result.values" using 1:2 with lines, \
-     "ref/1.6.1/$gpumodel/$op.$ngpus.values" using 1:2 with lines, \
-     "ref/2.0.2/$gpumodel/$op.$ngpus.values" using 1:2 with lines
-replot
-EOF
-
-gnuplot $result.plot
+if [ "$mpi" == "0" ]; then
+  echo "Running test/perf/${op}_perf on $ngpus GPUs ..."
+  timeout ${timeout}m test/perf/${op}_perf -g $ngpus -b 40000 -e 1960000 -i 40000 $extra -w 10 -n 20 | tee $result.out
+  CUDA_VISIBLE_DEVICES="$GPU_REORDER" timeout ${timeout}m test/perf/${op}_perf -t $ngpus -p 1 -b 2000000 -e 38000000 -i 2000000 $extra -w 5 -n 5 | tee -a $result.out
+  timeout ${timeout}m test/perf/${op}_perf -t $ngpus -b 40000000 -e 400000000 -i 40000000 $extra -w 1 -n 1 | tee -a $result.out
+else
+  echo "Running test/perf/${op}_perf on $ngpus GPUs [MPI] ..."
+  timeout ${timeout}m mpirun -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000 -e 1960000 -i 40000 $extra -w 10 -n 20 | tee $result.out
+  timeout ${timeout}m mpirun -x NCCL_DEBUG -x CUDA_VISIBLE_DEVICES="$GPU_REORDER" -np $ngpus test/perf/${op}_perf -b 2000000 -e 38000000 -i 2000000 $extra -w 5 -n 5 | tee -a $result.out
+  timeout ${timeout}m mpirun -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000000 -e 400000000 -i 40000000 $extra -w 1 -n 1 | tee -a $result.out
+fi
 }
 
 perf_ngpu_loop() {
 gpumodel=$1
 maxgpu=$2
-op=$3
+check=$3
+mpi=$4
+all=$5
+op=$6
 for ngpus in `seq 2 2 $maxgpu`; do
-  generate_perf $gpumodel $ngpus $op
-done
-}
-
-plot_ngpu_loop() {
-gpumodel=$1
-maxgpu=$2
-op=$3
-busbwcol=$4
-for ngpus in `seq 2 2 $maxgpu`; do
-  generate_plot $gpumodel $ngpus $op $busbwcol
+  generate_perf $gpumodel $ngpus $check $mpi $all $op
 done
 }
 
@@ -64,26 +59,26 @@ if [ "$maxgpu" == "" ]; then
   exit 1
 fi
 
-bench=1
-plot=1
-if [ "$3" == "bench" ]; then
-  plot=0
-elif [ "$3" == "plot" ]; then
-  bench=0
-fi
+check=1
+mpi=0
+all=0
+while [ "$3" != "" ]; do
+  if [ "$3" == "nocheck" ]; then
+    check=0
+  fi
+  if [ "$3" == "mpi" ]; then
+    mpi=1
+  fi
+  if [ "$3" == "all" ]; then
+    all=1
+  fi
+  shift
+done
 
-if [ "$bench" == "1" ]; then
-perf_ngpu_loop $gpumodel $maxgpu reduce
-perf_ngpu_loop $gpumodel $maxgpu broadcast
-perf_ngpu_loop $gpumodel $maxgpu all_reduce
-perf_ngpu_loop $gpumodel $maxgpu all_gather
-perf_ngpu_loop $gpumodel $maxgpu reduce_scatter
-fi
+export NCCL_DEBUG=WARN
 
-if [ "$plot" == "1" ]; then
-plot_ngpu_loop $gpumodel $maxgpu reduce 12
-plot_ngpu_loop $gpumodel $maxgpu broadcast 7
-plot_ngpu_loop $gpumodel $maxgpu all_reduce 11
-plot_ngpu_loop $gpumodel $maxgpu all_gather 10
-plot_ngpu_loop $gpumodel $maxgpu reduce_scatter 11
-fi
+perf_ngpu_loop $gpumodel $maxgpu $check $mpi $all reduce
+perf_ngpu_loop $gpumodel $maxgpu $check $mpi $all broadcast
+perf_ngpu_loop $gpumodel $maxgpu $check $mpi $all all_reduce
+perf_ngpu_loop $gpumodel $maxgpu $check $mpi $all all_gather
+perf_ngpu_loop $gpumodel $maxgpu $check $mpi $all reduce_scatter
