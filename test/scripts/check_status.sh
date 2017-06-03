@@ -2,5 +2,4 @@
   
 export TESTROOT=$HOME/nb-test
 export NCCLROOT=$TESTROOT/nccl
-hostname
-cat $NCCLROOT/build/state
+cat $NCCLROOT/build/state 2>/dev/null

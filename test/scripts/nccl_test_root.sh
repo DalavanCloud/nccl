@@ -20,6 +20,7 @@ if [ $skiptest -eq 0 ]; then
     HOST=${arr[0]}
     GPUMODEL=${arr[1]}
     ssh $USER@$HOST gpumodel=$GPUMODEL TESTROOT=$TESTROOT VER=$VER 'bash -s' <<'ENDSSH'
+    screen
     export NCCLROOT=$TESTROOT/nccl
     rm -rf $TESTROOT
     mkdir $TESTROOT; cd $TESTROOT
@@ -43,21 +44,23 @@ do
   HOST=${arr[0]}
   GPUMODEL=${arr[1]}
   time=0
-  state=$( ssh $USER@$HOST < check_status.sh | grep 'NCCL_Complete' )
+  state=""
+  printf "\nWaiting for $HOST "
   while [ "$state" == "" ]
   do
+    printf "."
     if [ $time -gt 300 ]; then
       echo $HOST "time out!"
       exit 1
     fi
     sleep 1m
     time=$(expr $time + 1)
-    state=$( ssh $USER@$HOST < check_status.sh | grep 'NCCL_Complete' )
+    state=$( ssh $USER@$HOST < check_status.sh 2>/dev/null | grep 'NCCL_Complete' )
   done
-  rsync -avzhe ssh $USER@$HOST:$TESTROOT/nccl/build/results/$GPUMODEL ./$VER/ 
-  echo $HOST "completes"
-  echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
   echo
+  rsync -avzhe ssh $USER@$HOST:$TESTROOT/nccl/build/results/$GPUMODEL ./$VER/
+  printf "\n$HOST COMPLETES\n"
+  printf "\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n"
 done < "$hostfile"
 
 echo "=========================="
