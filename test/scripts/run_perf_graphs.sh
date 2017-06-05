@@ -33,9 +33,9 @@ if [ "$mpi" == "0" ]; then
   timeout ${timeout}m test/perf/${op}_perf -t $ngpus -b 40000000 -e 400000000 -i 40000000 $extra -w 1 -n 1 | tee -a $result.out
 else
   echo "Running test/perf/${op}_perf on $ngpus GPUs [MPI] ..."
-  timeout ${timeout}m mpirun -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000 -e 1960000 -i 40000 $extra -w 10 -n 20 | tee $result.out
-  timeout ${timeout}m mpirun -x NCCL_DEBUG -x CUDA_VISIBLE_DEVICES="$GPU_REORDER" -np $ngpus test/perf/${op}_perf -b 2000000 -e 38000000 -i 2000000 $extra -w 5 -n 5 | tee -a $result.out
-  timeout ${timeout}m mpirun -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000000 -e 400000000 -i 40000000 $extra -w 1 -n 1 | tee -a $result.out
+  timeout ${timeout}m mpirun -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000 -e 1960000 -i 40000 $extra -w 10 -n 20 | tee $result.mpi.out
+  timeout ${timeout}m mpirun -x NCCL_DEBUG -x CUDA_VISIBLE_DEVICES="$GPU_REORDER" -np $ngpus test/perf/${op}_perf -b 2000000 -e 38000000 -i 2000000 $extra -w 5 -n 5 | tee -a $result.mpi.out
+  timeout ${timeout}m mpirun -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000000 -e 400000000 -i 40000000 $extra -w 1 -n 1 | tee -a $result.mpi.out
 fi
 }
 
