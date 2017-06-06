@@ -3,7 +3,7 @@
 hostfile=$1
 VER=$2
 skiptest=0
-TESTROOT=$HOME/nb-test
+TESTROOT=/home/$USER/nb-test
 SID=$(date +%Y%m%d%H%M%S)
 printf "\nScreen session ID is $SID (on all machines) \n\n"
 
@@ -21,14 +21,16 @@ if [ $skiptest -eq 0 ]; then
     arr=( $var )
     HOST=${arr[0]}
     GPUMODEL=${arr[1]}
-    ssh $USER@$HOST -t screen -S $SID -m -d "
+    printf "\nLaunching test on $HOST ...\n" 
+    ssh $USER@$HOST -nt screen -dmS $SID "
     export NCCLROOT=$TESTROOT/nccl
-    rm -rf $TESTROOT; mkdir $TESTROOT 
+    rm -rf $TESTROOT; mkdir $TESTROOT
     cd $TESTROOT
     hostname; pwd; echo $GPUMODEL
     git clone -b $VER ssh://kwen@git-master.nvidia.com:12001/cuda_ext/nccl.git
     cd nccl
-    ./test/scripts/nccl_test_node.sh $GPUMODEL &"
+    ./test/scripts/nccl_test_node.sh $GPUMODEL < /dev/null > $HOST.log 2>&1 &
+    "
   done < "$hostfile"
 fi
 
@@ -46,21 +48,20 @@ do
   time=0
   state=""
   printf "\nWaiting for $HOST "
-  while [ "$state" == "" ]
+  while [ "$state" == "" ] && [ $time -lt 400 ]
   do
     printf "."
-    if [ $time -gt 300 ]; then
-      echo $HOST "time out!"
-      exit 1
-    fi
     sleep 1m
     time=$(expr $time + 1)
     state=$( ssh $USER@$HOST < check_status.sh 2>/dev/null | grep 'NCCL_Complete' )
   done
-  echo
+  if [ "$state" == "" ] && [ $time -eq 400 ]; then
+    printf "\n$HOST TIME OUT!\n"
+  else
+    printf "\n$HOST COMPLETES\n"
+  fi
   rsync -avzhe ssh $USER@$HOST:$TESTROOT/nccl/build/results/$GPUMODEL ./$VER/results/
-  ssh $USER@$HOST "screen -X -S $SID quit"
-  printf "\n$HOST COMPLETES\n"
+  ssh $USER@$HOST -n "screen -X -S $SID quit"
   printf "\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n"
 done < "$hostfile"
 

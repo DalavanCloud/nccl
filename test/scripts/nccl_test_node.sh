@@ -12,8 +12,8 @@ BLDDIR=$NCCLROOT/build
 cd $NCCLROOT
 source $SHDIR/cuda.sh
 make clean
-make -j src.build 2>&1 | tee src-build.log
-make -j test.build 2>&1 | tee test-build.log
+make -j src.build
+make -j test.build
 
 # test (single process)
 cd $BLDDIR
