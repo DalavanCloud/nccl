@@ -1,0 +1,20 @@
+1) To run tests, call the root-side (aggregation node) script: 
+    ./nccl_test_root.sh  <hostfile>  <branch>
+  
+If <hostfile> is not specified, the script will look for ./hostfile
+
+If <branch> is not specified, the script will use the 'master'
+
+Format for the <hostfile>:
+  hostname1 gpumodel1
+  hostname2 gpumodel2
+  ...
+
+The script will gather results from slave nodes under a newly-created <branch> folder. It will also rename the old <branch> folder as <branch>.bak
+
+
+
+2) Slave-side (worker node) script:
+    ./nccl_test_node.sh  <gpumodel>
+
+The script can be called independently of the root if you only need results on a single node
