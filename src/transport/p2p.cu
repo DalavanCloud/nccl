@@ -87,6 +87,15 @@ static int getNvlinkCount(const char* busId1, const char* busId2) {
 
 /* Determine if we can communicate with the peer */
 ncclResult_t p2pCanConnect(int* ret, ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo) {
+  static int p2pDisabled = -1;
+  if (p2pDisabled == -1) {
+    char* str = getenv("NCCL_P2P_DISABLE");
+    p2pDisabled = str ? atoi(str) : 0;
+  }
+  if (p2pDisabled == 1) {
+    *ret = 0;
+    return ncclSuccess;
+  }
   struct p2pInfo* myInfo = (struct p2pInfo*)myOpaqueInfo;
   struct p2pInfo* peerInfo = (struct p2pInfo*)peerOpaqueInfo;
   int p2p = 0;
