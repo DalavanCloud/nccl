@@ -24,7 +24,11 @@ struct FuncPassA<half> {
   }
   __device__ half operator()(const half x, const half y) const {
     half r;
+#if CUDART_VERSION < 9000
     r.x = x.x;
+#else
+    r = x;
+#endif
     return r;
   }
 };

@@ -5,6 +5,7 @@
  ************************************************************************/
 
 #include "core.h"
+#include "env.h"
 #include "nvmlwrap.h"
 //#include "ibvwrap.h"
 #include "rings.h"
@@ -61,6 +62,7 @@ static ncclResult_t ncclInit() {
   if (initialized) return ncclSuccess;
   pthread_mutex_lock(&initLock);
   if (!initialized) {
+    initEnv();
     initDebug();
     initNet();
     initialized = true;
