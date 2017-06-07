@@ -710,6 +710,8 @@ ncclResult_t ncclIbFlush(struct ncclIbRequest* req) {
   memset(&wr, 0, sizeof(wr));
   wr.wr_id = (uint64_t)req;
 
+  req->ibMr->refcnt++; // Will be decremented during ncclIbTest() call below
+
   wr.wr.rdma.remote_addr = (uint64_t)req->flushDataPtr;
   wr.wr.rdma.rkey = req->ibMr->mr->rkey;
   wr.sg_list = &comm->gpuFlush.sge;
@@ -762,9 +764,10 @@ int ncclIbTest(void* request, int* done, int* size) {
           if (doneReq->flushDataPtr != NULL) NCCLCHECK(ncclIbFlush(doneReq));
 #endif
         }
-	if (doneReq->ibMr != NULL) {
-	  doneReq->ibMr->refcnt--;
-	}
+        if (doneReq->ibMr != NULL) {
+          doneReq->ibMr->refcnt--;
+          if (doneReq->ibMr->refcnt < 0) WARN("doneReq %p MR %p refcount now %d", doneReq, doneReq->ibMr, doneReq->ibMr->refcnt);
+        }
         doneReq->done = 1;
       }  
     }
@@ -788,7 +791,7 @@ int ncclIbCloseSend(void* sendComm) {
     if (comm->fifoMr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->fifoMr));
     for (int i=0; i<MAX_REQUESTS; i++) {
       if (comm->verbs.mrPool[i].mr != NULL) {
-	if (comm->verbs.mrPool[i].refcnt != 0) WARN("IB MR #%d has non-zero refcnt", i);
+        if (comm->verbs.mrPool[i].refcnt != 0) WARN("IB TX MR #%d has non-zero (%d) refcnt", i, comm->verbs.mrPool[i].refcnt);
 	NCCLCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i].mr));
       }
     }
@@ -811,7 +814,7 @@ int ncclIbCloseRecv(void* recvComm) {
     if (comm->remFifo.mr != NULL) NCCLCHECK(wrap_ibv_dereg_mr(comm->remFifo.mr));
     for (int i=0; i<MAX_REQUESTS; i++) {
       if (comm->verbs.mrPool[i].mr != NULL) {
-        if (comm->verbs.mrPool[i].refcnt != 0) WARN("IB MR #%d has non-zero refcnt", i);
+        if (comm->verbs.mrPool[i].refcnt != 0) WARN("IB RX MR #%d has non-zero (%d) refcnt", i, comm->verbs.mrPool[i].refcnt);
         NCCLCHECK(wrap_ibv_dereg_mr(comm->verbs.mrPool[i].mr));
       }
     }
