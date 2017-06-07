@@ -187,7 +187,7 @@ static int computeRingsRec(int* matrix, int n, int *rings, int currentRing, int 
   return nrings;
 }
 
-int p2pComputeRings(int* matrix, int nranks, int *rings, int nringsMax, int connect) {
+int p2pComputeRingsNvLink(int* matrix, int nranks, int *rings, int nringsMax, int connect) {
   int* inTheRing = (int*)malloc(sizeof(int)*nranks);
   for (int i=0; i<nranks; i++) inTheRing[i] = 0;
   int nrings;
@@ -209,7 +209,7 @@ static inline int findConnect(int nranks, int* ranks) {
   return -1;
 }
 
-int p2pComputeRings(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int oversubscribe, int* nthreads) {
+int p2pComputeRingsNvLink(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int oversubscribe, int* nthreads) {
   if (nrings == 0) return 0;
   if (nrings > MAXRINGS) {
     WARN("Max rings reached, limiting to %d\n", MAXRINGS);
@@ -231,13 +231,13 @@ int p2pComputeRings(int* values, int nranks, int* rings, int nrings, int* prev, 
   for (int i=0; i<nranks; i++) for (int j=0; j<nranks; j++)
     matrix[i*nranks+j] = oversubscribe ? (values[i*nranks+j]-(PATH_SOC+1))*2 : values[i*nranks+j]-(PATH_SOC+1) ;
 
-  int compNrings = p2pComputeRings(matrix, nranks, rings, nrings, connect);
+  int compNrings = p2pComputeRingsNvLink(matrix, nranks, rings, nrings, connect);
   if (connect == 0) {
     if (oversubscribe == 0 && compNrings && compNrings < nrings && nranks <= 4) {
       // Try to oversubscribe to get a better result
       int rings2[MAXRINGS*nranks];
       for (int i=0; i<MAXRINGS*nranks; i++) rings2[i] = -1;
-      int compNrings2 = p2pComputeRings(values, nranks, rings2, nrings*2, prev, next, 1, nthreads);
+      int compNrings2 = p2pComputeRingsNvLink(values, nranks, rings2, nrings*2, prev, next, 1, nthreads);
       if (compNrings2 > compNrings*2) {
         // Oversubscription worked.
         for (int i=0; i<compNrings2*nranks; i++) rings[i] = rings2[i];
@@ -252,6 +252,72 @@ int p2pComputeRings(int* values, int nranks, int* rings, int nrings, int* prev, 
     if (ncclCudaCompCap() == 6) *nthreads /= 2;
   }
   return compNrings;
+}
+
+
+static int findClosestPci(int* values, int* inRing, int rank, int end, int nranks, int minScore) {
+  for (int score = PATH_SOC+1; score >= minScore; score--) {
+    int best = -1;
+    int worst_end_score = PATH_SOC+2; // find the closest to rank, farthest from end
+    for (int n = 0; n < nranks; n++) {
+      if (inRing[n]) continue;
+      if (values[rank*nranks+n] == score) {
+        if (end == -1) return n;
+        if (values[end*nranks+n] < worst_end_score) {
+          best = n;
+          worst_end_score = values[end*nranks+n];
+        }
+      }
+    }
+    if (best != -1) return best;
+  }
+  return -1;
+}
+
+int p2pComputeRingsPci(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int minScore) {
+  // PCIe or QPI
+  int connect = 0;
+  for (int r=0; r<nrings; r++) {
+    int start = findConnect(nranks, prev+r*nranks);
+    int end = findConnect(nranks, next+r*nranks);
+
+    int inRing[nranks];
+    for (int i=0; i<nranks; i++) inRing[i] = 0;
+
+    if (start == -1 && end == -1) {
+      if (connect == 1 && r > 0) {
+        WARN("Connecting ring %d : did not find start/end. Disabling other rings.", r);
+        return r;
+      }
+      end = 0;
+      inRing[end] = 1;
+      start = findClosestPci(values, inRing, end, -1, nranks, minScore);
+      if (start == -1) return r;
+    } else if (start == -1 || end == -1) {
+      WARN("Connecting ring %d : inconsistent start/end. Disabling other rings.", r);
+      return r;
+    } else {
+      connect = 1;
+    }
+    rings[r*nranks] = end;
+    rings[r*nranks+1] = start;
+    inRing[start] = inRing[end] = 1;
+    int cur = start;
+    for (int i=2; i<nranks; i++) {
+      int next = findClosestPci(values, inRing, cur, end, nranks, minScore);
+      if (next == -1) return r;
+
+      inRing[next] = 1;
+      rings[r*nranks+i] = next;
+      cur = next;
+    }
+    // Check the loop is closing
+    inRing[end] = 0;
+    if (findClosestPci(values, inRing, cur, end, nranks, minScore) != end) return r;
+
+    if (connect == 0) return 1;
+  }
+  return nrings;
 }
 
 ncclResult_t p2pGetRings(int nranks, int* groups, int* subgroups, int* values, int* nringsRet, int* prev, int* next, int minScore, int* nthreads) {
@@ -270,54 +336,12 @@ ncclResult_t p2pGetRings(int nranks, int* groups, int* subgroups, int* values, i
   }
   nrings = min(nrings, *nringsRet);
 
-  nrings = p2pComputeRings(values, nranks, rings, nrings, prev, next, 0, nthreads);
+  nrings = p2pComputeRingsNvLink(values, nranks, rings, nrings, prev, next, 0, nthreads);
 
   int pcie = (nrings == 0) ? 1 : 0;
   if (pcie) {
     // PCIe or QPI
-    int connect = 0;
-    for (int r=0; r<*nringsRet; r++) {
-      int start = findConnect(nranks, prev+r*nranks);
-      int end = findConnect(nranks, next+r*nranks);
-      if (start != -1 && end != -1) {
-        rings[r*nranks] = end;
-        rings[r*nranks+1] = start;
-        int cur = start;
-        for (int i=2; i<nranks; i++) {
-          int next = (cur+1) % nranks;
-          while (next == end || next == start) next = (next+1) % nranks;
-          if (values[cur*nranks+next] < minScore) {
-            *nringsRet = 0;
-            return ncclSuccess;
-          }
-          rings[r*nranks+i] = next;
-          cur = next;
-        }
-        connect = 1;
-      } else {
-        if (connect == 1 && r > 0) {
-          WARN("Connecting rings but did not find start/end for ring %d. Disabling other rings.", r);
-          nrings = *nringsRet = r;
-        } else {
-          // No connections here. stop.
-          break;
-        }
-      }
-    }
-
-    if (connect == 0) {
-      nrings = 1;
-      for (int r=0; r<nrings; r++) {
-        for (int i=0; i<nranks; i++) {
-          if (r % 2 == 0)
-            rings[r*nranks+i] = i;
-          else
-            rings[r*nranks+i] = nranks-1-i;
-        }
-      }
-    } else {
-      nrings = *nringsRet;
-    }
+    nrings = p2pComputeRingsPci(values, nranks, rings, *nringsRet, prev, next, minScore);
   }
 
   *nringsRet = nrings;
