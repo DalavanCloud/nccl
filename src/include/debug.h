@@ -31,7 +31,7 @@ extern void getHostName(char* hostname, int maxlen);
     printf("\n");                                                \
     fflush(stdout);                                              \
     pthread_mutex_unlock(&ncclDebugOutputLock);                  \
-    if (ncclDebugLevel >= ABORT) abort();                        \
+    if (ncclDebugLevel == ABORT) abort();                        \
   }                                                              \
 } while(0)
 
