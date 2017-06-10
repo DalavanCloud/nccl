@@ -7,18 +7,19 @@ SHDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $SHDIR/../../
 NCCLROOT=$PWD
 BLDDIR=$NCCLROOT/build
+rm $BLDDIR/state
 
 # build
-cd $NCCLROOT
 source $SHDIR/cuda.sh
 make clean
 make -j src.build
-make -j test.build
 
 # test (single process)
+make -j test.clean
+make -j test.build
 cd $BLDDIR
-rm state
 LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8
+LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8 nocheck reorder
 
 # test (multi processes)
 cd $NCCLROOT
@@ -29,7 +30,7 @@ export OPAL_PREFIX=$install_dir/$lib
 export PATH=$OPAL_PREFIX/bin:$PATH
 export LD_LIBRARY_PATH=$OPAL_PREFIX/lib:$LD_LIBRARY_PATH
 export MPI_HOME=$OPAL_PREFIX
-make -j test.build MPI=1 2>&1 | tee test-mpi-build.log
+make -j test.build MPI=1
 cd $BLDDIR
 LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8 nocheck mpi
 
