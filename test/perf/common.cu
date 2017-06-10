@@ -607,7 +607,7 @@ void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeNa
       args->sendInplaceOffset = sendInplaceOffset * wordSize(type);
       args->recvInplaceOffset = recvInplaceOffset * wordSize(type);
 
-      print_line_header(args->nbytes, count, typeName, opName, root);
+      print_line_header(max(args->sendBytes, args->expectedBytes), paramCount, typeName, opName, root);
 
       BenchTime(args, type, op, root, 0);
       if (inPlace) BenchTime(args, type, op, root, 1);
