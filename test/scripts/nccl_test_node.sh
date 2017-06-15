@@ -27,10 +27,8 @@ rm $BLDDIR/state
 # DGX specific setting
 if [ "$prefix" == "dgx" ]; then
   module load cuda
-  install_dir=$HOME/install
 else
   source $SHDIR/cuda.sh
-  install_dir=/mnt/linuxqa/kwen/install
 fi
 
 # build
@@ -54,6 +52,7 @@ fi
 if [ "$mpi" == "1" ]; then
   cd $NCCLROOT
   make -j test.clean
+  install_dir=$HOME/install
   lib=openmpi
   export OPAL_PREFIX=$install_dir/$lib
   export PATH=$OPAL_PREFIX/bin:$PATH
