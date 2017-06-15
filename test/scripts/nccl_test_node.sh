@@ -3,13 +3,15 @@
 gpumodel=$1
 prefix=${gpumodel:0:3}
 
+maxgpu=$2
+
 mpi=0
 reorder=0
-while [ "$2" != "" ]; do
-  if [ "$2" == "mpi" ]; then
+while [ "$3" != "" ]; do
+  if [ "$3" == "mpi" ]; then
     mpi=1
   fi
-  if [ "$2" == "reorder" ]; then
+  if [ "$3" == "reorder" ]; then
     reorder=1
   fi
   shift
@@ -41,10 +43,10 @@ if [ "$mpi" == "0" ]; then
   cd $BLDDIR
   if [ "$reorder" == "0" ]; then
     echo "Tesing ..."
-    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8
+    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
   else
     echo "Testing reorder..."
-    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8 nocheck reorder
+    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck reorder
   fi
 fi
 
@@ -61,10 +63,10 @@ if [ "$mpi" == "1" ]; then
   cd $BLDDIR
   if [ "$reorder" == "0" ]; then
     echo "Testing MPI..."
-    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8 nocheck mpi
+    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
   else
     echo "Testing MPI+reorder..."
-    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel 8 nocheck mpi reorder
+    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi reorder
   fi
 fi
 
