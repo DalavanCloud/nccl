@@ -35,10 +35,8 @@ if [ $skiptest -eq 0 ]; then
 fi
 
 # Gather results from test nodes
-rm -rf $VER.bak
-mv $VER $VER.bak
-rm -rf $VER
-mkdir -p $VER/results
+rm -rf $VER.bak; rm -rf ${VER}_*.bak
+mv $VER $VER.bak; mv ${VER}_mpi ${VER}_mpi.bak; mv ${VER}_reorder ${VER}_reorder.bak 
 
 while IFS= read -r var
 do
@@ -60,7 +58,12 @@ do
   else
     printf "\n$HOST COMPLETES\n"
   fi
-  rsync -avzhe ssh $USER@$HOST:$TESTROOT/nccl/build/results/$GPUMODEL ./$VER/results/
+  for opt in "" "_mpi" "_reorder"; do
+    subVER=${VER}${opt}
+    resdir="results$opt"
+    mkdir -p $subVER/results
+    rsync -avzhe ssh $USER@$HOST:$TESTROOT/nccl/build/$resdir/$GPUMODEL ./$subVER/results/
+  done
   ssh $USER@$HOST -n "screen -X -S $SID quit"
   printf "\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n"
 done < "$hostfile"
