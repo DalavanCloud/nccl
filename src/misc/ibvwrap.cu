@@ -181,7 +181,9 @@ ncclResult_t wrap_ibv_symbols(void) {
   return ncclSuccess;
 
 ncclResult_t wrap_ibv_get_device_list(struct ibv_device ***ret, int *num_devices) {
-  IBV_PTR_CHECK_ERRNO(ibv_internal_get_device_list, ibv_internal_get_device_list(num_devices), *ret, NULL, "ibv_get_device_list");
+  *ret = ibv_internal_get_device_list(num_devices);
+  if (*ret == NULL) *num_devices = 0;
+  return ncclSuccess;
 }
 
 ncclResult_t wrap_ibv_free_device_list(struct ibv_device **list) {
