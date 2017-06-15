@@ -199,7 +199,7 @@ static ncclResult_t GetSocketAddr(union socketAddress* addr) {
   return ncclSuccess;
 }
 
-#define MAX_REQUESTS 64 /*XXX:Can support 62 outstanding requests*/
+#define MAX_REQUESTS 128
 
 struct ncclIbQpInfo {
   int lid;
@@ -472,25 +472,26 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
   return 0;
 }
 
-struct ncclIbRequest* ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbVerbs* verbs) {
-  for (int i=0; i<reqs->nreqs; i++) {
-    struct ncclIbRequest* req = reqs->requests+i;
-    if (req->used == 0) {
-      req->used = 1;
-      req->ibMr = NULL;
-      req->done = 0;
-      req->size = 0;
-      req->verbs = verbs;
-      return req;
+ncclResult_t ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbVerbs* verbs, struct ncclIbRequest** req) {
+  if (reqs->nreqs == 0) {
+    // No free request found, grow the pool
+    reqs->requests = (struct ncclIbRequest*)malloc(MAX_REQUESTS*sizeof(struct ncclIbRequest));
+    memset(reqs->requests, 0, MAX_REQUESTS*sizeof(struct ncclIbRequest));
+  }
+  for (int i=0; i<MAX_REQUESTS; i++) {
+    struct ncclIbRequest* r = reqs->requests+i;
+    if (r->used == 0) {
+      r->used = 1;
+      r->ibMr = NULL;
+      r->done = 0;
+      r->size = 0;
+      r->verbs = verbs;
+      *req = r;
+      return ncclSuccess;
     }
   }
-  // No free request found, grow the pool
-  int newNumRequests = reqs->nreqs + 32;
-  reqs->requests = (struct ncclIbRequest*)realloc(reqs->requests, newNumRequests*sizeof(struct ncclIbRequest));
-  for (int i=reqs->nreqs; i<newNumRequests; i++)
-    reqs->requests[i].used = 0;
-  reqs->nreqs = newNumRequests;
-  return ncclIbGetRequest(reqs, verbs);
+  WARN("IB : unable to allocate requests\n");
+  return ncclInternalError;
 }
 
 ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
@@ -569,7 +570,8 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)sendComm;
   NCCLCHECK(ncclSendCheck(comm));
 
-  struct ncclIbRequest* req = ncclIbGetRequest(&comm->reqs, &comm->verbs);
+  struct ncclIbRequest* req;
+  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &comm->verbs, &req));
   req->done = 0;
   req->size = size;
   req->verbs = &comm->verbs;
@@ -623,7 +625,8 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t addr) {
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
-  struct ncclIbRequest* req = ncclIbGetRequest(&comm->reqs, &comm->verbs);
+  struct ncclIbRequest* req;
+  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &comm->verbs, &req));
   wr.wr_id = (uint64_t)req;
 
   comm->remFifo.elem.addr = addr;
@@ -659,7 +662,8 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
 
 int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) {
   struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
-  struct ncclIbRequest* req = ncclIbGetRequest(&comm->reqs, &comm->verbs);
+  struct ncclIbRequest* req;
+  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &comm->verbs, &req));
   NCCLCHECK(ncclRecvCheck(comm));
   req->done = 0;
   req->size = size;
