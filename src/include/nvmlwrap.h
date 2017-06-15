@@ -44,6 +44,10 @@ static ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevic
   NVMLCHECK(nvmlDeviceGetHandleByIndex(index,device));
   return ncclSuccess;
 }
+static ncclResult_t wrapNvmlDeviceGetHandleByPciInfo(nvmlDevice_t device, nvmlPciInfo_t* pci) {
+  NVMLCHECK(nvmlDeviceGetPciInfo(device, pci));
+  return ncclSuccess;
+}
 static ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive) {
   NVMLCHECK(nvmlDeviceGetNvLinkState(device, link, isActive));
   return ncclSuccess;
@@ -135,6 +139,7 @@ ncclResult_t wrapNvmlDeviceGetIndex(nvmlDevice_t device, unsigned* index);
 ncclResult_t wrapNvmlDeviceSetCpuAffinity(nvmlDevice_t device);
 ncclResult_t wrapNvmlDeviceClearCpuAffinity(nvmlDevice_t device);
 ncclResult_t wrapNvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t *device);
+ncclResult_t wrapNvmlDeviceGetPciInfo(nvmlDevice_t device, nvmlPciInfo_t* pci);
 ncclResult_t wrapNvmlDeviceGetNvLinkState(nvmlDevice_t device, unsigned int link, nvmlEnableState_t *isActive);
 ncclResult_t wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDevice_t device, unsigned int link, nvmlPciInfo_t *pci);
 ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int link,

@@ -409,22 +409,29 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   return ncclSuccess;
 }
 
+bool SetCpuAffinity(int cudaDev, nvmlDevice_t* nvmlDevice) {
+  if (wrapNvmlDeviceGetHandleByIndex(cudaDev, nvmlDevice) != ncclSuccess) return false;
+  if (wrapNvmlDeviceSetCpuAffinity(*nvmlDevice) != ncclSuccess) return false;
+  return true;
+}
+
 ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank) {
   NCCLCHECK(wrapNvmlSymbols());
   NCCLCHECK(wrapNvmlInit());
 
   // Make sure all host memory allocation are close to the GPU
   int cudaDev;
-  CUDACHECK(cudaGetDevice(&cudaDev));
   nvmlDevice_t nvmlDevice;
-  NCCLCHECK(wrapNvmlDeviceGetHandleByIndex(cudaDev, &nvmlDevice));
-  NCCLCHECK(wrapNvmlDeviceSetCpuAffinity(nvmlDevice));
+  CUDACHECK(cudaGetDevice(&cudaDev));
+  bool affinity_set = SetCpuAffinity(cudaDev, &nvmlDevice);
 
   NCCLCHECK(commAlloc(newcomm, ndev, myrank));
   NCCLCHECK(initTransportsRank(*newcomm, &commId));
   NCCLCHECK(devCommSetup(*newcomm));
 
-  NCCLCHECK(wrapNvmlDeviceClearCpuAffinity(nvmlDevice));
+  if (affinity_set)
+    wrapNvmlDeviceClearCpuAffinity(nvmlDevice); // Ignore errors
+
   NCCLCHECK(wrapNvmlShutdown());
   return ncclSuccess;
 }
@@ -543,9 +550,8 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   int savedDevice;
   int rank, cudaDev;
   ncclComm_t comm = NULL;
-  char busId[13];
-  nvmlDevice_t nvmlHandle;
-  int affinity_set = 0;
+  nvmlDevice_t nvmlDevice;
+  bool affinity_set = false;
   int ncclDevList[ndev];
   for (int i=0; i<ndev; i++) {
     ncclDevList[i] = devlist ? devlist[i] : i;
@@ -569,21 +575,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
     }
 
     // Set CPU affinity
-    affinity_set = 0;
-    if (cudaDeviceGetPCIBusId(busId, 13, cudaDev) != cudaSuccess) {
-      INFO("rank %d failed to get PCI Bus Id for device %d", rank, cudaDev);
-      goto skipaffinity;
-    }
-    if (wrapNvmlDeviceGetHandleByPciBusId(busId, &nvmlHandle) != ncclSuccess) {
-      INFO("rank %d failed to get nvml handle for device %s", rank, busId);
-      goto skipaffinity;
-    }
-    if (wrapNvmlDeviceSetCpuAffinity(nvmlHandle) != ncclSuccess) {
-      INFO("rank %d failed to set affinity", rank);
-      goto skipaffinity;
-    }
-    affinity_set = 1;
-    skipaffinity:
+    affinity_set = SetCpuAffinity(cudaDev, &nvmlDevice);
 
     res = commAlloc(&comm, ndev, rank);
     if (res != ncclSuccess) {
@@ -597,9 +589,8 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
 
     comms[rank] = comm;
 
-    if (affinity_set && wrapNvmlDeviceClearCpuAffinity(nvmlHandle) != ncclSuccess) {
-      INFO("rank %d set but failed to clear cpu affinity", rank);
-    }
+    if (affinity_set)
+      wrapNvmlDeviceClearCpuAffinity(nvmlDevice); // Ignore errors
   }
 
   res = initTransportsAll(comms, ncclDevList, ndev);

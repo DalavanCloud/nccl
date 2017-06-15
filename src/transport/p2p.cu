@@ -46,11 +46,11 @@ ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   getHostName(hostname, 1024);
   info->hostHash=getHostHash(hostname);
   info->hostNumber=getHostNumber(hostname);
-  CUDACHECK(cudaDeviceGetPCIBusId(info->busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE, info->cudaDev));
-  for (int c=0; c<NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE; c++) {
-    if (info->busId[c] == 0) break;
-    info->busId[c] = tolower(info->busId[c]);
-  }
+  nvmlDevice_t nvmlDevice;
+  NCCLCHECK(wrapNvmlDeviceGetHandleByIndex(info->cudaDev, &nvmlDevice));
+  nvmlPciInfo_t pciInfo;
+  NCCLCHECK(wrapNvmlDeviceGetPciInfo(nvmlDevice, &pciInfo));
+  strncpy(info->busId, pciInfo.busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE);
   return ncclSuccess;
 }
 
@@ -77,6 +77,13 @@ static int getNvlinkCount(const char* busId1, const char* busId2) {
     // since even non-GPUs would posses PCI info.
     nvmlPciInfo_t remoteProc;
     if (wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDev, l, &remoteProc) != ncclSuccess) continue;
+#if CUDART_VERSION < 9000
+    char* p = remoteProc.busId;
+    for (int c=0; c<NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE; c++) {
+      if (p[c] == 0) break;
+      p[c] = toupper(p[c]);
+    }
+#endif
 
     if (strncmp(busId2, remoteProc.busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE) == 0) {
       links++;
