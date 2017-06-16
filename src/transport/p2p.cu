@@ -77,13 +77,13 @@ static int getNvlinkCount(const char* busId1, const char* busId2) {
     // since even non-GPUs would posses PCI info.
     nvmlPciInfo_t remoteProc;
     if (wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDev, l, &remoteProc) != ncclSuccess) continue;
-#if CUDART_VERSION < 9000
+
+    // Old versions of NVML return a lowercase PCI ID
     char* p = remoteProc.busId;
     for (int c=0; c<NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE; c++) {
       if (p[c] == 0) break;
       p[c] = toupper(p[c]);
     }
-#endif
 
     if (strncmp(busId2, remoteProc.busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE) == 0) {
       links++;
