@@ -244,10 +244,12 @@ int p2pComputeRingsNvLink(int* values, int nranks, int* rings, int nrings, int* 
       // Try to oversubscribe to get a better result
       int rings2[MAXRINGS*nranks];
       for (int i=0; i<MAXRINGS*nranks; i++) rings2[i] = -1;
-      int compNrings2 = p2pComputeRingsNvLink(values, nranks, rings2, nrings*2, prev, next, 1, nthreads);
+      int nThreads = *nthreads;
+      int compNrings2 = p2pComputeRingsNvLink(values, nranks, rings2, nrings*2, prev, next, 1, &nThreads);
       if (compNrings2 > compNrings*2) {
         // Oversubscription worked.
         for (int i=0; i<compNrings2*nranks; i++) rings[i] = rings2[i];
+        *nthreads = nThreads;
         return compNrings2;
       }
     }

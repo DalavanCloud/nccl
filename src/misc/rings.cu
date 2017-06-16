@@ -190,7 +190,9 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
   int nringsTmp;
   int prevTmp[nranks*MAXRINGS];
   int nextTmp[nranks*MAXRINGS];
+  int nThreads;
   do {
+    nThreads = *nthreads;
     for (int i=0; i<nranks*MAXRINGS; i++) prevTmp[i] = nextTmp[i] = -1;
     nringsTmp = MAXRINGS;
     // Loop over transports to connect groups
@@ -249,7 +251,7 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
           }
         }
         /* Get rings */
-        NCCLCHECK(ncclTransports[t].getRings(nidx, groups, subgroups, subvalues, &nringsTmp, subprev, subnext, minScore, nthreads));
+        NCCLCHECK(ncclTransports[t].getRings(nidx, groups, subgroups, subvalues, &nringsTmp, subprev, subnext, minScore, &nThreads));
         /* Merge subprev/subnext into prev/next */
         for (int r=0; r<nringsTmp; r++) {
           for (int i=0; i<nidx; i++) {
@@ -272,6 +274,8 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
       }
     }
   } while (nringsTmp == 0 && minScore);
+
+  *nthreads = nThreads;
 
   if (*nrings == 0) {
     WARN("Could not create rings, falling back on simple ring");
