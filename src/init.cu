@@ -410,7 +410,9 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
 }
 
 bool SetCpuAffinity(int cudaDev, nvmlDevice_t* nvmlDevice) {
-  if (wrapNvmlDeviceGetHandleByIndex(cudaDev, nvmlDevice) != ncclSuccess) return false;
+  char busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
+  if (cudaDeviceGetPCIBusId(busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE, cudaDev) != cudaSuccess) return false;
+  if (wrapNvmlDeviceGetHandleByPciBusId(busId, nvmlDevice) != ncclSuccess) return false;
   if (wrapNvmlDeviceSetCpuAffinity(*nvmlDevice) != ncclSuccess) return false;
   return true;
 }

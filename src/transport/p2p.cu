@@ -46,8 +46,14 @@ ncclResult_t p2pFillInfo(ncclTinfo_t* opaqueInfo, int rank) {
   getHostName(hostname, 1024);
   info->hostHash=getHostHash(hostname);
   info->hostNumber=getHostNumber(hostname);
+
+  // Get PCI Bus Id. We need to get the bus ID through CUDA first, since the
+  // cudaDev is a CUDA runtime dev number which could be different from the
+  // NVML device number. Then we get the busID from NVML to be sure it is
+  // consistent with NVML remote PCI bus Ids.
+  CUDACHECK(cudaDeviceGetPCIBusId(info->busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE, info->cudaDev));
   nvmlDevice_t nvmlDevice;
-  NCCLCHECK(wrapNvmlDeviceGetHandleByIndex(info->cudaDev, &nvmlDevice));
+  NCCLCHECK(wrapNvmlDeviceGetHandleByPciBusId(info->busId, &nvmlDevice));
   nvmlPciInfo_t pciInfo;
   NCCLCHECK(wrapNvmlDeviceGetPciInfo(nvmlDevice, &pciInfo));
   strncpy(info->busId, pciInfo.busId, NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE);
