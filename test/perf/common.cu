@@ -524,10 +524,8 @@ void completeColl(struct threadArgs_t* args) {
 void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
   size_t count = args->nbytes / wordSize(type);
   
-  // Warmup / Sync
-  for (int iter = 0; iter < warmup_iters; iter++) {
-     startColl(args, type, op, root, in_place, iter);
-  }
+  // Sync
+  startColl(args, type, op, root, in_place, 0);
   completeColl(args);
 
   Barrier(args);
@@ -592,23 +590,33 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
   args->bw_count[0]++;
 }
 
-void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName, int root, int inPlace) {
-  size_t size;
-  int nranks = args->nProcs*args->nGpus*args->nThreads; 
+void setupArgs(size_t size, ncclDataType_t type, struct threadArgs_t* args) {
+  int nranks = args->nProcs*args->nGpus*args->nThreads;
   size_t count, sendCount, recvCount, paramCount, sendInplaceOffset, recvInplaceOffset, procSharedCount;
   int sameExpected;
-  for (size = args->minbytes; size<=args->maxbytes; size = ((args->stepfactor > 1) ? size*args->stepfactor : size+args->stepbytes)) { 
-      count = size / wordSize(type);
-      getCollByteCount(&sendCount, &recvCount, &paramCount, &sendInplaceOffset, &recvInplaceOffset, &procSharedCount, &sameExpected, (size_t)count, (size_t)nranks);
+  
+  count = size / wordSize(type);
+  getCollByteCount(&sendCount, &recvCount, &paramCount, &sendInplaceOffset, &recvInplaceOffset, &procSharedCount, &sameExpected, (size_t)count, (size_t)nranks);
 
-      args->nbytes = paramCount * wordSize(type); 
-      args->sendBytes = sendCount * wordSize(type); 
-      args->expectedBytes = recvCount * wordSize(type);
-      args->sendInplaceOffset = sendInplaceOffset * wordSize(type);
-      args->recvInplaceOffset = recvInplaceOffset * wordSize(type);
+  args->nbytes = paramCount * wordSize(type);
+  args->sendBytes = sendCount * wordSize(type);
+  args->expectedBytes = recvCount * wordSize(type);
+  args->sendInplaceOffset = sendInplaceOffset * wordSize(type);
+  args->recvInplaceOffset = recvInplaceOffset * wordSize(type);
+}
 
-      print_line_header(max(args->sendBytes, args->expectedBytes), paramCount, typeName, opName, root);
+void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName, int root, int inPlace) {
+  // Warm-up
+  setupArgs(args->maxbytes, type, args);
+  for (int iter = 0; iter < warmup_iters; iter++) {
+     startColl(args, type, op, root, 0, iter);
+  }
+  completeColl(args);
 
+  // Benchmark
+  for (size_t size = args->minbytes; size<=args->maxbytes; size = ((args->stepfactor > 1) ? size*args->stepfactor : size+args->stepbytes)) {
+      setupArgs(size, type, args);
+      print_line_header(max(args->sendBytes, args->expectedBytes), args->nbytes / wordSize(type), typeName, opName, root);
       BenchTime(args, type, op, root, 0);
       if (inPlace) BenchTime(args, type, op, root, 1);
       PRINT("\n");
