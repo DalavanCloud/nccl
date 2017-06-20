@@ -1,7 +1,6 @@
 #!/bin/bash
 
 gpumodel=$1
-prefix=${gpumodel:0:3}
 
 maxgpu=$2
 
@@ -25,8 +24,11 @@ BLDDIR=$NCCLROOT/build
 rm $BLDDIR/state
 
 # DGX specific setting
-if [ "$prefix" == "dgx" ]; then
+if [ "$gpumodel" == "dgx1" ]; then
   module load cuda
+  MPI_HOME="${MPI_HOME:-$HOME/install/openmpi}"
+elif [ "$gpumodel" == "dgx1v" ]; then
+  source $HOME/cuda.sh
   MPI_HOME="${MPI_HOME:-$HOME/install/openmpi}"
 else
   source $SHDIR/cuda.sh
@@ -34,19 +36,22 @@ else
 fi
 
 # build
-make -j src.build
+if [ "$DEBDIR" == "" ]; then
+  make -j src.build
+  DEBDIR=$BLDDIR
+fi
 
 if [ "$mpi" == "0" ]; then
   # test (single process)
   make -j test.clean
-  make -j test.build
+  make -j test.build NCCLDIR=${DEBDIR}
   cd $BLDDIR
   if [ "$reorder" == "0" ]; then
     echo "Tesing ..."
-    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
+    LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
   else
     echo "Testing reorder..."
-    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck reorder
+    LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck reorder
   fi
 fi
 
@@ -61,14 +66,14 @@ if [ "$mpi" == "1" ]; then
   export LD_LIBRARY_PATH=$MPI_HOME/lib:$LD_LIBRARY_PATH
   cd $NCCLROOT
   make -j test.clean
-  make -j test.build MPI=1
+  make -j test.build MPI=1 NCCLDIR=${DEBDIR}
   cd $BLDDIR
   if [ "$reorder" == "0" ]; then
     echo "Testing MPI..."
-    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
+    LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
   else
     echo "Testing MPI+reorder..."
-    LD_LIBRARY_PATH=$BLDDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi reorder
+    LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi reorder
   fi
 fi
 
