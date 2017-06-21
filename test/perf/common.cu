@@ -479,19 +479,26 @@ void startColl(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
       args = (struct threadArgs_t*)args->proc_args + (args->thread + thread_offset)%args->nThreads;
   }
 
-  NCCLCHECK(ncclGroupStart());
-  for (int i = 0; i < args->nGpus; i++) {
+  if (args->nGpus == 1) {
+    int rank = args->proc*args->nThreads + args->thread;
+    RunColl((void*)(in_place ? ((void *)((uintptr_t)args->recvbuffs[0] + args->sendInplaceOffset*rank)) : args->sendbuffs[0]),
+        (void*)(in_place ? (void*)((uintptr_t)args->recvbuffs[0] + args->recvInplaceOffset*rank) : args->recvbuffs[0]),
+        count, type, op, root, args->comms[0], args->streams[0]);
+  } else {
+    NCCLCHECK(ncclGroupStart());
+    for (int i = 0; i < args->nGpus; i++) {
 #ifndef NCCL_MAJOR
-    int cudaDev;
-    NCCLCHECK(ncclCommCuDevice(args->comms[i], &cudaDev));
-    CUDACHECK(cudaSetDevice(cudaDev));
+      int cudaDev;
+      NCCLCHECK(ncclCommCuDevice(args->comms[i], &cudaDev));
+      CUDACHECK(cudaSetDevice(cudaDev));
 #endif
-    int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
-    RunColl((void*)(in_place ? ((void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank)) : args->sendbuffs[i]),
-        (void*)(in_place ? (void*)((uintptr_t)args->recvbuffs[i] + args->recvInplaceOffset*rank) : args->recvbuffs[i]),
-        count, type, op, root, args->comms[i], args->streams[i]);
+      int rank = ((args->proc*args->nThreads + args->thread)*args->nGpus + i);
+      RunColl((void*)(in_place ? ((void *)((uintptr_t)args->recvbuffs[i] + args->sendInplaceOffset*rank)) : args->sendbuffs[i]),
+          (void*)(in_place ? (void*)((uintptr_t)args->recvbuffs[i] + args->recvInplaceOffset*rank) : args->recvbuffs[i]),
+          count, type, op, root, args->comms[i], args->streams[i]);
+    }
+    NCCLCHECK(ncclGroupEnd());
   }
-  NCCLCHECK(ncclGroupEnd());
 
   if (swap_args || blocking_coll) {
     //if args have been swapped, complete op before returning
@@ -625,7 +632,14 @@ void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeNa
 
 
 void* threadRunTests(void* args) {
-  RunTest((struct threadArgs_t*)args, ncclroot, (ncclDataType_t)nccltype, test_typenames[nccltype], (ncclRedOp_t)ncclop, test_opnames[ncclop]);
+  struct threadArgs_t* targs = (struct threadArgs_t*)args;
+  // Set device to the first of our GPUs. If we don't do that, some operations
+  // will be done on the current GPU (by default : 0) and if the GPUs are in
+  // exclusive mode those operations will fail.
+  int gpuid = targs->localRank*targs->nThreads*targs->nGpus + targs->thread*targs->nGpus;
+  CUDACHECK(cudaSetDevice(gpuid));
+
+  RunTest(targs, ncclroot, (ncclDataType_t)nccltype, test_typenames[nccltype], (ncclRedOp_t)ncclop, test_opnames[ncclop]);
 
   return NULL;
 }
@@ -1001,8 +1015,8 @@ int main(int argc, char* argv[]) {
     if (!parallel_init) { 
        if (t) 
          pthread_create(threads+t, NULL, threadRunTests, args+t);
-       else  
-         RunTest((struct threadArgs_t*)args, ncclroot, (ncclDataType_t)nccltype, test_typenames[nccltype], (ncclRedOp_t)ncclop, test_opnames[ncclop]);
+       else
+         threadRunTests(args);
     } else {
         if (t || (parallel_init && (proc == 0))) 
          pthread_create(threads+t, NULL, threadInit, args+t);
