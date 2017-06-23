@@ -9,16 +9,14 @@ all=$5
 reorder=$6
 op=$7
 
+resdir="results"
+
 timeout=2
 extra="-c $check "
 if [ "$all" == "1" ]; then
-  # This is way too long already
-  #extra+="-d all -o all "
-  extra+="-d all "
   timeout=`expr $timeout \* 28`
+  resdir+="_all"
 fi
-
-resdir="results"
 
 if [ "$mpi" == "1" ]; then
   resdir+="_mpi"
@@ -38,9 +36,21 @@ if [ "$reorder" == "1" ]; then
   resdir+="_reorder"
 fi
 
+mkdir -p $resdir/$gpumodel/
+
+if [ "$all" == "1" ]; then
+  for dtype in float double half int8 int32 int64 uint8 uint32 uint64 ; do
+    for otype in sum max min prod ; do
+      result=$resdir/$gpumodel/$dtype.$otype
+      srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} test/perf/${op}_perf -t $ngpus -d $dtype -o $otype -b 64 -e 4194304 -f 256 $extra -w 10 -n 10 | tee $result.out
+      srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} test/perf/${op}_perf -t $ngpus -d $dtype -o $otype -b 63 -e 4357647 -f 263 $extra -w 10 -n 10 | tee -a $result.out
+    done
+  done
+  return 0
+fi
+
 result=$resdir/$gpumodel/$op.$ngpus
 
-mkdir -p $resdir/$gpumodel/
 if [ "$mpi" == "0" ]; then
   echo "Running test/perf/${op}_perf on $ngpus GPUs ..."
   if [ "$reorder" == "0" ]; then
@@ -103,6 +113,8 @@ export NCCL_DEBUG=WARN
 
 if [ "$reorder" == "1" ] ; then
   perf_ngpu_loop $gpumodel $maxgpu $check $mpi $all $reorder all_reduce
+elif [ "$all" == "1" ] ; then
+  generate_perf  $gpumodel $maxgpu $check $mpi $all $reorder all_reduce
 else
   perf_ngpu_loop $gpumodel $maxgpu $check $mpi $all $reorder reduce
   perf_ngpu_loop $gpumodel $maxgpu $check $mpi $all $reorder broadcast

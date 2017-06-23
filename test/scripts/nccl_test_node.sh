@@ -5,13 +5,9 @@ gpumodel=$1
 maxgpu=$2
 
 mpi=0
-reorder=0
 while [ "$3" != "" ]; do
   if [ "$3" == "mpi" ]; then
     mpi=1
-  fi
-  if [ "$3" == "reorder" ]; then
-    reorder=1
   fi
   shift
 done
@@ -46,13 +42,9 @@ if [ "$mpi" == "0" ]; then
   make -j test.clean
   make -j test.build NCCLDIR=${DEBDIR}
   cd $BLDDIR
-  if [ "$reorder" == "0" ]; then
-    echo "Tesing ..."
-    LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
-  else
-    echo "Testing reorder..."
-    LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck reorder
-  fi
+  LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
+  LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck reorder
+  LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu all
 fi
 
 # test (multi processes)
@@ -68,13 +60,8 @@ if [ "$mpi" == "1" ]; then
   make -j test.clean
   make -j test.build MPI=1 NCCLDIR=${DEBDIR}
   cd $BLDDIR
-  if [ "$reorder" == "0" ]; then
-    echo "Testing MPI..."
-    LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
-  else
-    echo "Testing MPI+reorder..."
-    LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi reorder
-  fi
+  echo "Testing MPI..."
+  LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
 fi
 
 echo "NCCL_Complete" > state
