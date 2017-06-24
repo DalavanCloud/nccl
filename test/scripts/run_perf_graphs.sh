@@ -42,8 +42,8 @@ if [ "$all" == "1" ]; then
   for dtype in float double half int8 int32 int64 uint8 uint32 uint64 ; do
     for otype in sum max min prod ; do
       result=$resdir/$gpumodel/$dtype.$otype
-      srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} test/perf/${op}_perf -t $ngpus -d $dtype -o $otype -b 64 -e 4194304 -f 256 $extra -w 10 -n 10 | tee $result.out
-      srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} test/perf/${op}_perf -t $ngpus -d $dtype -o $otype -b 63 -e 4357647 -f 263 $extra -w 10 -n 10 | tee -a $result.out
+      srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} test/perf/${op}_perf -t $ngpus -d $dtype -o $otype -b 64 -e 4194304 -f 256 $extra -w 10 -n 10 | tee $result.pow2.out
+      srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} test/perf/${op}_perf -t $ngpus -d $dtype -o $otype -b 63 -e 4357647 -f 263 $extra -w 10 -n 10 | tee $result.npow2.out
     done
   done
   return 0
