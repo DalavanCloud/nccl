@@ -32,7 +32,7 @@ else
 fi
 
 # build
-if [ "$DEBDIR" == "" ]; then
+if [ "$DEBDIR" == "" ] && [ "$INSTALL" != "1" ]; then
   make -j src.build
   DEBDIR=$BLDDIR
 fi
@@ -40,11 +40,16 @@ fi
 if [ "$mpi" == "0" ]; then
   # test (single process)
   make -j test.clean
-  make -j test.build NCCLDIR=${DEBDIR}
+  if [ "$INSTALL" == "1" ]; then
+    make -j test.build
+  else
+    make -j test.build NCCLDIR=${DEBDIR}
+    export LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH
+  fi
   cd $BLDDIR
-  LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
-  LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck reorder
-  LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu all
+  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
+  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck reorder
+  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu all
 fi
 
 # test (multi processes)
@@ -58,10 +63,15 @@ if [ "$mpi" == "1" ]; then
   export LD_LIBRARY_PATH=$MPI_HOME/lib:$LD_LIBRARY_PATH
   cd $NCCLROOT
   make -j test.clean
-  make -j test.build MPI=1 NCCLDIR=${DEBDIR}
+  if [ "$INSTALL" == "1" ]; then
+    make -j test.build MPI=1
+  else
+    make -j test.build MPI=1 NCCLDIR=${DEBDIR}
+    export LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH
+  fi
   cd $BLDDIR
   echo "Testing MPI..."
-  LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
+  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
 fi
 
 echo "NCCL_Complete" > state
