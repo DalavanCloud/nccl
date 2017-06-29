@@ -477,6 +477,7 @@ ncclResult_t ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbVerbs* verbs
     // No free request found, grow the pool
     reqs->requests = (struct ncclIbRequest*)malloc(MAX_REQUESTS*sizeof(struct ncclIbRequest));
     memset(reqs->requests, 0, MAX_REQUESTS*sizeof(struct ncclIbRequest));
+    reqs->nreqs = MAX_REQUESTS;
   }
   for (int i=0; i<MAX_REQUESTS; i++) {
     struct ncclIbRequest* r = reqs->requests+i;
