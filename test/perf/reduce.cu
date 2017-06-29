@@ -30,7 +30,6 @@ void getCollByteCount(size_t *sendcount, size_t *recvcount, size_t *paramcount, 
 
 void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int is_first) {
   size_t count = args->expectedBytes / wordSize(type);
-  int root_proc = root/(args->nThreads*args->nGpus);
   int root_gpu = root%args->nGpus;
 
   assert(args->expectedBytes == args->nbytes);
@@ -59,6 +58,7 @@ void InitRecvResult(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t 
 
   if (args->thread+1 == args->nThreads) {
 #ifdef MPI_SUPPORT
+    int root_proc = root/(args->nThreads*args->nGpus);
     if (args->expectedBytes) {
       // Last thread does the MPI reduction
       if (root_proc == args->proc) { 

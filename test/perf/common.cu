@@ -177,14 +177,18 @@ void GenerateRandom(curandGenerator_t generator, T * const dest,
 template<>
 void GenerateRandom<int8_t>(curandGenerator_t generator, int8_t * const dest,
     const size_t N) {
-  CURAND_CHK(curandGenerate(generator, (unsigned int*)dest,
+  size_t align = (4 - (((size_t)dest) & 3)) % 4;
+  CURAND_CHK(curandGenerate(generator, (unsigned int*)(dest+align),
       N * sizeof(int8_t) / sizeof(int)));
+  CUDACHECK(cudaMemcpy(dest, dest+4, align, cudaMemcpyDeviceToDevice));
 }
 template<>
 void GenerateRandom<uint8_t>(curandGenerator_t generator, uint8_t * const dest,
     const size_t N) {
-  CURAND_CHK(curandGenerate(generator, (unsigned int*)dest,
+  size_t align = (4 - (((size_t)dest) & 3)) % 4;
+  CURAND_CHK(curandGenerate(generator, (unsigned int*)(dest+align),
       N * sizeof(uint8_t) / sizeof(int)));
+  CUDACHECK(cudaMemcpy(dest, dest+4, align, cudaMemcpyDeviceToDevice));
 }
 
 template<>
@@ -679,7 +683,6 @@ void* threadInit(void* args) {
             fflush(stdout);
           }
           Barrier(targs);
-          printf("");
           fflush(stdout);
 	}
       }
@@ -954,7 +957,6 @@ int main(int argc, char* argv[]) {
 #ifdef MPI_SUPPORT
        MPI_Barrier(MPI_COMM_WORLD);
 #endif
-       printf("");
        fflush(stdout);
      }
   }
