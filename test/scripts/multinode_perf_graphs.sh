@@ -64,7 +64,7 @@ maxthread=$4
 maxgpu=$5
 
 if [ "$maxgpu" == "" ]; then
-  echo "Usage : $0 <gpumodel> <maxproc> <maxthread> <maxgpu>"
+  echo "Usage : $0 <gpumodel> <nnode> <maxproc> <maxthread> <maxgpu>"
   exit 1
 fi
 
