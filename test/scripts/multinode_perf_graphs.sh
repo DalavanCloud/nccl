@@ -8,7 +8,7 @@ nthread=$4
 ngpus=$5
 op=$6
 
-resdir="results_multi"
+resdir="results_multinode"
 
 timeout=3
 extra="-c 0 "
