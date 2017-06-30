@@ -8,7 +8,7 @@ nthread=$4
 ngpus=$5
 op=$6
 
-resdir="results"
+resdir="results_multi"
 
 timeout=3
 extra="-c 0 "
@@ -23,9 +23,9 @@ fi
 
 npn=$(expr $nproc / $nnode)
 
-$salloc_cmd mpirun -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 1960000 -i 40000 $extra -w 20 -n 20 | tee $result.out
-$salloc_cmd mpirun -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 2000000 -e 38000000 -i 2000000 $extra -w 20 -n 5 | tee -a $result.out
-$salloc_cmd mpirun -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000000 -e 400000000 -i 40000000 $extra -w 5 -n 1 | tee -a $result.out
+$salloc_cmd mpirun -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 1960000 -i 40000 $extra -w 20 -n 20 2>&1 | tee $result.out
+$salloc_cmd mpirun -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 2000000 -e 38000000 -i 2000000 $extra -w 20 -n 5 2>&1 | tee -a $result.out
+$salloc_cmd mpirun -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000000 -e 400000000 -i 40000000 $extra -w 5 -n 1 2>&1 | tee -a $result.out
 }
 
 perf_ptg_loop() {
