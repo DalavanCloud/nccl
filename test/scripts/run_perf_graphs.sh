@@ -39,6 +39,8 @@ fi
 if [ "$SLURM" == "1" ]; then
   srun_cmd="srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} "
   salloc_cmd="salloc -p $gpumodel -n $ngpus -c 1 -t ${timeout} "
+else
+  mpi_hosts="-host $gpumodel "
 fi
 
 path=$resdir/$gpumodel
@@ -69,10 +71,10 @@ if [ "$mpi" == "0" ]; then
 else
   echo "Running test/perf/${op}_perf on $ngpus GPUs [MPI] ..."
   if [ "$reorder" == "0" ]; then
-    $salloc_cmd mpirun -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000 -e 1960000 -i 40000 $extra -w 20 -n 20 2>&1 | tee $result.out
-    $salloc_cmd mpirun -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 2000000 -e 38000000 -i 2000000 $extra -w 20 -n 5 2>&1 | tee -a $result.out
+    $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000 -e 1960000 -i 40000 $extra -w 20 -n 20 2>&1 | tee $result.out
+    $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 2000000 -e 38000000 -i 2000000 $extra -w 20 -n 5 2>&1 | tee -a $result.out
   fi
-  $salloc_cmd mpirun -x NCCL_DEBUG $SET_VISIBLE -np $ngpus test/perf/${op}_perf -b 40000000 -e 400000000 -i 40000000 $extra -w 5 -n 1 2>&1 | tee -a $result.out
+  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG $SET_VISIBLE -np $ngpus test/perf/${op}_perf -b 40000000 -e 400000000 -i 40000000 $extra -w 5 -n 1 2>&1 | tee -a $result.out
 fi
 }
 
