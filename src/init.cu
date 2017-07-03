@@ -31,6 +31,7 @@ DebugLevel ncclDebugLevel;
 pthread_mutex_t ncclDebugOutputLock;
 
 int ncclPrintCRCs;
+int ncclChecks;
 
 extern "C" __attribute__ ((visibility("default")))
 ncclNet_t* ncclNet = NULL;

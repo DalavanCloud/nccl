@@ -37,17 +37,19 @@ ncclResult_t ncclEnqueueCheck(ncclFunc_t func, const char* primName, const void*
     ncclComm_t comm, cudaStream_t stream) {
   // Launch asynchronously if needed
   if (ncclAsyncMode()) {
-    int savedDev;
-    CUDACHECK(cudaGetDevice(&savedDev));
-    CUDACHECK(cudaSetDevice(comm->cudaDev));
-    // Check arguments
-    ncclResult_t ret = ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName);
-    NCCLCHECK(ncclAsyncErrCheck(ret));
+    if (ncclChecks) {
+      int savedDev;
+      CUDACHECK(cudaGetDevice(&savedDev));
+      CUDACHECK(cudaSetDevice(comm->cudaDev));
+      // Check arguments
+      ncclResult_t ret = ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName);
+      NCCLCHECK(ncclAsyncErrCheck(ret));
+      CUDACHECK(cudaSetDevice(savedDev));
+    }
     NCCLCHECK(ncclAsyncColl(func, sendbuff, recvbuff, count, type, op, root, comm, stream));
-    CUDACHECK(cudaSetDevice(savedDev));
     return ncclSuccess;
   } else {
-    NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName));
+    if (ncclChecks) NCCLCHECK(ArgsCheck(sendbuff, recvbuff, count, type, op, root, comm, primName));
     NCCLCHECK(ncclCpuBarrierCheckin(comm));
     NCCLCHECK(ncclCpuBarrierWait(comm));
     return func(sendbuff, recvbuff, count, type, op, root, comm, stream);

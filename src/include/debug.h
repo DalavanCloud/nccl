@@ -66,6 +66,7 @@ if (ncclDebugLevel == TRACE) {                                   \
 #endif
 
 extern int ncclPrintCRCs;
+extern int ncclChecks;
 
 static void initDebug() {
   const char* nccl_debug = getenv("NCCL_DEBUG");
@@ -84,10 +85,17 @@ static void initDebug() {
   }
 
   const char* nccl_crc = getenv("NCCL_CRC");
-  if (nccl_crc != NULL && strcmp(nccl_crc, "PRINT")==0 ) {
+  if (nccl_crc != NULL && strcmp(nccl_crc, "PRINT") == 0) {
     ncclPrintCRCs = 1;
   } else {
     ncclPrintCRCs = 0;
+  }
+
+  const char* nccl_checks_disable = getenv("NCCL_CHECKS_DISABLE");
+  if (nccl_checks_disable && atoi(nccl_checks_disable) > 0) {
+    ncclChecks = 0;
+  } else {
+    ncclChecks = 1;
   }
 
   pthread_mutex_init(&ncclDebugOutputLock, NULL);
