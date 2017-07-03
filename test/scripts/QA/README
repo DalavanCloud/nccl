@@ -1,0 +1,69 @@
+1. The tar ball contains scripts to i) run tests on NCCL and ii) generage reports. They are to replace Step 6 "Run performance tests with single_perf_8gpu.sh" in previous QA procedures. See 3-6 below for details.
+
+2. You are advised to use openmpi-1.10.7 instead of openmpi-2.1.1, as the latter may cause some weird effects on some of the machines. Also, on eris-ub14-t[039-042] and eris-ub16-t069, you can directly use the openmpi installed under /opt/mpi/openmpi-1.10.7, with commands below:
+
+export MPI_HOME=/opt/mpi/openmpi-1.10.7
+export PATH=$MPI_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$MPI_HOME/lib:$LD_LIBRARY_PATH
+
+3. Run single node tests
+cd this directory ("QA"), run:
+    ./single_node.sh <model> <maxgpus>
+<model> is a string to distinguish the machine architecture. 
+<maxgpus> is the maximum number of GPUs on that machine for the specified <model>.
+On DGX-1 nodes:
+    ./single_node.sh dgx1 8
+On DGX-1V nodes:
+    ./single_node.sh dgx1v 8
+On DGX Station:
+    ./single_node.sh dgxs 4
+On P100 nodes:
+    ./single_node.sh P100 8
+On P40 nodes:
+    ./single_node.sh P40 8
+On K80 nodes:
+    ./single_node.sh K80 8
+On M40 nodes:
+    ./single_node.sh M40 8
+On Titan Xp nodes:
+    ./single_node.sh TitanXp 4
+On GTX 1080 Ti nodes:
+    ./single_node.sh 1080Ti 4
+On GTX 1080 Ti & TITAN Xp Hybrid nodes:
+    ./single_node.sh GP102 8
+
+4. Run multi-node tests:
+cd this directory ("QA"), if SLURM is installed on your machines (i.e. you use salloc to run multi-node jobs), do:
+    SLURM=1 ./multi_node.sh <partition>
+where <partition> is the SLURM partition on which the multi-node job will run.
+For example, in DGX-1 SLURM cluster:
+    SLURM=1 ./multi_node.sh dgx1
+In DGX-1V SLURM cluster:
+    SLURM=1 ./multi_node.sh dgx1v
+On P100 & P40 Hybrid pairs:
+    SLURM=1 ./multi_node.sh gpu-verbs
+
+If your machines do not use SLURM to run multi-node jobs, do:
+    ./multi_node.sh <mpi host list, e.g."node1,node2">
+where the mpi host list includes hostnames of the (two) machines to run the job, separated by comma, without space.
+
+5. Gather results of all machines to one machine (eris-ub14-t039)
+Assuming on t039, you have user named "lab", and this tar ball is untar'ed as /home/lab/QA,
+then for each machine, do:
+  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results/*           lab@eris-ub14-t039:/home/lab/QA/2.0.4/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results_mpi/*       lab@eris-ub14-t039:/home/lab/QA/2.0.4_mpi/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results_reorder/*   lab@eris-ub14-t039:/home/lab/QA/2.0.4_reorder/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results_all/*       lab@eris-ub14-t039:/home/lab/QA/2.0.4_all/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results_multinode/* lab@eris-ub14-t039:/home/lab/QA/2.0.4_multinode/results/
+
+6. Generate reports
+On eris_ub14_t039, in /home/lab/QA, run:
+  ./generate_all.sh 2.0.4
+Reports will be available at:
+http://eris-ub14-t039/nccl/QA/2.0.4/html/
+http://eris-ub14-t039/nccl/QA/2.0.4/html_mpi/
+http://eris-ub14-t039/nccl/QA/2.0.4/html_multinode/
+http://eris-ub14-t039/nccl/QA/2.0.4/html_dataop/
+http://eris-ub14-t039/nccl/QA/2.0.4/html_reorder/
+
+(END)
