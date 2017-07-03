@@ -284,6 +284,13 @@ ncclResult_t ncclGetRings(int* nrings, int* nthreads, int rank, int nranks, int*
     next[rank] = (rank+1)%nranks;
   }
 
+  str = getenv("NCCL_MAX_NRINGS");
+  int maxNrings = str ? atoi(str) : 0;
+  if (maxNrings > 0 && maxNrings < *nrings) {
+    if (rank == 0) INFO("Limiting to %d rings per user request.", maxNrings);
+    *nrings = maxNrings;
+  }
+
   NCCLCHECK(getEnvThreads(nthreads));
   return ncclSuccess;
 }
