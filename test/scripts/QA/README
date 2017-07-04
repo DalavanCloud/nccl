@@ -50,11 +50,11 @@ where the mpi host list includes hostnames of the (two) machines to run the job,
 5. Gather results of all machines to one machine (eris-ub14-t039)
 Assuming on t039, you have user named "lab", and this tar ball is untar'ed as /home/lab/QA,
 then for each machine, do:
-  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results/*           lab@eris-ub14-t039:/home/lab/QA/2.0.4/results/
-  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results_mpi/*       lab@eris-ub14-t039:/home/lab/QA/2.0.4_mpi/results/
-  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results_reorder/*   lab@eris-ub14-t039:/home/lab/QA/2.0.4_reorder/results/
-  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results_all/*       lab@eris-ub14-t039:/home/lab/QA/2.0.4_all/results/
-  scp -r ~/sw/gpgpu/nccl/gitfusion/stable/build/results_multinode/* lab@eris-ub14-t039:/home/lab/QA/2.0.4_multinode/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/master/build/results/*           lab@eris-ub14-t039:/home/lab/QA/2.0.4/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/master/build/results_mpi/*       lab@eris-ub14-t039:/home/lab/QA/2.0.4_mpi/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/master/build/results_reorder/*   lab@eris-ub14-t039:/home/lab/QA/2.0.4_reorder/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/master/build/results_all/*       lab@eris-ub14-t039:/home/lab/QA/2.0.4_all/results/
+  scp -r ~/sw/gpgpu/nccl/gitfusion/master/build/results_multinode/* lab@eris-ub14-t039:/home/lab/QA/2.0.4_multinode/results/
 
 6. Generate reports
 On eris_ub14_t039, in /home/lab/QA, run:

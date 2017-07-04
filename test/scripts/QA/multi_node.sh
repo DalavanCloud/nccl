@@ -1,5 +1,5 @@
 #!/bin/bash
-cd ~/sw/gpgpu/nccl/gitfusion/stable/build/
+cd ~/sw/gpgpu/nccl/gitfusion/master/build/
 
 ptn=$1
 
