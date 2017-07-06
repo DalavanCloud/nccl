@@ -1,5 +1,5 @@
 #!/bin/bash
-cd ~/sw/gpgpu/nccl/gitfusion/master/build/
+cd ../../../build/
 
 gpumodel=$1
 maxgpu=$2
