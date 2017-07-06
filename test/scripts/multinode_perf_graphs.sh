@@ -21,13 +21,18 @@ if [ "$SLURM" == "1" ]; then
   salloc_cmd="salloc -p $gpumodel -N $nnode -n $nproc -t ${timeout} "
 else
   mpi_hosts="-host $gpumodel "
+  if [ "$MPI_HOME" == "" ]; then
+    echo "Please specify MPI_HOME by: export MPI_HOME=/path/to/MPI"
+    exit 1
+  fi
+  prefix="--prefix $MPI_HOME "
 fi
 
 npn=$(expr $nproc / $nnode)
 
-$salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 1960000 -i 40000 $extra -w 20 -n 20 2>&1 | tee $result.out
-$salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 2000000 -e 38000000 -i 2000000 $extra -w 20 -n 5 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000000 -e 400000000 -i 40000000 $extra -w 5 -n 1 2>&1 | tee -a $result.out
+$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 1960000 -i 40000 $extra -w 20 -n 20 2>&1 | tee $result.out
+$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 2000000 -e 38000000 -i 2000000 $extra -w 20 -n 5 2>&1 | tee -a $result.out
+$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000000 -e 400000000 -i 40000000 $extra -w 5 -n 1 2>&1 | tee -a $result.out
 }
 
 perf_ptg_loop() {
