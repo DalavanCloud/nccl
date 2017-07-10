@@ -20,7 +20,7 @@ result=$resdir/$gpumodel/$op.$nproc.$nthread.$ngpus
 if [ "$SLURM" == "1" ]; then
   salloc_cmd="salloc -p $gpumodel -N $nnode -n $nproc -t ${timeout} "
 else
-  mpi_hosts="-host $gpumodel "
+  mpi_hosts="-host $gpumodel -oversubscribe "
   if [ "$MPI_HOME" == "" ]; then
     echo "Please specify MPI_HOME by: export MPI_HOME=/path/to/MPI"
     exit 1
