@@ -17,7 +17,7 @@
 extern ncclNet_t ncclNetSocket; 
 extern ncclNet_t ncclNetIb; 
 
-#define MAX_REQUESTS 62
+#define MAX_REQUESTS 128
 #define USE_SOCKET 1
 #define USE_IB 1
 //#define REQUEST_CHECK_EAGER 1
@@ -325,13 +325,14 @@ int main(int argc, char *argv[]) {
     }
   }
   printf("[%d] Test successful", rank);
+  MPI_Finalize();
   delete data;
   cudaFree(data_d);
-  MPI_Finalize();
 
 out:
   if(failed){
     printf("[%d] Test failed", rank);
+    MPI_Finalize();
     delete data;
     cudaFree(data_d);
   }

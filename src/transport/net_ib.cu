@@ -546,8 +546,9 @@ ncclResult_t ncclIbGetMr(struct ncclIbVerbs* verbs, void* data, int size, struct
 
   // Find an unused element
   if (elem == -1) {
-    elem = (verbs->mrRotation++)%MAX_REQUESTS;
+    elem = (verbs->mrRotation++);
     for (int i=0; i<MAX_REQUESTS;i++) {
+      elem %= MAX_REQUESTS;
       if (verbs->mrPool[elem].refcnt > 0) elem++; else break;
     }
     if (verbs->mrPool[elem].refcnt > 0) {
@@ -555,6 +556,8 @@ ncclResult_t ncclIbGetMr(struct ncclIbVerbs* verbs, void* data, int size, struct
       return ncclInternalError;
     }
   }
+
+  assert(elem < MAX_REQUESTS);
 
   // Deregister / register
   uint64_t regAddr = addr & (~(REG_ALIGN-1));
