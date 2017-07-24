@@ -10,22 +10,6 @@
 #include <getopt.h>
 #include "cuda.h"
 
-#ifdef MPI_TRANSPORT
-extern "C" {
-void ncclMpiHook(MPI_Comm comm);
-void ncclMpiLock();
-void ncclMpiUnlock();
-}
-
-#define MPI_PROTECT(mpicall) do { \
-  ncclMpiLock(); \
-  mpicall; \
-  ncclMpiUnlock(); \
-} while(0)
-#else
-#define MPI_PROTECT(mpicall) mpicall
-#endif
-
 #if NCCL_MAJOR >= 2
 ncclDataType_t test_types[ncclNumTypes] = {ncclInt8, ncclUint8, ncclInt32, ncclUint32, ncclInt64, ncclUint64, ncclHalf, ncclFloat, ncclDouble};
 const char *test_typenames[ncclNumTypes] = {"int8", "uint8", "int32", "uint32", "int64", "uint64", "half", "float", "double"};
@@ -373,11 +357,6 @@ void Accumulate(void* out, void* in, size_t n, ncclDataType_t type, ncclRedOp_t 
       exit(EXIT_FAILURE);
   }
 }
-
-#ifdef MPI_TRANSPORT
-extern "C"
-void ncclMpiHook(MPI_Comm comm);
-#endif
 
 void Barrier(struct threadArgs_t* args)
 {
@@ -879,9 +858,6 @@ int main(int argc, char* argv[]) {
     if (p == proc) break;
     if (hostHashs[p] == hostHashs[proc]) localRank++;
   }
-#endif
-#ifdef MPI_TRANSPORT
-  ncclMpiHook(MPI_COMM_WORLD);
 #endif
   is_main_thread = (proc == 0) ? 1 : 0;
 
