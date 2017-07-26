@@ -13,8 +13,6 @@
 #include "nvmlwrap.h"
 #include <ctype.h>
 
-#define MAXNVLINKS 8
-
 struct p2pInfo {
   int rank;
   int cudaDev;
