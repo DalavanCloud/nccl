@@ -21,8 +21,9 @@ static ncclResult_t shmOpen(const char* shmname, const int shmsize, void** shmPt
   }
 
   if (create) {
-    if (ftruncate(fd, shmsize) == -1) {
-      WARN("ftruncate failed to allocate %d bytes", shmsize);
+    int res = posix_fallocate(fd, 0, shmsize);
+    if (res != 0) {
+      WARN("Unable to allocate shared memory (%d bytes) : %s", shmsize, strerror(res));
       shm_unlink(shmname);
       close(fd);
       return ncclSystemError;
