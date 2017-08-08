@@ -108,12 +108,15 @@ static void initDevices() {
               continue;
             }
             if (portAttr.state != IBV_PORT_ACTIVE) continue;
+            if (portAttr.link_layer != IBV_LINK_LAYER_INFINIBAND
+                && portAttr.link_layer != IBV_LINK_LAYER_ETHERNET) continue;
 
             // check against user specified HCAs/ports
             if (! (matchIfList(devices[d]->name, port, userIfs, nUserIfs) ^ searchNot)) {
               continue;
             }
-            INFO("Using %s port %d", devices[d]->name, port);
+            INFO("NET/IB: [%d] %s:%d/%s ", d, devices[d]->name, port,
+                portAttr.link_layer == IBV_LINK_LAYER_INFINIBAND ? "IB" : "RoCE");
             ncclIbDevs[ncclNIbDevs].device = d;
             ncclIbDevs[ncclNIbDevs].port = port;
             ncclIbDevs[ncclNIbDevs].context = context;
@@ -202,16 +205,22 @@ static ncclResult_t GetSocketAddr(union socketAddress* addr) {
 #define MAX_REQUESTS 128
 
 struct ncclIbQpInfo {
-  int lid;
+  uint32_t lid;
   uint8_t ib_port;
-  int qpn;
+  uint32_t qpn;
+
+  // For RoCE
+  uint64_t spn;
+  uint64_t iid;
+  enum ibv_mtu mtu;
+
+  // FIFO RDMA info
   uint32_t fifoRkey;
   uint64_t fifoAddr;
 };
 
 struct ncclIbHandle {
   union socketAddress connectAddr;
-  struct ncclIbQpInfo qpInfo;
 };
 
 struct ncclIbMr {
@@ -334,21 +343,29 @@ ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbVerbs* verbs, int acce
   return ncclSuccess;
 }
 
-ncclResult_t ncclIbRtrQp(ibv_qp* qp, int qpn, int lid, uint8_t ib_port) {
+ncclResult_t ncclIbRtrQp(ibv_qp* qp, struct ncclIbQpInfo* info) {
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(struct ibv_qp_attr));
   qpAttr.qp_state = IBV_QPS_RTR;
-  qpAttr.path_mtu = IBV_MTU_2048;
-  qpAttr.dest_qp_num = qpn;
+  qpAttr.path_mtu = info->mtu;
+  qpAttr.dest_qp_num = info->qpn;
   qpAttr.rq_psn = 0;
   qpAttr.max_dest_rd_atomic = 1;
   //qpAttr.min_rnr_timer = 12;
   qpAttr.min_rnr_timer = 1;
-  qpAttr.ah_attr.is_global = 0;
-  qpAttr.ah_attr.dlid = lid;
+  if (info->lid == 0) {
+    qpAttr.ah_attr.is_global = 1;
+    qpAttr.ah_attr.grh.dgid.global.subnet_prefix = info->spn;
+    qpAttr.ah_attr.grh.dgid.global.interface_id = info->iid;
+    qpAttr.ah_attr.grh.flow_label = 0;
+    qpAttr.ah_attr.grh.hop_limit = 255;
+  } else {
+    qpAttr.ah_attr.is_global = 0;
+    qpAttr.ah_attr.dlid = info->lid;
+  }
   qpAttr.ah_attr.sl = 1;
   qpAttr.ah_attr.src_path_bits = 0;
-  qpAttr.ah_attr.port_num = ib_port;
+  qpAttr.ah_attr.port_num = info->ib_port;
   NCCLCHECK(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER));
   return ncclSuccess;
 }
@@ -400,6 +417,13 @@ int ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   qpInfo.lid = portAttr.lid;
   qpInfo.ib_port = ib_port;
   qpInfo.qpn = comm->qp->qp_num;
+  qpInfo.mtu = portAttr.active_mtu;
+
+  // RoCE support
+  union ibv_gid gid;
+  NCCLCHECK(wrap_ibv_query_gid(ctx, ib_port, 0, &gid));
+  qpInfo.spn = gid.global.subnet_prefix;
+  qpInfo.iid = gid.global.interface_id;
 
   // Prepare my fifo
   NCCLCHECK(wrap_ibv_reg_mr(&comm->fifoMr, comm->verbs.pd, comm->fifo, sizeof(struct ncclIbSendFifo)*MAX_REQUESTS, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ));
@@ -423,12 +447,22 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
 
   // IB setup
   ibv_context* ctx = ncclIbDevs[lComm->dev].context;
-  NCCLCHECK(ncclIbInitVerbs(ctx, &rComm->verbs));
   uint8_t ib_port = ncclIbDevs[lComm->dev].port;
+  struct ibv_port_attr portAttr;
+  NCCLCHECK(wrap_ibv_query_port(ctx, ib_port, &portAttr));
+  union ibv_gid gid;
+  NCCLCHECK(wrap_ibv_query_gid(ctx, ib_port, 0, &gid));
+
+  // QP Creation
+  NCCLCHECK(ncclIbInitVerbs(ctx, &rComm->verbs));
   NCCLCHECK(ncclIbCreateQp(ib_port, &rComm->verbs, IBV_ACCESS_REMOTE_WRITE, &rComm->qp));
 
+  // Adjust the MTU
+  remQpInfo.mtu = (enum ibv_mtu)min(remQpInfo.mtu, portAttr.active_mtu);
+
+  // Setup QP
   struct ibv_qp* qp = rComm->qp;
-  NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn, remQpInfo.lid, remQpInfo.ib_port));
+  NCCLCHECK(ncclIbRtrQp(qp, &remQpInfo));
   NCCLCHECK(ncclIbRtsQp(qp));
 
   // Retain remote fifo info and prepare my RDMA ops
@@ -451,21 +485,26 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
     rComm->gpuFlush.sge.addr = (uint64_t)&rComm->gpuFlush.hostMem;
     rComm->gpuFlush.sge.length = sizeof(int);
     rComm->gpuFlush.sge.lkey = rComm->gpuFlush.hostMr->lkey;
-    uint8_t port = ncclIbDevs[lComm->dev].port;
-    NCCLCHECK(ncclIbCreateQp(port, &rComm->verbs, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ, &rComm->gpuFlush.qp));
-    struct ibv_port_attr portAttr;
-    NCCLCHECK(wrap_ibv_query_port(ctx, port, &portAttr));
-    NCCLCHECK(ncclIbRtrQp(rComm->gpuFlush.qp, rComm->gpuFlush.qp->qp_num, portAttr.lid, port));
+    NCCLCHECK(ncclIbCreateQp(ib_port, &rComm->verbs, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ, &rComm->gpuFlush.qp));
+    struct ncclIbQpInfo localQpInfo = {
+      .lid=portAttr.lid,
+      .ib_port=ib_port,
+      .qpn=rComm->gpuFlush.qp->qp_num,
+      .spn=gid.global.subnet_prefix,
+      .iid=gid.global.interface_id,
+      .mtu=portAttr.active_mtu };
+    NCCLCHECK(ncclIbRtrQp(rComm->gpuFlush.qp, &localQpInfo));
     NCCLCHECK(ncclIbRtsQp(rComm->gpuFlush.qp));
   }
 
   // Fill Handle
-  struct ibv_port_attr portAttr;
-  NCCLCHECK(wrap_ibv_query_port(ctx, ib_port, &portAttr));
-  struct ncclIbQpInfo qpInfo;
-  qpInfo.lid = portAttr.lid;
-  qpInfo.ib_port = ib_port;
-  qpInfo.qpn = qp->qp_num;
+  struct ncclIbQpInfo qpInfo = {
+    .lid=portAttr.lid,
+    .ib_port=ib_port,
+    .qpn=qp->qp_num,
+    .spn=gid.global.subnet_prefix,
+    .iid=gid.global.interface_id,
+    .mtu=remQpInfo.mtu };
 
   NCCLCHECK(socketSend(rComm->fd, &qpInfo, sizeof(qpInfo)));
   *recvComm = rComm;
@@ -500,7 +539,7 @@ ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
     struct ncclIbQpInfo remQpInfo;
     struct ibv_qp* qp = comm->qp;
     NCCLCHECK(socketReceive(comm->fd, &remQpInfo, sizeof(remQpInfo)));
-    NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn, remQpInfo.lid, remQpInfo.ib_port));
+    NCCLCHECK(ncclIbRtrQp(qp, &remQpInfo));
     NCCLCHECK(ncclIbRtsQp(qp));
     int go = 1;
     NCCLCHECK(socketSend(comm->fd, &go, sizeof(go)));
