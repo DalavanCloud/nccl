@@ -72,6 +72,15 @@ if [ "$mpi" == "1" ]; then
   cd $BLDDIR
   echo "Testing MPI..."
   $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
+
+  # multinode test
+  if [ "$gpumodel" == "dgx1" ]; then
+    $SHDIR/multinode_perf_graphs.sh dgx1 2 16 8 8
+  elif [ "$gpumodel" == "P100" ]; then
+    $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
+  else
+    # do nothing
+  fi
 fi
 
 echo "NCCL_Complete" > state
