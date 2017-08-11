@@ -79,7 +79,7 @@ if [ "$mpi" == "1" ]; then
   elif [ "$gpumodel" == "P100" ]; then
     $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
   else
-    # do nothing
+    echo "No multi-node test on $gpumodel"
   fi
 fi
 
