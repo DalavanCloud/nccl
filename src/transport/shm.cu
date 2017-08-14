@@ -11,8 +11,6 @@
 #include <unistd.h>
 #include <cuda_runtime.h>
 
-//#define SHM_PROXY
-
 struct shmInfo {
   int rank;
   int cudaDev;
@@ -29,18 +27,10 @@ struct shmSendConnectInfo {
 };
 
 struct shmRecvConnectInfo {
-#ifdef SHM_PROXY
-  int direct;
-  union {
-    struct ncclSendRecvMem* directPtr;
-    cudaIpcMemHandle_t devIpc;
-  };
-#else
   int pid;
   int id;
   int rank;
   int shmSize;
-#endif
 };
 
 struct shmSendResources {
@@ -55,18 +45,9 @@ struct shmSendResources {
 #define MAXSTEPS 8
 
 struct shmRecvResources {
-#ifdef SHM_PROXY
-  int prevCudaDev;
-  int localCudaDev;
-  cudaStream_t prevStream;
-  cudaStream_t localStream;
-  cudaEvent_t syncEvent[MAXSTEPS];
-  struct ncclSendRecvMem* remDevMem;
-#else
   int remShmSize;
   struct ncclSendRecvMem* remHostMem;
   struct ncclSendRecvMem* devRemHostMem;
-#endif
   int shmSize;
   struct ncclSendRecvMem* hostMem;
   struct ncclSendRecvMem* devHostMem;
@@ -173,22 +154,6 @@ ncclResult_t shmSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   ring->send.transportResources = resources;
 
   struct shmRecvConnectInfo info;
-#ifdef SHM_PROXY
-  // Send devMem ptr to receiver so that proxy thread can update my head ptr
-  if (myInfo->pid == peerInfo->pid) {
-    info.direct = 1;
-    info.directPtr = ring->devMem;
-    INFO("SendSetup : sending devMem ptr %p", info.directPtr);
-  } else {
-    info.direct = 0;
-    // Map IPC
-    if (cudaIpcGetMemHandle(&info.devIpc, (void*)ring->devMem) != cudaSuccess) {
-      WARN("rank %d failed to get CUDA IPC handle to device %d", myInfo->rank, peerInfo->cudaDev);
-      return ncclInternalError;
-    }
-  }
-  INFO("%d -> %d via proxy shared memory", myInfo->rank, peerInfo->rank);
-#else
   char shmName[1024];
   sprintf(shmName, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, myInfo->rank);
   info.shmSize = resources->shmSize = sizeof(int);
@@ -196,7 +161,6 @@ ncclResult_t shmSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   
   INFO("%d -> %d via direct shared memory", myInfo->rank, peerInfo->rank);
   info.id = ring->id; info.rank = myInfo->rank; info.pid = myInfo->pid;
-#endif
   static_assert(sizeof(struct shmRecvConnectInfo) <= sizeof(struct ncclConnect), "shm Connect Recv Info is too big");
   memcpy(connectInfo, &info, sizeof(struct shmRecvConnectInfo));
   return ncclSuccess;
@@ -206,19 +170,6 @@ ncclResult_t shmRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   struct shmInfo* myInfo = (struct shmInfo*)myOpaqueInfo;
   struct shmRecvResources* resources = (struct shmRecvResources*) malloc(sizeof(struct shmRecvResources));
   ring->recv.transportResources = resources;
-
-  // Create streams for proxy
-#ifdef SHM_PROXY
-  struct shmInfo* peerInfo = (struct shmInfo*)peerOpaqueInfo;
-  resources->prevCudaDev = peerInfo->cudaDev;
-  CUDACHECK(cudaSetDevice(peerInfo->cudaDev));
-  CUDACHECK(cudaStreamCreateWithFlags(&resources->prevStream, cudaStreamNonBlocking));
-  resources->localCudaDev = myInfo->cudaDev;
-  CUDACHECK(cudaSetDevice(myInfo->cudaDev));
-  CUDACHECK(cudaStreamCreateWithFlags(&resources->localStream, cudaStreamNonBlocking));
-  for (int i=0; i<MAXSTEPS; i++)
-    CUDACHECK(cudaEventCreate(resources->syncEvent+i));
-#endif
 
   struct shmSendConnectInfo info;
 
@@ -250,9 +201,7 @@ ncclResult_t shmSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   send->conn.buff = resources->devRemHostMem->buff;
   send->conn.tail = &resources->devRemHostMem->tail;
   send->conn.opCount = &resources->devRemHostMem->opCount;
-#ifndef SHM_PROXY
   send->conn.head = resources->devHostMem;
-#endif
   return ncclSuccess;
 }
 
@@ -261,19 +210,6 @@ ncclResult_t shmRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   struct shmRecvResources* resources = (struct shmRecvResources*)recv->transportResources;
   struct shmRecvConnectInfo* info = (struct shmRecvConnectInfo*)connectInfo;
 
-#ifdef SHM_PROXY
-  // Setup receive proxy pointers
-  if (info->direct) {
-    INFO("ConnectRecv : using direct devMem ptr %p", info->directPtr);
-    resources->remDevMem = info->directPtr;
-  } else {
-    CUDACHECK(cudaSetDevice(resources->prevCudaDev));
-    CUDACHECK(cudaIpcOpenMemHandle((void**)&resources->remDevMem,
-          info->devIpc, cudaIpcMemLazyEnablePeerAccess));
-    CUDACHECK(cudaSetDevice(resources->localCudaDev));
-  }
-  recv->conn.head = &resources->devHostMem->head;
-#else
   char shmName[1024];
   sprintf(shmName, "nccl-shm-send-%d-%d-%d", info->pid, info->id, info->rank);
   resources->remShmSize = info->shmSize;
@@ -283,7 +219,6 @@ ncclResult_t shmRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   recv->conn.buff = resources->devHostMem->buff;
   recv->conn.tail = &resources->devHostMem->tail;
   recv->conn.opCount = &resources->devHostMem->opCount;
-#endif
   return ncclSuccess;
 }
 
@@ -298,77 +233,10 @@ ncclResult_t shmSendFree(void* transportResources) {
 ncclResult_t shmRecvFree(void* transportResources) {
   struct shmRecvResources* resources = (struct shmRecvResources*)transportResources;
   NCCLCHECK(shmClose(resources->hostMem, resources->devHostMem, resources->shmSize));
-#ifdef SHM_PROXY
-  CUDACHECK(cudaStreamDestroy(prevStream));
-  CUDACHECK(cudaStreamDestroy(localStream));
-  for (int i=0; i<MAXSTEPS; i++) {
-    CUDACHECK(cudaEvenDestroy(resources->syncEvent[i]));
-  }
-  CUDACHECK(cudaIpcCloseMemHandle(resources->remDevMem));
-#else
   NCCLCHECK(shmClose(resources->remHostMem, resources->devRemHostMem, resources->remShmSize));
-#endif
   free(resources);
   return ncclSuccess;
 }
-
-#ifdef SHM_PROXY
-ncclResult_t shmRecvProxy(struct ncclProxyArgs* args) {
-  struct ncclRing* ring = args->ring;
-  struct shmRecvResources* resources = (struct shmRecvResources*) (ring->recv.transportResources);
-  struct ncclSendRecvMem* devMem = ring->devMem;
-  volatile int* prevTail = &resources->hostMem->tail;
-  int* prevHead = &resources->remDevMem->head;
-  int* nextTail = &devMem->tail;
-  int* nextOpCount = &devMem->opCount;
-  volatile int* nextHead = &resources->hostMem->head;
-  char* localBuff = resources->hostMem->buff;
-  char* nextBuff = devMem->buff;
-  int buffSize = ring->buffSize;
-  int sliceSize = buffSize / args->substeps;
-
-  // Update in case we skipped some collectives
-  resources->hostMem->opCount = args->opCount;
-  int val = 0;
-  while (val != args->opCount) {
-    CUDACHECK(cudaMemcpyAsync(&val, nextOpCount, sizeof(int), cudaMemcpyDeviceToHost, resources->localStream));
-    CUDACHECK(cudaStreamSynchronize(resources->localStream));
-  }
-  int head = 0;
-  int offset = 0;
-
-  while (head < args->nsteps) {
-    CUDACHECK(cudaSetDevice(resources->localCudaDev));
-    transportProxyWait([=] { return head != *prevTail; });
-    transportProxyWait([=] { return (head - *nextHead) < args->substeps; });
-    head++;
-    CUDACHECK(cudaMemcpyAsync(nextBuff+offset, localBuff+offset, sliceSize, cudaMemcpyHostToDevice, resources->localStream));
-    CUDACHECK(cudaEventRecord(resources->syncEvent[head%args->substeps], resources->localStream));
-    CUDACHECK(cudaMemcpyAsync(nextTail, &head, sizeof(int), cudaMemcpyHostToDevice, resources->localStream));
-
-    CUDACHECK(cudaSetDevice(resources->prevCudaDev));
-    CUDACHECK(cudaStreamWaitEvent(resources->prevStream, resources->syncEvent[head%args->substeps], 0));
-    CUDACHECK(cudaMemcpyAsync(prevHead, &head, sizeof(int), cudaMemcpyHostToDevice, resources->prevStream));
-
-    offset += sliceSize;
-    if (offset == buffSize)
-      offset = 0;
-  }
-  // Ensure all updates are pushed
-  CUDACHECK(cudaSetDevice(resources->prevCudaDev));
-  CUDACHECK(cudaStreamSynchronize(resources->prevStream));
-  CUDACHECK(cudaSetDevice(resources->localCudaDev));
-  CUDACHECK(cudaStreamSynchronize(resources->localStream));
-
-  // Wait for last ack and reset
-  transportProxyWait([=] { return *nextHead == head; });
-  *nextHead = 0;
-  *prevTail = 0;
-  resources->hostMem->opCount = args->opCount+1;
-
-  return ncclSuccess;
-}
-#endif
 
 struct ncclTransport shmTransport = {
   "SHM",
@@ -376,11 +244,5 @@ struct ncclTransport shmTransport = {
   shmCanConnect,
   shmGetRings,
   { shmSendSetup, shmSendConnect, shmSendFree, NULL },
-  { shmRecvSetup, shmRecvConnect, shmRecvFree,
-#ifdef SHM_PROXY
-    shmRecvProxy
-#else
-    NULL
-#endif 
-  }
+  { shmRecvSetup, shmRecvConnect, shmRecvFree, NULL }
 };
