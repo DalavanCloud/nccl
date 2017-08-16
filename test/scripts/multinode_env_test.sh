@@ -1,27 +1,16 @@
 #!/bin/bash
 
+test_env() {
 gpumodel=$1
 nnode=$2
-nproc=$3
-nthread=$4
-ngpus=$5
+ngpus=$3
+env=$4
+shift 4
+vals=$@
+
 op=all_reduce
-
-if [ "$ngpus" == "" ]; then
-  echo "Usage : $0 <gpumodel> <nnode> <maxproc> <maxthread> <maxgpu>"
-  exit 1
-fi
-
-export NCCL_DEBUG=INFO
-
-resdir="results_multinode"
-
-timeout=3
-extra="-c 0 "
-
-mkdir -p $resdir/$gpumodel/
-
-result=$resdir/$gpumodel/env_test
+timeout=2
+nproc=$nnode
 
 if [ "$SLURM" == "1" ]; then
   salloc_cmd="salloc -p $gpumodel -N $nnode -n $nproc -t ${timeout} "
@@ -34,16 +23,33 @@ else
   prefix="--prefix $MPI_HOME "
 fi
 
-npn=$(expr $nproc / $nnode)
+resdir="results_env"
+path=$resdir/$gpumodel
+subpath=$path/$env
+mkdir -p $subpath
 
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_IB_HCA=mlx5 -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_IB_HCA=mlx5_0:1,mlx5_1:1 -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_IB_HCA=^mlx5_0:1 -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_IB_HCA=^mlx5 -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_SOCKET_IFNAME=eth -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_SOCKET_IFNAME=^ib -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_IB_DISABLE=1 -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_IB_DISABLE=1 -x NCCL_SOCKET_IFNAME=eth1 -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_IB_DISABLE=1 -x NCCL_SOCKET_FAMILY=AF_INET6 -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
-$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x NCCL_IB_DISABLE=1 -x NCCL_SOCKET_IFNAME=^ib -x NCCL_SOCKET_FAMILY=AF_INET6 -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 80000 -i 40000 $extra -w 1 -n 1 2>&1 | tee -a $result.out
+for val in $vals ; do
+  echo "Running test/perf/${op}_perf with [$env=$val] ..."
+  result=$subpath/$val
+  $salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -x $env=$val -np $nproc test/perf/${op}_perf -g $ngpus -b 64 -e 128M -f 8 -w 1 -n 5 2>&1 | tee $result.out
+done
+}
+
+gpumodel=$1
+nnode=$2
+maxgpu=$3
+
+if [ "$maxgpu" == "" ]; then
+  echo "Usage : $0 <gpumodel> <nnode> <maxgpu>"
+  exit 1
+fi
+
+export NCCL_DEBUG=INFO
+
+test_env $gpumodel $nnode $maxgpu NCCL_IB_DISABLE 0 1
+test_env $gpumodel $nnode $maxgpu NCCL_IB_CUDA_SUPPORT 0 1
+test_env $gpumodel $nnode $maxgpu NCCL_IB_TIMEOUT 14 4
+test_env $gpumodel $nnode $maxgpu NCCL_IB_HCA mlx5 mlx5_0:1 ^mlx5_0:1
+test_env $gpumodel $nnode $maxgpu NCCL_SOCKET_IFNAME eth ^ib
+test_env $gpumodel $nnode $maxgpu NCCL_SOCKET_FAMILY AF_INET4 AF_INET6
+test_env $gpumodel $nnode $maxgpu NCCL_NET_GDR_READ 0 1
