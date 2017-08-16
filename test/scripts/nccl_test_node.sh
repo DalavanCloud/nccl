@@ -48,7 +48,7 @@ if [ "$mpi" == "0" ]; then
   fi
   cd $BLDDIR
   $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
-  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck reorder
+  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu reorder
   $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu all
 fi
 
@@ -71,7 +71,7 @@ if [ "$mpi" == "1" ]; then
   fi
   cd $BLDDIR
   echo "Testing MPI..."
-  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu nocheck mpi
+  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu mpi
 
   # multinode test
   if [ "$gpumodel" == "dgx1" ]; then
