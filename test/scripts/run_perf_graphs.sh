@@ -20,8 +20,8 @@ if [ "$mode" == "all" ]; then
 fi
 
 if [ "$SLURM" == "1" ]; then
-  srun_cmd="srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} "
-  salloc_cmd="salloc -p $gpumodel -n $ngpus -c 1 -t ${timeout} "
+  srun_cmd="srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} --exclusive "
+  salloc_cmd="salloc -p $gpumodel -n $ngpus -c 1 -t ${timeout} --exclusive "
 else
   srun_cmd="timeout ${timeout}m "
   salloc_cmd="timeout ${timeout}m "

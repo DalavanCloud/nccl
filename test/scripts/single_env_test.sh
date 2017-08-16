@@ -11,7 +11,7 @@ op=all_reduce
 timeout=2
 
 if [ "$SLURM" == "1" ]; then
-  srun_cmd="srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} "
+  srun_cmd="srun -p $gpumodel -n 1 -c $ngpus -t ${timeout} --exclusive "
 else
   srun_cmd="timeout ${timeout}m "
 fi

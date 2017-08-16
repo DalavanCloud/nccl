@@ -13,7 +13,7 @@ timeout=2
 nproc=$nnode
 
 if [ "$SLURM" == "1" ]; then
-  salloc_cmd="salloc -p $gpumodel -N $nnode -n $nproc -t ${timeout} "
+  salloc_cmd="salloc -p $gpumodel -N $nnode -n $nproc -c $ngpus -t ${timeout} --exclusive "
 else
   mpi_hosts="-host $gpumodel -oversubscribe "
   if [ "$MPI_HOME" == "" ]; then
