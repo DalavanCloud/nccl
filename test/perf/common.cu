@@ -511,8 +511,9 @@ void completeColl(struct threadArgs_t* args) {
   }
 }
 
-void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place) {
+void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, int root, int in_place, int warmup) {
   size_t count = args->nbytes / wordSize(type);
+  int local_iters = warmup ? warmup_iters : iters;
   
   // Sync
   startColl(args, type, op, root, in_place, 0);
@@ -522,14 +523,14 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
 
   // Performance Benchmark
   auto start = std::chrono::high_resolution_clock::now();
-  for (int iter = 0; iter < iters; iter++) {
+  for (int iter = 0; iter < local_iters; iter++) {
       startColl(args, type, op, root, in_place, iter); 
   }
   completeColl(args);
 
   auto delta = std::chrono::high_resolution_clock::now() - start;
   double deltaSec = std::chrono::duration_cast<std::chrono::duration<double>>(delta).count();
-  deltaSec = deltaSec/iters;
+  deltaSec = deltaSec/local_iters;
 
   double algBw, busBw;
   GetBw(count, wordSize(type), deltaSec, &algBw, &busBw, args->nProcs*args->nThreads*args->nGpus);
@@ -556,6 +557,8 @@ void BenchTime(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
 #else
      maxDelta = -1.0;
 #endif
+
+  if (warmup) return;
 
   //aggregate delta from all threads and procs
   Barrier(args);
@@ -598,17 +601,14 @@ void setupArgs(size_t size, ncclDataType_t type, struct threadArgs_t* args) {
 void TimeTest(struct threadArgs_t* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName, int root, int inPlace) {
   // Warm-up
   setupArgs(args->maxbytes, type, args);
-  for (int iter = 0; iter < warmup_iters; iter++) {
-     startColl(args, type, op, root, 0, iter);
-  }
-  completeColl(args);
+  BenchTime(args, type, op, root, 0, 1);
 
   // Benchmark
   for (size_t size = args->minbytes; size<=args->maxbytes; size = ((args->stepfactor > 1) ? size*args->stepfactor : size+args->stepbytes)) {
       setupArgs(size, type, args);
       print_line_header(max(args->sendBytes, args->expectedBytes), args->nbytes / wordSize(type), typeName, opName, root);
-      BenchTime(args, type, op, root, 0);
-      if (inPlace) BenchTime(args, type, op, root, 1);
+      BenchTime(args, type, op, root, 0, 0);
+      if (inPlace) BenchTime(args, type, op, root, 1, 0);
       PRINT("\n");
   }
 }
