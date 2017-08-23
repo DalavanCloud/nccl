@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# To run from $BUILDDIR/
+
+BUILDDIR=`basename $PWD`
+
+cd ..
+NCCL_MAJOR=${nccl:Major}
+NCCL_MINOR=${nccl:Minor}
+NCCL_PATCH=${nccl:Patch}
+CUDA_MAJOR=${cuda:Major}
+CUDA_MINOR=${cuda:Minor}
+PKG_REVISION=${pkg:Revision}
+PKG_ARCH=${pkg:Arch}
+
+NCCLNAME="nccl_${NCCL_MAJOR}.${NCCL_MINOR}.${NCCL_PATCH}-${PKG_REVISION}+cuda${CUDA_MAJOR}.${CUDA_MINOR}_${PKG_ARCH}"
+
+tar --transform "s/^$BUILDDIR/$NCCLNAME/" -Jcf $NCCLNAME.txz --owner=0 --group=0 $BUILDDIR/include $BUILDDIR/lib $BUILDDIR/*.txt
