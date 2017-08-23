@@ -18,5 +18,11 @@ fortran.build test.build: src.build
 %.clean:
 	${MAKE} -C $* clean
 
-deb: src.build
-	${MAKE} -C debian package
+${BUILDDIR}/%.txt: %.txt
+	cp $< $@
+
+deb: src.build ${BUILDDIR}/NCCL-SLA.txt
+	${MAKE} -C debian deb
+
+txz: src.build ${BUILDDIR}/NCCL-SLA.txt ${BUILDDIR}/COPYRIGHT.txt
+	${MAKE} -C debian txz
