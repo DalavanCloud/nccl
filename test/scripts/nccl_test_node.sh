@@ -50,6 +50,7 @@ if [ "$mpi" == "0" ]; then
   $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
   $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu reorder
   $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu all
+  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu latency
 fi
 
 # test (multi processes)

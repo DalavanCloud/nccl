@@ -63,6 +63,14 @@ if [ "$mode" == "single" ]; then
   return 0
 fi
 
+if [ "$mode" == "latency" ]; then
+  echo "Running test/perf/${op}_perf on $ngpus GPUs [Latency] ..."
+  result=$path/$op.$ngpus
+  $srun_cmd test/perf/${op}_perf -t $ngpus -b 32 -e 1K -f 2 -w 20 -n 20 2>&1 | tee $result.out
+  $srun_cmd test/perf/${op}_perf -g $ngpus -b 2K -e 64K -f 2 -w 20 -n 20 2>&1 | tee -a $result.out
+  return 0
+fi
+
 if [ "$mode" == "mpi" ]; then
   echo "Running test/perf/${op}_perf on $ngpus GPUs [MPI] ..."
   result=$path/$op.$ngpus
