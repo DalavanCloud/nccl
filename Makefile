@@ -23,6 +23,7 @@ LICENSE_TARGETS := $(LICENSE_FILES:%=$(BUILDDIR)/%)
 lic: $(LICENSE_TARGETS)
 
 ${BUILDDIR}/%.txt: %.txt
+	mkdir -p ${BUILDDIR}
 	cp $< $@
 
 deb: src.build lic
