@@ -18,11 +18,15 @@ fortran.build test.build: src.build
 %.clean:
 	${MAKE} -C $* clean
 
+LICENSE_FILES := NCCL-SLA.txt COPYRIGHT.txt
+LICENSE_TARGETS := $(LICENSE_FILES:%=$(BUILDDIR)/%)
+lic: $(LICENSE_TARGETS)
+
 ${BUILDDIR}/%.txt: %.txt
 	cp $< $@
 
-deb: src.build ${BUILDDIR}/NCCL-SLA.txt
+deb: src.build lic
 	${MAKE} -C debian deb
 
-txz: src.build ${BUILDDIR}/NCCL-SLA.txt ${BUILDDIR}/COPYRIGHT.txt
+txz: src.build lic
 	${MAKE} -C debian txz
