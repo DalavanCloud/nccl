@@ -4,13 +4,7 @@ gpumodel=$1
 
 maxgpu=$2
 
-mpi=0
-while [ "$3" != "" ]; do
-  if [ "$3" == "mpi" ]; then
-    mpi=1
-  fi
-  shift
-done
+mode=$3
 
 # get dir of test scripts
 SHDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -37,7 +31,7 @@ if [ "$DEBDIR" == "" ] && [ "$INSTALL" != "1" ]; then
   DEBDIR=$BLDDIR
 fi
 
-if [ "$mpi" == "0" ]; then
+if [ "$mode" != "mpi" ] && [ "$mode" != "multinode" ]; then
   # test (single process)
   make -j test.clean
   if [ "$INSTALL" == "1" ]; then
@@ -47,14 +41,16 @@ if [ "$mpi" == "0" ]; then
     export LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH
   fi
   cd $BLDDIR
-  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
-  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu reorder
-  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu all
-  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu latency
-fi
-
-# test (multi processes)
-if [ "$mpi" == "1" ]; then
+  if [ "$mode" == "" ]; then
+    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
+    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu reorder
+    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu all
+    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu latency
+  else
+    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu $mode
+  fi
+else
+  # test (multi processes)
   export PATH=$MPI_HOME/bin:$PATH
   if [ "$( which mpirun )" == "" ]; then
     echo "Cannot find MPI, please specify path using MPI_HOME=/path/to/MPI"
@@ -71,14 +67,16 @@ if [ "$mpi" == "1" ]; then
     export LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH
   fi
   cd $BLDDIR
-  echo "Testing MPI..."
-  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu mpi
+  if [ "$mode" == "mpi" ]; then
+    echo "Testing MPI..."
+    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu mpi
+  fi
 
   # multinode test
   if [ "$gpumodel" == "dgx1" ]; then
     $SHDIR/multinode_perf_graphs.sh dgx1 2 16 8 8
   elif [ "$gpumodel" == "P100" ]; then
-    $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
+    NCCL_IB_HCA=mlx5_0 $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
   else
     echo "No multi-node test on $gpumodel"
   fi

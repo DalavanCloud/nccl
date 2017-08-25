@@ -35,6 +35,13 @@ npn=$(expr $nproc / $nnode)
 $salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000 -e 1960000 -i 40000 $extra -w 5 -n 20 2>&1 | tee $result.out
 $salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 2000000 -e 38000000 -i 2000000 $extra -w 5 -n 5 2>&1 | tee -a $result.out
 $salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 40000000 -e 400000000 -i 40000000 $extra -w 1 -n 2 2>&1 | tee -a $result.out
+
+# latency test
+resdir+="_latency"
+mkdir -p $resdir/$gpumodel/
+result=$resdir/$gpumodel/$op.$nproc.$nthread.$ngpus
+
+$salloc_cmd mpirun $prefix $mpi_hosts -x NCCL_DEBUG -np $nproc -npernode $npn test/perf/${op}_perf -t $nthread -g $ngpus -b 64 -e 128K -f 2 $extra -w 5 -n 20 2>&1 | tee $result.out
 }
 
 perf_ptg_loop() {
