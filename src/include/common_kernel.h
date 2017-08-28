@@ -15,10 +15,6 @@
 
 // BAR macro and helpers
 #define WARP_SIZE 32
-#define ROUNDUP(x, y)                                                           \
-    (((((x) + (y) - 1) / (y))) * (y))
-#define DIVUP(x, y) \
-    (((x)+(y)-1)/(y))
 #define BAR_EXEC(type, barid, nthreads) \
     asm("bar." #type " " #barid ", " #nthreads ";\n\t")
 #define BAR_EXPAND(type, barid, nthreads) \

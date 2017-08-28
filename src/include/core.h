@@ -152,6 +152,11 @@ struct ncclComm {
   struct ncclProxyParams proxyParams;
 };
 
+#define DIVUP(x, y) \
+    (((x)+(y)-1)/(y))
+#define ROUNDUP(x, y) \
+    (DIVUP((x), (y))*(y))
+
 // Check CUDA calls
 #define CUDACHECK(cmd) do {                                 \
     cudaError_t e = cmd;                                    \
