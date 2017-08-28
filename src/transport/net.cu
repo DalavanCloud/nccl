@@ -163,6 +163,7 @@ ncclResult_t netGetRings(int nranks, int* groups, int* subgroups, int* values, i
 static ncclResult_t netHostAlloc(struct ncclSendRecvMem** ptr, size_t size) {
   // Allocate memory close to the device we are using
   CUDACHECK(cudaHostAlloc(ptr, size, cudaHostAllocMapped));
+  memset(*ptr, 0, size);
   return ncclSuccess;
 }
 
@@ -202,6 +203,7 @@ ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   int size = offsetof(struct ncclSendRecvMem, buff)+ring->buffSize;
   if (resources->cudaSupport) {
     CUDACHECK(cudaMalloc(&resources->devNetMem, size));
+    CUDACHECK(cudaMemset(resources->devNetMem, 0, size));
   }
   NCCLCHECK(netHostAlloc(&resources->hostMem, size));
   CUDACHECK(cudaHostGetDevicePointer(&resources->devHostMem, resources->hostMem, 0));
