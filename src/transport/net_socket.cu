@@ -115,20 +115,25 @@ int ncclSocketAccept(void* listenComm, void** recvComm) {
   return 0;
 }
 
-struct ncclSocketRequest* ncclSocketGetRequest(struct ncclSocketReqs* reqs) {
-  for (int i=0; i<reqs->nreqs; i++) {
-    if (reqs->requests[i].used == 0) {
-      reqs->requests[i].used = 1; 
-      return reqs->requests + i;
+#define MAX_REQUESTS 128
+
+ncclResult_t ncclSocketGetRequest(struct ncclSocketReqs* reqs, struct ncclSocketRequest** req) {
+  if (reqs->nreqs == 0) {
+    reqs->requests = (struct ncclSocketRequest*)malloc(MAX_REQUESTS*sizeof(struct ncclSocketRequest));
+    memset(reqs->requests, 0, MAX_REQUESTS*sizeof(struct ncclSocketRequest));
+    reqs->nreqs = MAX_REQUESTS;
+  }
+  for (int i=0; i<MAX_REQUESTS; i++) {
+    struct ncclSocketRequest* r = reqs->requests+i;
+    if (r->used == 0) {
+      r->used = 1;
+      r->size = -1;
+      *req = r;
+      return ncclSuccess;
     }
   }
-  // No free request found, grow the pool
-  int newNumRequests = reqs->nreqs + 32;
-  reqs->requests = (struct ncclSocketRequest*)realloc(reqs->requests, newNumRequests*sizeof(struct ncclSocketRequest));
-  for (int i=reqs->nreqs; i<newNumRequests; i++)
-    reqs->requests[i].used = 0;
-  reqs->nreqs = newNumRequests;
-  return ncclSocketGetRequest(reqs);
+  WARN("Socket : unable to allocate requests\n");
+  return ncclInternalError;
 }
 
 int ncclSocketIsend(void* sendComm, void* data, int size, int type, void** request) {
@@ -150,7 +155,8 @@ int ncclSocketIrecv(void* recvComm, void* data, int size, int type, void** reque
     return ncclInternalError;
   }
   NCCLCHECK(socketReceive(comm->fd, data, min(recvSize, size)));
-  struct ncclSocketRequest* recvReq = ncclSocketGetRequest(&comm->reqs);
+  struct ncclSocketRequest* recvReq;
+  NCCLCHECK(ncclSocketGetRequest(&comm->reqs, &recvReq));
   recvReq->size = recvSize;
   *request = recvReq;
   return 0;
