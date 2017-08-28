@@ -380,6 +380,7 @@ ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
       if (done) {
         if (nextBuff) memcpy(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, size);
         head++;
+        if (ptrType == NCCL_PTR_CUDA) ncclNetFlush(resources->netRecvComm, localBuff+slot*sliceSize, size);
         *nextTail = head;
       }
       idle = 0;

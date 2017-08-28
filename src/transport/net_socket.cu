@@ -162,6 +162,11 @@ int ncclSocketIrecv(void* recvComm, void* data, int size, int type, void** reque
   return 0;
 }
 
+int ncclSocketFlush(void* recvComm, void* data, int size) {
+  // We don't support CUDA pointers, we don't need a flush.
+  return 1;
+}
+
 int ncclSocketTest(void* request, int* done, int* size) {
   *done = 1;
   struct ncclSocketRequest *r = (struct ncclSocketRequest*)request;
@@ -191,6 +196,7 @@ ncclNet_t ncclNetSocket = {
   ncclSocketAccept,
   ncclSocketIsend,
   ncclSocketIrecv,
+  ncclSocketFlush,
   ncclSocketTest,
   ncclSocketClose,
   ncclSocketClose,

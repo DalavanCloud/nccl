@@ -29,6 +29,7 @@ static ncclResult_t ncclNetConnect(int dev, void* handle, void** sendComm) { NET
 static ncclResult_t ncclNetAccept(void* listenComm, void** recvComm) { NETCHECK(ncclNet->accept(listenComm, recvComm)); return ncclSuccess; }
 static ncclResult_t ncclNetIsend(void* sendComm, void* data, int size, int type, void** request) { NETCHECK(ncclNet->isend(sendComm, data, size, type, request)); return ncclSuccess; }
 static ncclResult_t ncclNetIrecv(void* recvComm, void* data, int size, int type, void** request) { NETCHECK(ncclNet->irecv(recvComm, data, size, type, request)); return ncclSuccess; }
+static ncclResult_t ncclNetFlush(void* recvComm, void* data, int size) { NETCHECK(ncclNet->flush(recvComm, data, size)); return ncclSuccess; }
 static ncclResult_t ncclNetTest(void* request, int* done, int* size) { NETCHECK(ncclNet->test(request, done, size)); return ncclSuccess; }
 
 // Additional sync functions based on async + test for bootstrap, using host ptrs.

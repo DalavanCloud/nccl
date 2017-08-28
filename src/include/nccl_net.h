@@ -46,6 +46,9 @@ typedef struct {
   int (*isend)(void* sendComm, void* data, int size, int type, void** request);
   // Asynchronous recv from a peer. Type is either NCCL_PTR_HOST or NCCL_PTR_CUDA.
   int (*irecv)(void* recvComm, void* data, int size, int type, void** request);
+  // Perform a flush/fence to make sure all data received with NCCL_PTR_CUDA is
+  // visible to the GPU
+  int (*flush)(void* recvComm, void* data, int size);
   // Test whether a request is complete and return the size received (can be less than requested).
   int (*test)(void* request, int* done, int* size);
   // Close and free send/recv comm objects

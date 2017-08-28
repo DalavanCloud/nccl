@@ -242,10 +242,8 @@ struct ncclIbRequest {
   int type;
   struct ncclIbVerbs* verbs;
   struct ncclIbMr * ibMr;
-  void * flushDataPtr;
   int done;
   int size;
-  void* comm;
 };
 
 struct ncclIbListenComm {
@@ -511,9 +509,8 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
   return 0;
 }
 
-ncclResult_t ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbVerbs* verbs, struct ncclIbRequest** req) {
+ncclResult_t ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbRequest** req) {
   if (reqs->nreqs == 0) {
-    // No free request found, grow the pool
     reqs->requests = (struct ncclIbRequest*)malloc(MAX_REQUESTS*sizeof(struct ncclIbRequest));
     memset(reqs->requests, 0, MAX_REQUESTS*sizeof(struct ncclIbRequest));
     reqs->nreqs = MAX_REQUESTS;
@@ -522,10 +519,11 @@ ncclResult_t ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbVerbs* verbs
     struct ncclIbRequest* r = reqs->requests+i;
     if (r->used == 0) {
       r->used = 1;
+      r->type = 0;
+      r->verbs = NULL;
       r->ibMr = NULL;
       r->done = 0;
-      r->size = 0;
-      r->verbs = verbs;
+      r->size = -1;
       *req = r;
       return ncclSuccess;
     }
@@ -614,11 +612,10 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
   NCCLCHECK(ncclSendCheck(comm));
 
   struct ncclIbRequest* req;
-  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &comm->verbs, &req));
-  req->done = 0;
-  req->size = size;
-  req->verbs = &comm->verbs;
+  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &req));
   req->type = type;
+  req->verbs = &comm->verbs;
+  req->size = size;
 
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
@@ -628,7 +625,6 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
   if (size == 0) {
     wr.sg_list = NULL;
     wr.num_sge = 0;
-    req->ibMr = NULL;
   } else {
     NCCLCHECK(ncclIbGetMr(&comm->verbs, data, size, &req->ibMr));
     sge.addr=(uintptr_t)data; sge.length=(unsigned int)size; sge.lkey=req->ibMr->mr->lkey;
@@ -648,7 +644,8 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 
   // Wait for receiver to have posted the recv
   volatile struct ncclIbSendFifo* slot = comm->fifo + (comm->fifoHead%MAX_REQUESTS);
-  while (slot->ready == 0) sched_yield(); /*XXX:if commented, ibv_post_send in ncclIbPostFifo should also be commented*/
+  volatile int * readyPtr = &slot->ready;
+  while (*readyPtr == 0) sched_yield(); /*XXX:if commented, ibv_post_send in ncclIbPostFifo should also be commented*/
 #ifdef USE_RDMA_WRITE
   wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
   wr.wr.rdma.remote_addr = slot->addr;
@@ -669,7 +666,8 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
   struct ncclIbRequest* req;
-  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &comm->verbs, &req));
+  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &req));
+  req->verbs = &comm->verbs;
   wr.wr_id = (uint64_t)req;
 
   comm->remFifo.elem.addr = addr;
@@ -695,8 +693,8 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   comm->verbs.numRequests++;
   comm->remFifo.tail++;
   
-  while (req->done == 0) {
-    int done;
+  int done = 0;
+  while (done == 0) {
     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
   }
   
@@ -705,15 +703,13 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
 
 int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) {
   struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
-  struct ncclIbRequest* req;
-  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &comm->verbs, &req));
   NCCLCHECK(ncclRecvCheck(comm));
-  req->done = 0;
-  req->size = size;
-  req->verbs = &comm->verbs;
+
+  struct ncclIbRequest* req;
+  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &req));
   req->type = type;
-  req->comm = comm;
-  req->flushDataPtr = (size > 0 && type == NCCL_PTR_CUDA) ? data : NULL;
+  req->verbs = &comm->verbs;
+  req->size = size;
 
   struct ibv_recv_wr wr;
   memset(&wr, 0, sizeof(wr));
@@ -749,17 +745,20 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
   return ncclSuccess;
 }
 
-ncclResult_t ncclIbFlush(struct ncclIbRequest* req) {
-  struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)req->comm;
+int ncclIbFlush(void* recvComm, void* data, int size) {
+  struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
   if (comm->gpuFlush.enabled == 0) return ncclSuccess;
+
+  struct ncclIbRequest* req;
+  NCCLCHECK(ncclIbGetRequest(&comm->reqs, &req));
+  req->verbs = &comm->verbs;
+  NCCLCHECK(ncclIbGetMr(&comm->verbs, data, size, &req->ibMr));
 
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
   wr.wr_id = (uint64_t)req;
 
-  req->ibMr->refcnt++; // Will be decremented during ncclIbTest() call below
-
-  wr.wr.rdma.remote_addr = (uint64_t)req->flushDataPtr;
+  wr.wr.rdma.remote_addr = (uint64_t)data;
   wr.wr.rdma.rkey = req->ibMr->mr->rkey;
   wr.sg_list = &comm->gpuFlush.sge;
   wr.num_sge = 1;
@@ -768,8 +767,8 @@ ncclResult_t ncclIbFlush(struct ncclIbRequest* req) {
 
   // Wait for WR to be available in the RQ
   while (comm->verbs.numRequests == MAX_REQUESTS) { 
-     int done = 0;
-     /* This request is not even posted, but that should make the CQ progress */
+     int done;
+     /* make the CQ progress */
      NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
      if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
   }
@@ -778,11 +777,11 @@ ncclResult_t ncclIbFlush(struct ncclIbRequest* req) {
   NCCLCHECK(wrap_ibv_post_send(comm->gpuFlush.qp, &wr, &bad_wr));
   comm->verbs.numRequests++;
 
-  while (req->done == 0) {
-    int done;
+  int done = 0;
+  while (done == 0) {
     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
   }
-  
+
   return ncclSuccess;
 }
 
@@ -804,11 +803,9 @@ int ncclIbTest(void* request, int* done, int* size) {
       if (doneReq) {
         if (wc.opcode == IBV_WC_RECV) {
           doneReq->size = wc.byte_len;
-          if (doneReq->flushDataPtr != NULL) NCCLCHECK(ncclIbFlush(doneReq));
 #ifdef USE_RDMA_WRITE
         } else if (wc.opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
           doneReq->size = wc.imm_data;
-          if (doneReq->flushDataPtr != NULL) NCCLCHECK(ncclIbFlush(doneReq));
 #endif
         }
         if (doneReq->ibMr != NULL) {
@@ -889,6 +886,7 @@ ncclNet_t ncclNetIb = {
   ncclIbAccept,
   ncclIbIsend,
   ncclIbIrecv,
+  ncclIbFlush,
   ncclIbTest,
   ncclIbCloseSend,
   ncclIbCloseRecv,
