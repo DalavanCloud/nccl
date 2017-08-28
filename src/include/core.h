@@ -54,6 +54,7 @@ struct ncclConnector {
 
 #define CACHE_LINE_SIZE 128
 #define PAGE_SIZE 4096
+#define SIZES_FIFO_SIZE 32
 
 struct ncclSendRecvMem {
   union {
@@ -66,7 +67,7 @@ struct ncclSendRecvMem {
       char pad3[CACHE_LINE_SIZE-sizeof(int)];
       int opCount;
       char pad4[CACHE_LINE_SIZE-sizeof(int)];
-      int sizesFifo[TRANSPORT_PROXY_FIFO_SIZE];
+      int sizesFifo[SIZES_FIFO_SIZE];
     };
     char pad5[PAGE_SIZE];
   };
