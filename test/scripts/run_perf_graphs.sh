@@ -85,8 +85,8 @@ if [ "$mode" == "latency" ] || [ "$mode" == "combo" ]; then
   path=$resdir/$gpumodel
   mkdir -p $path
   result=$path/$op.$ngpus
-  $srun_cmd test/perf/${op}_perf -t $ngpus -b 32 -e 1K -f 2 -w 20 -n 20 2>&1 | tee $result.out
-  $srun_cmd test/perf/${op}_perf -g $ngpus -b 2K -e 64K -f 2 -w 20 -n 20 2>&1 | tee -a $result.out
+  $srun_cmd test/perf/${op}_perf -t $ngpus -b 32 -e 1K -f 2 -w 20 -n 1000 2>&1 | tee $result.out
+  $srun_cmd test/perf/${op}_perf -g $ngpus -b 2K -e 64K -f 2 -w 20 -n 500 2>&1 | tee -a $result.out
   if [ "$mode" != "combo" ]; then
     return 0
   fi
