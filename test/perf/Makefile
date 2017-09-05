@@ -17,10 +17,10 @@ SRC_FILES := $(wildcard *.cu)
 OBJ_FILES := $(SRC_FILES:%.cu=${DST_DIR}/%.o)
 BIN_FILES_LIST := all_reduce all_gather broadcast reduce_scatter reduce
 BIN_FILES := $(BIN_FILES_LIST:%=${DST_DIR}/%_perf)
-ifeq ($(MPI), 1)
+#ifeq ($(MPI), 1)
 #This is broken anyway -- disable it
 #BIN_FILES += $(BIN_FILES_LIST:%=${DST_DIR}/%_perf_mpi_transport)
-endif
+#endif
 DEP_FILES := $(OBJ_FILES:%.o=%.dep)
 
 all: ${BIN_FILES}
@@ -42,10 +42,10 @@ ${DST_DIR}/%.o: %.cu
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) -c $<
 
-${DST_DIR}/common_mpi.o:common.cu
-	@printf "Compiling  %-35s > %s\n" $< $@
-	@mkdir -p ${DST_DIR}
-	$(NVCC) -DMPI_TRANSPORT -o $@ $(NVCUFLAGS) -c $<
+#${DST_DIR}/common_mpi.o:common.cu
+#	@printf "Compiling  %-35s > %s\n" $< $@
+#	@mkdir -p ${DST_DIR}
+#	$(NVCC) -DMPI_TRANSPORT -o $@ $(NVCUFLAGS) -c $<
 
 ${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
 	@printf "Compiling   %-35s > %s\n" $< $@
@@ -57,8 +57,8 @@ ${DST_DIR}/%_perf:${DST_DIR}/%.o ${DST_DIR}/common.o
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
 
-${DST_DIR}/%_perf_mpi_transport: ${DST_DIR}/%.o ${DST_DIR}/common_mpi.o ${DST_DIR}/nccl_mpi.o
-	@printf "Linking  %-35s > %s\n" $< $@
-	@mkdir -p ${DST_DIR}
-	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
+#${DST_DIR}/%_perf_mpi_transport: ${DST_DIR}/%.o ${DST_DIR}/common_mpi.o ${DST_DIR}/nccl_mpi.o
+#	@printf "Linking  %-35s > %s\n" $< $@
+#	@mkdir -p ${DST_DIR}
+#	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
 

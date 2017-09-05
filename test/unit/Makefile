@@ -42,17 +42,17 @@ ${DST_DIR}/%.o:%.cu
 	@mkdir -p ${DST_DIR}
 	$(NVCC) --compile -o $@ $(NVCUFLAGS) $<
 #
-${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
-	@printf "Compiling   %-35s > %s\n" $< $@
-	@mkdir -p ${DST_DIR}
-	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
+#${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
+#	@printf "Compiling   %-35s > %s\n" $< $@
+#	@mkdir -p ${DST_DIR}
+#	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
 #
 ${DST_DIR}/rings_test: ${DST_DIR}/rings_test.o ${LIBOBJS}
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
 #
-${DST_DIR}/ncclNet_test: ${DST_DIR}/ncclNet_test.o ${DST_DIR}/nccl_mpi.o ${LIBOBJS}
+${DST_DIR}/ncclNet_test: ${DST_DIR}/ncclNet_test.o ${LIBOBJS}
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) ${NVLDFLAGS} $^

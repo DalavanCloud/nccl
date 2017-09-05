@@ -165,6 +165,7 @@ out:
   return failed;
 }
 
+#ifdef MPI_TRANSPORT
 extern "C"
 void ncclMpiHook(MPI_Comm comm);
 
@@ -243,8 +244,13 @@ int MPI_tester(ncclNet_t *net, char *data, size_t bytes, size_t *duration, int d
 out:
   return failed;
 }
+#endif
 
-int (*testers[]) (ncclNet_t *, char *, size_t, size_t *, int, int, int, MPI_Comm) = {&Socket_tester, &IB_tester, &MPI_tester};
+int (*testers[]) (ncclNet_t *, char *, size_t, size_t *, int, int, int, MPI_Comm) = {&Socket_tester, &IB_tester,
+#ifdef MPI_TRANSPORT
+  &MPI_tester,
+#endif
+  };
 
 #define MAX_SIZE (32*1024*1024)
 
