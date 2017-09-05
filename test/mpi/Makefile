@@ -16,9 +16,9 @@ SRC_FILES := $(wildcard *.cu)
 OBJ_FILES := $(SRC_FILES:%.cu=${DST_DIR}/%.o)
 BIN_FILES_LIST := mpi_perf all_reduce_scan
 BIN_FILES := $(BIN_FILES_LIST:%=${DST_DIR}/%)
-ifeq ($(MPI), 1)
-BIN_FILES += $(BIN_FILES_LIST:%=${DST_DIR}/%_mpi_transport)
-endif
+#ifeq ($(MPI), 1)
+#BIN_FILES += $(BIN_FILES_LIST:%=${DST_DIR}/%_mpi_transport)
+#endif
 DEP_FILES := $(OBJ_FILES:%.o=%.dep)
 
 all: ${BIN_FILES}
@@ -40,18 +40,18 @@ ${DST_DIR}/%.o: %.cu
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) -c $<
 
-${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
-	@printf "Compiling   %-35s > %s\n" $< $@
-	@mkdir -p ${DST_DIR}
-	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
+#${DST_DIR}/nccl_mpi.o: ../../share/nccl_mpi.c
+#	@printf "Compiling   %-35s > %s\n" $< $@
+#	@mkdir -p ${DST_DIR}
+#	mpicc -std=c99 $(CXXFLAGS) -I$(BUILDDIR)/include/ -o $@ -c $<
 
 ${DST_DIR}/%:${DST_DIR}/%.o
 	@printf "Linking  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
 	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
 
-${DST_DIR}/%_mpi_transport: ${DST_DIR}/%.o ${DST_DIR}/nccl_mpi.o
-	@printf "Linking  %-35s > %s\n" $< $@
-	@mkdir -p ${DST_DIR}
-	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
+#${DST_DIR}/%_mpi_transport: ${DST_DIR}/%.o ${DST_DIR}/nccl_mpi.o
+#	@printf "Linking  %-35s > %s\n" $< $@
+#	@mkdir -p ${DST_DIR}
+#	$(NVCC) -o $@ $(NVCUFLAGS) $^ ${NVLDFLAGS}
 
