@@ -33,6 +33,8 @@ pthread_mutex_t ncclDebugOutputLock;
 int ncclPrintCRCs;
 int ncclChecks;
 
+size_t ncclSingleRingThreshold;
+
 extern "C" __attribute__ ((visibility("default")))
 ncclNet_t* ncclNet = NULL;
 
@@ -348,6 +350,18 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
     comm->nThreads = max(allData[i], comm->nThreads);
   if (rank == 0) INFO("Using %d threads", comm->nThreads);
 
+  // Determine the minimum CUDA Compute capability of all GPUs
+  int myCompCap = ncclCudaCompCap();
+  int minCompCap = myCompCap;
+  allData[rank] = myCompCap;
+  NCCLCHECK(bootstrapAllGather(commState, allData, sizeof(int)));
+  for (int i=0; i<nranks; i++)
+    minCompCap = min(allData[i], minCompCap);
+  if (rank == 0) INFO("Min Comp Cap %d", minCompCap);
+
+  // Query the NCCL_SINGLE_RING_THRESHOLD env var
+  ncclSingleRingThreshold = getRingThreshold(rank, minCompCap);
+
   // Find min nrings across ranks
   allData[rank] = nrings;
   NCCLCHECK(bootstrapAllGather(commState, allData, sizeof(int)));
@@ -481,13 +495,17 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   int nextFinal[nranks*MAXRINGS];
   int nrings = MAXRINGS;
   int nthreads=0;
+  int myCompCap = ncclCudaCompCap();
+  int minCompCap = myCompCap;
   for (int rank=0; rank<nranks; rank++) {
     cudaSetDevice(devs[rank]);
     int nringsRank;
     int nthreadsRank = getDefaultThreads();
+    myCompCap = ncclCudaCompCap();
     NCCLCHECK(ncclGetRings(&nringsRank, &nthreadsRank, rank, nranks, connectTransport, connectValue, prev, next));
     nrings = min(nrings, nringsRank);
     nthreads = max(nthreads, nthreadsRank);
+    minCompCap = min(minCompCap, myCompCap);
     for (int ring=0; ring<nrings; ring++) {
       int index = ring*nranks+rank;
       prevFinal[index] = prev[index];
@@ -496,6 +514,10 @@ static ncclResult_t initTransportsAll(struct ncclComm** comms, const int* devs, 
   }
 
   INFO("Using %d threads", nthreads);
+  INFO("Min Comp Cap %d", minCompCap);
+
+  // Query the NCCL_SINGLE_RING_THRESHOLD env var
+  ncclSingleRingThreshold = getRingThreshold(0, minCompCap);
 
   int rings[nranks*MAXRINGS];
   NCCLCHECK(buildRings(nrings, rings, 0, nranks, prevFinal, nextFinal));

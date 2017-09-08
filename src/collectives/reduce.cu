@@ -44,10 +44,15 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   const int prevRank = ring->devUserRanks[nranks-1];
   const int root = args.root;
 
-  if (rank != root && tid == 0) {
-    // Wait for next to be ready
-    WaitFlag waitOpCountNext(ring->send.conn.opCount, 0);
-    waitOpCountNext.wait(args.opCount);
+  if (tid == 0) {
+    // Update in case we skipped some collectives
+    *ring->recv.conn.opCount = args.opCount;
+
+    if (rank != root) {
+      // Wait for next to be ready
+      WaitFlag waitOpCountNext(ring->send.conn.opCount, 0);
+      waitOpCountNext.wait(args.opCount);
+    }
   }
   __syncthreads();
   

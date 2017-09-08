@@ -657,7 +657,7 @@ void* threadInit(void* args) {
             NCCLCHECK(ncclCommCuDevice(targs->comms[i], &cudaDev));
             NCCLCHECK(ncclCommUserRank(targs->comms[i], &rank));
             CUDACHECK(cudaGetDeviceProperties(&prop, cudaDev));
-            printf("#   Rank %2d on %10s device %2d [0x%02x] %s\n", rank, hostname, cudaDev,
+            printf("#   Rank %2d Pid %6d on %10s device %2d [0x%02x] %s\n", rank, getpid(), hostname, cudaDev,
                 prop.pciBusID, prop.name);
             fflush(stdout);
           }
@@ -925,7 +925,7 @@ int main(int argc, char* argv[]) {
            NCCLCHECK(ncclCommCuDevice(comms[i], &cudaDev));
            NCCLCHECK(ncclCommUserRank(comms[i], &rank));
            CUDACHECK(cudaGetDeviceProperties(&prop, cudaDev));
-           printf("#   Rank %2d on %10s device %2d [0x%02x] %s\n", rank, hostname, cudaDev,
+           printf("#   Rank %2d Pid %6d on %10s device %2d [0x%02x] %s\n", rank, getpid(), hostname, cudaDev,
                prop.pciBusID, prop.name);
            fflush(stdout);
          }

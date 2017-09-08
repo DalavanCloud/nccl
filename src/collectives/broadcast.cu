@@ -47,6 +47,8 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
   const int root = args.root;
 
   if (tid == 0) {
+    // Update in case we skipped some collectives
+    *ring->recv.conn.opCount = args.opCount;
     if (nextRank != root) {
       // Wait for next to be ready
       WaitFlag waitOpCountNext(ring->send.conn.opCount, 0);

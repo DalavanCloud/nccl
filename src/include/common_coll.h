@@ -81,7 +81,7 @@ void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
   args->ThisInput = (const T*)sendbuff;
   args->ThisOutput = (T*)recvbuff;
   args->comm = comm->devComm;
-  args->nRings = comm->nRings;
+  args->nRings = LIMIT_NRINGS(count*sizeof(T), comm->nRings);
   args->opCount = comm->opCount;
   comm->opCount++;
 }

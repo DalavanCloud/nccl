@@ -14,7 +14,12 @@
 #include <cuda_runtime.h>
 
 #define MAXRINGS 12
-#define DEFAULT_BUFFER_SIZE_BYTES (1UL << 22)
+#define DEFAULT_BUFFER_SIZE_BYTES (1UL << 22) /* 4MiB */
+
+#define DEFAULT_SINGLE_RING_THRESHOLD (1UL << 17) /* 128KiB - but 256KiB for Volta */
+
+extern size_t ncclSingleRingThreshold;
+#define LIMIT_NRINGS(SIZE, NRINGS) ((SIZE) <= ncclSingleRingThreshold ? 1 : (NRINGS))
 
 struct ncclConnInfo {
   char *buff;         // Local for recv, remote for send

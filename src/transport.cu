@@ -95,7 +95,8 @@ static void StartProxy(int type, int substeps, int nsteps, int opCount, struct n
 }
 
 ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, size_t size, int pattern, struct ncclComm* comm) {
-  for (int r=0; r<comm->nRings; r++) {
+  int nrings = LIMIT_NRINGS(size, comm->nRings);
+  for (int r=0; r<nrings; r++) {
     int nrounds = (int)(DIVUP(size, comm->nRings * nblocks_per_round * (comm->rings[r].buffSize/subchunks)));
     int nsteps = nsteps_per_round * nrounds * substeps;
     StartProxy(0, substeps*subchunks, nsteps, comm->opCount, comm->rings+r, pattern, comm->nRanks);

@@ -43,6 +43,8 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   const int sliceSize = buffSize / NUM_BUFCHUNKS;
 
   if (tid == 0) {
+    // Update in case we skipped some collectives
+    *ring->recv.conn.opCount = args.opCount;
     // Wait for next to be ready
     WaitFlag waitOpCountNext(ring->send.conn.opCount, 0);
     waitOpCountNext.wait(args.opCount);
