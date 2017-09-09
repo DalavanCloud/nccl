@@ -10,7 +10,7 @@ op=$6
 
 resdir="results_multinode"
 
-timeout=3
+timeout=2
 extra="-c 0 "
 
 mkdir -p $resdir/$gpumodel/
@@ -20,7 +20,10 @@ result=$resdir/$gpumodel/$op.$nproc.$nthread.$ngpus
 nperslot=$(expr $nthread \* $ngpus)
 
 if [ "$SLURM" == "1" ]; then
-  salloc_cmd="salloc -p $gpumodel -N $nnode -n $nproc -c $nperslot -t ${timeout} --exclusive "
+  if [ "$gpumodel" == "dgx1" ]; then
+    req_hosts="-w dgx1-prd-02,dgx1-prd-03"
+  fi
+  salloc_cmd="salloc -p $gpumodel $req_hosts -N $nnode -n $nproc -c $nperslot -t ${timeout} --exclusive "
 else
   mpi_hosts="-host $gpumodel -oversubscribe "
   if [ "$MPI_HOME" == "" ]; then
