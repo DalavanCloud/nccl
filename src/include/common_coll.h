@@ -67,7 +67,6 @@ void ArgsSetup(const T* sendbuff, T* recvbuff,
   args->ThisOutput = recvbuff;
   args->comm = comm->devComm;
   args->opCount = comm->opCount;
-  comm->opCount++;
 }
 
 #define SAVE_KERNEL(K, comm, UNROLL, FUNC, T, stream) do { \

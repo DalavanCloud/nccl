@@ -156,6 +156,7 @@ ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const size_t co
     NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm));
     ArgsSetup(sendbuff, recvbuff, root, count, comm);
     SAVE_KERNEL(BroadcastKernel, comm, UNROLL, FUNC, T, stream);
+    comm->opCount++;
   }
 
   return ncclSuccess;

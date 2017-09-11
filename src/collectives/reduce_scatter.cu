@@ -137,6 +137,7 @@ ncclResult_t RingReduceScatter(const void* sendbuff, void* recvbuff,
     NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
     ArgsSetup(sendbuff, recvbuff, 0, count, comm);
     SAVE_KERNEL(ReduceScatterKernel, comm, UNROLL, FUNC, T, stream);
+    comm->opCount++;
   }
 
   return ncclSuccess;

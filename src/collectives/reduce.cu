@@ -121,9 +121,11 @@ ncclResult_t RingReduce(const void* sendbuff, void* recvbuff, const size_t count
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
+<<<<<<< HEAD
     NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternTo(root), comm));
     ArgsSetup(sendbuff, recvbuff, root, count, comm);
     SAVE_KERNEL(ReduceKernel, comm, UNROLL, FUNC, T, stream);
+    comm->opCount++;
   }
 
   return ncclSuccess;
