@@ -147,10 +147,14 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   return ncclSuccess;
 }
 
+// Pre-process the string so that running "strings" on the lib can quickly reveal the version.
+#define STR2(v) #v
+#define STR(v) STR2(v)
 static void showVersion() {
   static int shown = 0;
   if (shown == 0 && ncclDebugLevel >= VERSION) {
-    printf("NCCL %d.%d.%d / CUDA %d.%d\n", NCCL_MAJOR, NCCL_MINOR, NCCL_PATCH, CUDA_MAJOR, CUDA_MINOR);
+    printf("NCCL " STR(NCCL_MAJOR) "." STR(NCCL_MINOR) "." STR(NCCL_PATCH)
+           " / CUDA " STR(CUDA_MAJOR) "." STR(CUDA_MINOR) "\n");
     fflush(stdout);
     shown = 1;
   }
