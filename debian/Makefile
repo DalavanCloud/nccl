@@ -9,7 +9,7 @@ DEBGEN     := $(DEBGEN_IN:.in=)
 DEBFILES   := compat copyright libnccl-dev.install libnccl-dev.docs libnccl2.docs rules $(DEBGEN)
 DEBTARGETS := $(patsubst %, $(DEBIANDIR)/%, $(DEBFILES))
 
-PKG_REVISION   ?= 2
+PKG_REVISION   ?= 3
 PKG_TIMESTAMP  := $(shell date -R)
 PKG_ARCH       ?= amd64
 PKG_MULTIARCH  ?= $(shell gcc -print-multiarch)
