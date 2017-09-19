@@ -101,6 +101,7 @@ ncclResult_t shmGetRings(int nranks, int* groups, int* subgroups, int* values, i
   int starts[nGroups];
   int ends[nGroups];
   for (int ring = 0; ring<*nringsRet; ring++) {
+    int startGroup = -1, endGroup = -1;
     for (int group = 0; group<nGroups; group++) {
       int start = -1;
       int end = -1;
@@ -108,17 +109,19 @@ ncclResult_t shmGetRings(int nranks, int* groups, int* subgroups, int* values, i
       for (int rank=0; rank<nranks; rank++) {
         if (groups[rank] != group) continue;
         nranksInGroup++;
-        if (prev[rank] != -1) {
+        if (prev[ring*nranks+rank] != -1) {
           if (start != -1) {
             WARN("Multiple starts found in group");
           }
           start = rank;
+          startGroup = group;
         }
-        if (next[rank] != -1) {
+        if (next[ring*nranks+rank] != -1) {
           if (end != -1) {
             WARN("Multiple ends found in group");
           }
           end = rank;
+          endGroup = group;
         }
       }
       if (nranksInGroup == 1) {
@@ -136,11 +139,24 @@ ncclResult_t shmGetRings(int nranks, int* groups, int* subgroups, int* values, i
       starts[group] = start;
       ends[group] = end;
     }
-    for (int group = 0; group<nGroups; group++) {
+    if (endGroup == -1 || startGroup == -1) {
+      startGroup = 0;
+      endGroup = nGroups-1;
+      // Close the loop
+      next[ring*nranks+ends[endGroup]] = starts[startGroup];
+      prev[ring*nranks+starts[startGroup]] = ends[endGroup];
+    }
+    int group = startGroup;
+    for (int i=0; i<nGroups-2; i++) {
       int nextGroup = (group+1)%nGroups;
+      if (nextGroup == endGroup) nextGroup = (nextGroup+1)%nGroups;
       next[ring*nranks+ends[group]] = starts[nextGroup];
       prev[ring*nranks+starts[nextGroup]] = ends[group];
+      group = nextGroup;
     }
+    // Connect with the last
+    next[ring*nranks+ends[group]] = starts[endGroup];
+    prev[ring*nranks+starts[endGroup]] = ends[group];
   }
   return ncclSuccess;
 }
