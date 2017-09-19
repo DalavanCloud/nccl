@@ -38,8 +38,8 @@ struct shmSendResources {
   struct ncclSendRecvMem* remHostMem;
   struct ncclSendRecvMem* devRemHostMem;
   int shmSize;
-  int* hostMem;
-  int* devHostMem;
+  struct ncclSendRecvMem* hostMem;
+  struct ncclSendRecvMem* devHostMem;
 };
 
 #define MAXSTEPS 8
@@ -156,7 +156,7 @@ ncclResult_t shmSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
   struct shmRecvConnectInfo info;
   char shmName[1024];
   sprintf(shmName, "nccl-shm-send-%d-%d-%d", myInfo->pid, ring->id, myInfo->rank);
-  info.shmSize = resources->shmSize = sizeof(int);
+  info.shmSize = resources->shmSize = sizeof(struct ncclSendRecvMem);
   NCCLCHECK(shmOpen(shmName, resources->shmSize, (void**)&resources->hostMem, (void**)&resources->devHostMem, 1));
   
   INFO("%d -> %d via direct shared memory", myInfo->rank, peerInfo->rank);
