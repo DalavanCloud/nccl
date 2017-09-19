@@ -29,7 +29,7 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   struct ncclComm* comm = args.comm;
   struct ncclRing* ring = comm->rings+bid;
 
-  WaitFlag waitDoneFromNext(ring->send.conn.head, (1-NUM_BUFCHUNKS)*NUM_SUBSTEPS);
+  WaitFlag waitDoneFromNext(ring->send.conn.head, (NUM_BUFCHUNKS-1)*NUM_SUBSTEPS);
   WaitFlag waitReadyFromPrev(ring->recv.conn.tail, 0);
   PostFlag postDoneToPrev(ring->recv.conn.head, 0, NULL, 0);
   PostFlag postReadyToNext(ring->send.conn.tail, 0, ring->send.conn.fifo, NUM_BUFCHUNKS*NUM_SUBSTEPS);

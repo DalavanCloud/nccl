@@ -30,9 +30,9 @@ __global__ void ReduceScatterKernel(const KernelArgs<T> args) {
   struct ncclComm* comm = args.comm;
   struct ncclRing* ring = comm->rings+bid;
 
-  WaitFlag waitDoneFromNext(ring->send.conn.head, -NUM_BUFCHUNKS*NUM_SUBSTEPS);
-  WaitFlag waitReadyFromPrev(ring->recv.conn.tail, -1*NUM_SUBSTEPS);
-  PostFlag postDoneToPrev(ring->recv.conn.head, -1*NUM_SUBSTEPS, NULL, 0);
+  WaitFlag waitDoneFromNext(ring->send.conn.head, NUM_BUFCHUNKS*NUM_SUBSTEPS);
+  WaitFlag waitReadyFromPrev(ring->recv.conn.tail, NUM_SUBSTEPS);
+  PostFlag postDoneToPrev(ring->recv.conn.head, NUM_SUBSTEPS, NULL, 0);
   PostFlag postReadyToNext(ring->send.conn.tail, 0, ring->send.conn.fifo, NUM_BUFCHUNKS*NUM_SUBSTEPS);
 
   typedef Primitives<THREADS, UNROLL, NUM_SUBSTEPS, T, FUNC> Prims;
