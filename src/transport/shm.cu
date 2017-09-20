@@ -217,7 +217,7 @@ ncclResult_t shmSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   send->conn.buff = resources->devRemHostMem->buff;
   send->conn.tail = &resources->devRemHostMem->tail;
   send->conn.opCount = &resources->devRemHostMem->opCount;
-  send->conn.head = resources->devHostMem;
+  send->conn.head = &resources->devHostMem->head;
   return ncclSuccess;
 }
 
