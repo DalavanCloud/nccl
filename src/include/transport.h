@@ -30,7 +30,7 @@ struct ncclProxyArgs {
   struct ncclRing* ring;
   int substeps;
   int nsteps;
-  int opCount;
+  uint64_t opCount;
 };
 
 struct ncclTransportComm {

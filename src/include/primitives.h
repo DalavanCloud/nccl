@@ -29,28 +29,28 @@
 
 
 class WaitFlag {
-  volatile int * const flag;
+  volatile uint64_t * const flag;
   const int shift;
   public:
   __device__ __forceinline__
-  WaitFlag(volatile int * const flag, const int shift) : flag(flag), shift(shift) { }
+  WaitFlag(volatile uint64_t * const flag, const int shift) : flag(flag), shift(shift) { }
   __device__ __forceinline__
-  void wait(int val) { while ((*flag + shift) < val) /*SPIN*/; }
+  void wait(uint64_t val) { while ((*flag + shift) < val) /*SPIN*/; }
 };
 
 
 class PostFlag {
-  volatile int * const flag;
+  volatile uint64_t * const flag;
   const int shift;
   volatile int * const fifo;
   const int fifo_size;
   public:
   __device__ __forceinline__
-  PostFlag(volatile int* const flag, const int shift, volatile int* const fifo, const int fifo_size) : flag(flag), shift(shift), fifo(fifo), fifo_size(fifo_size) { }
+  PostFlag(volatile uint64_t* const flag, const int shift, volatile int* const fifo, const int fifo_size) : flag(flag), shift(shift), fifo(fifo), fifo_size(fifo_size) { }
   __device__ __forceinline__
-  void post(int val) { *flag = (val - shift); }
+  void post(uint64_t val) { *flag = (val - shift); }
   __device__ __forceinline__
-  void postSize(int step, int size) { if (fifo != NULL) fifo[step%fifo_size] = size; };
+  void postSize(uint64_t step, int size) { if (fifo != NULL) fifo[step%fifo_size] = size; };
 };
 
 
@@ -68,31 +68,31 @@ bool AnyAre(FIRST_T first, TAIL_Ts... tail) {
 
 // Wait on all WaitFlags, ignore PostFlags
 __device__ __forceinline__
-void WaitOnFlags(int val) { }
+void WaitOnFlags(uint64_t val) { }
 
 template <typename... TAIL_Ts> __device__ __forceinline__
-void WaitOnFlags(int val, WaitFlag flag, TAIL_Ts... tail) {
+void WaitOnFlags(uint64_t val, WaitFlag flag, TAIL_Ts... tail) {
   flag.wait(val);
   WaitOnFlags(val, tail...);
 }
 
 template <typename... TAIL_Ts> __device__ __forceinline__
-void WaitOnFlags(int val, PostFlag, TAIL_Ts... tail) {
+void WaitOnFlags(uint64_t val, PostFlag, TAIL_Ts... tail) {
   WaitOnFlags(val, tail...);
 }
 
 
 // Post all PostFlags, ignore WaitFlags
 __device__ __forceinline__
-void PostToFlags(int val) { }
+void PostToFlags(uint64_t val) { }
 
 template <typename... TAIL_Ts> __device__ __forceinline__
-void PostToFlags(int val, WaitFlag flag, TAIL_Ts... tail) {
+void PostToFlags(uint64_t val, WaitFlag flag, TAIL_Ts... tail) {
   PostToFlags(val, tail...);
 }
 
 template <typename... TAIL_Ts> __device__ __forceinline__
-void PostToFlags(int val, PostFlag flag, TAIL_Ts... tail) {
+void PostToFlags(uint64_t val, PostFlag flag, TAIL_Ts... tail) {
   flag.post(val);
   PostToFlags(val, tail...);
 }
@@ -100,15 +100,15 @@ void PostToFlags(int val, PostFlag flag, TAIL_Ts... tail) {
 
 // Post sizes for PostFlags, ignore WaitFlags
 __device__ __forceinline__
-void PostSizeToFlags(int step, int size) { }
+void PostSizeToFlags(uint64_t step, int size) { }
 
 template <typename... TAIL_Ts> __device__ __forceinline__
-void PostSizeToFlags(int step, int size, WaitFlag flag, TAIL_Ts... tail) {
+void PostSizeToFlags(uint64_t step, int size, WaitFlag flag, TAIL_Ts... tail) {
   PostSizeToFlags(step, size, tail...);
 }
 
 template <typename... TAIL_Ts> __device__ __forceinline__
-void PostSizeToFlags(int step, int size, PostFlag flag, TAIL_Ts... tail) {
+void PostSizeToFlags(uint64_t step, int size, PostFlag flag, TAIL_Ts... tail) {
   flag.postSize(step, size);
   PostSizeToFlags(step, size, tail...);
 }
@@ -138,7 +138,7 @@ class Primitives {
             const SRC2_T src2,
                   T*     dst1,
                   DST2_T dst2,
-            int len, int maxoffset, int step, SYNC_Ts... flags) {
+            int len, int maxoffset, uint64_t step, SYNC_Ts... flags) {
 
     enum { noSrc2 = std::is_same<SRC2_T, nullptr_t>::value };
     enum { noDst2 = std::is_same<DST2_T, nullptr_t>::value };
@@ -198,28 +198,28 @@ class Primitives {
   template <typename... SYNC_Ts>
   static __device__ __forceinline__ void
   Copy(const T* src, T* dst,
-      int len, int maxOffset, int step, SYNC_Ts... flags) {
+      int len, int maxOffset, uint64_t step, SYNC_Ts... flags) {
     GenericOp(src, nullptr, dst, nullptr, len, maxOffset, step, flags...);
   }
 
   template <typename... SYNC_Ts>
   static __device__ __forceinline__ void
   DoubleCopy(const T* src, T* dst1, T* dst2,
-      int len, int maxOffset, int step, SYNC_Ts... flags) {
+      int len, int maxOffset, uint64_t step, SYNC_Ts... flags) {
     GenericOp(src, nullptr, dst1, dst2, len, maxOffset, step, flags...);
   }
 
   template <typename... SYNC_Ts>
   static __device__ __forceinline__ void
   Reduce(const T* src1, const T* src2, T* dst,
-      int len, int maxOffset, int step, SYNC_Ts... flags) {
+      int len, int maxOffset, uint64_t step, SYNC_Ts... flags) {
     GenericOp(src1, src2, dst, nullptr, len, maxOffset, step, flags...);
   }
 
   template <typename... SYNC_Ts>
   static __device__ __forceinline__ void
   ReduceCopy(const T* src1, const T* src2, T* dst1, T* dst2,
-      int len, int maxOffset, int step, SYNC_Ts... flags) {
+      int len, int maxOffset, uint64_t step, SYNC_Ts... flags) {
     GenericOp(src1, src2, dst1, dst2, len, maxOffset, step, flags...);
   }
 };

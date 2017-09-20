@@ -63,7 +63,7 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   }
   __syncthreads();
 
-  int step = 0;
+  uint64_t step = 0ULL;
   int poffset, noffset = 0;
 
   // Compute pointers
@@ -164,8 +164,8 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
 
   if (tid == 0) {
     waitDoneFromNext.wait(NUM_SUBSTEPS*(step + NUM_BUFCHUNKS));
-    *ring->send.conn.head = 0;
-    *ring->recv.conn.tail = 0;
+    *ring->send.conn.head = 0ULL;
+    *ring->recv.conn.tail = 0ULL;
     __threadfence_system();
     *ring->recv.conn.opCount = args.opCount+1;
   }

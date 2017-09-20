@@ -35,9 +35,9 @@ extern size_t ncclSingleRingThreshold;
 
 struct ncclConnInfo {
   char *buff;         // Local for recv, remote for send
-  int *tail;          // Local for recv, remote for send
-  int *head;          // Local for send, remote for recv
-  int *opCount;       // Local for recv, remote for send
+  uint64_t *tail;     // Local for recv, remote for send
+  uint64_t *head;     // Local for send, remote for recv
+  uint64_t *opCount;  // Local for recv, remote for send
 
   int direct;         // Direct communication
   void **ptrExchange; // Pointer exchange for direct communication
@@ -59,14 +59,14 @@ struct ncclConnector {
 struct ncclSendRecvMem {
   union {
     struct {
-      int head;
-      char pad1[CACHE_LINE_SIZE-sizeof(int)];
-      int tail;
-      char pad2[CACHE_LINE_SIZE-sizeof(int)];
+      uint64_t head;
+      char pad1[CACHE_LINE_SIZE-sizeof(uint64_t)];
+      uint64_t tail;
+      char pad2[CACHE_LINE_SIZE-sizeof(uint64_t)];
       void* ptrExchange;
-      char pad3[CACHE_LINE_SIZE-sizeof(int)];
-      int opCount;
-      char pad4[CACHE_LINE_SIZE-sizeof(int)];
+      char pad3[CACHE_LINE_SIZE-sizeof(void*)];
+      uint64_t opCount;
+      char pad4[CACHE_LINE_SIZE-sizeof(uint64_t)];
       int sizesFifo[SIZES_FIFO_SIZE];
     };
     char pad5[PAGE_SIZE];
@@ -103,7 +103,7 @@ struct KernelArgs {
 
   struct ncclComm* comm;
   int nRings;
-  int opCount;
+  uint64_t opCount;
 };
 
 struct ncclProxyParams {
@@ -128,7 +128,7 @@ struct ncclComm {
 
   // Counter to make sure collectives match (needed for bcast/reduce
   // where syncs are not symmetric).
-  int opCount;
+  uint64_t opCount;
 
   // Rings for collectives 
   int nRings;

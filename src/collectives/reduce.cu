@@ -56,7 +56,7 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
   }
   __syncthreads();
   
-  int step = 0;
+  uint64_t step = 0ULL;
   int boffset = 0;
 
   // Compute pointers
@@ -104,9 +104,9 @@ __global__ void ReduceKernel(const KernelArgs<T> args) {
     if (rank != root) { 
       // Wait for next to have consumed data before resetting the flag
       waitDoneFromNext.wait(NUM_SUBSTEPS*(step + NUM_BUFCHUNKS - 1));
-      *ring->send.conn.head = 0;
+      *ring->send.conn.head = 0ULL;
     }
-    *ring->recv.conn.tail = 0;
+    *ring->recv.conn.tail = 0ULL;
     __threadfence_system();
     *ring->recv.conn.opCount = args.opCount+1;
   }
