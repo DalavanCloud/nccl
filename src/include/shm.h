@@ -37,6 +37,9 @@ static ncclResult_t shmOpen(const char* shmname, const int shmsize, void** shmPt
     shm_unlink(shmname);
     return ncclSystemError;
   }
+  if (create) {
+    memset(ptr, 0, shmsize);
+  }
 
   if (cudaHostRegister(ptr, shmsize, cudaHostRegisterMapped) != cudaSuccess) {
     WARN("failed to register host buffer");
