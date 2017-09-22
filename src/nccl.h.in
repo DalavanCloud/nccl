@@ -13,6 +13,7 @@
 #define NCCL_MAJOR ${nccl:Major}
 #define NCCL_MINOR ${nccl:Minor}
 #define NCCL_PATCH ${nccl:Patch}
+#define NCCL_SUFFIX "${nccl:Suffix}"
 
 #ifdef __cplusplus
 extern "C" {

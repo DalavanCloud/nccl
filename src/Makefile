@@ -39,6 +39,7 @@ nccl.h : nccl.h.in
 	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
 	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
 	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
+	    -e "s/\$${nccl:Suffix}/$(NCCL_SUFFIX)/g" \
 	    $< > $@
 
 #$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ) -libverbs

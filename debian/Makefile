@@ -9,7 +9,7 @@ DEBGEN     := $(DEBGEN_IN:.in=)
 DEBFILES   := compat copyright libnccl-dev.install libnccl-dev.docs libnccl2.docs rules $(DEBGEN)
 DEBTARGETS := $(patsubst %, $(DEBIANDIR)/%, $(DEBFILES))
 
-PKG_REVISION   ?= 2
+PKG_REVISION   ?= 1
 PKG_TIMESTAMP  := $(shell date -R)
 PKG_ARCH       ?= amd64
 PKG_MULTIARCH  ?= $(shell gcc -print-multiarch)
@@ -37,6 +37,7 @@ $(DEBIANDIR)/% : %.in
 	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
 	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
 	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
+	    -e "s/\$${nccl:Suffix}/$(NCCL_SUFFIX)/g" \
 	    -e "s/\$${cuda:Major}/$(CUDA_MAJOR)/g" \
 	    -e "s/\$${cuda:Minor}/$(CUDA_MINOR)/g" \
 	    -e "s/\$${pkg:Revision}/$(PKG_REVISION)/g" \
