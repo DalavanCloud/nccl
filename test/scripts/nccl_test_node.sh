@@ -25,6 +25,14 @@ else
   MPI_HOME="${MPI_HOME:-/opt/mpi/openmpi}"
 fi
 
+# MPI Env
+export PATH=$MPI_HOME/bin:$PATH
+if [ "$( which mpirun )" == "" ]; then
+  echo "Cannot find MPI, please specify path using MPI_HOME=/path/to/MPI"
+  exit 1
+fi
+export LD_LIBRARY_PATH=$MPI_HOME/lib:$LD_LIBRARY_PATH
+
 # build
 if [ "$DEBDIR" == "" ] && [ "$INSTALL" != "1" ]; then
   make -j src.build
@@ -51,13 +59,6 @@ if [ "$mode" != "mpi" ] && [ "$mode" != "multinode" ]; then
   fi
 else
   # test (multi processes)
-  export PATH=$MPI_HOME/bin:$PATH
-  if [ "$( which mpirun )" == "" ]; then
-    echo "Cannot find MPI, please specify path using MPI_HOME=/path/to/MPI"
-    exit 1
-  fi
-  export MPI_HOME
-  export LD_LIBRARY_PATH=$MPI_HOME/lib:$LD_LIBRARY_PATH
   cd $NCCLROOT
   make -j test.clean
   if [ "$INSTALL" == "1" ]; then
