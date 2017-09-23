@@ -130,7 +130,7 @@ static void initDevices() {
           if (found == 0) { if (ncclSuccess != wrap_ibv_close_device(context)) { return; } }
         }
       }
-      if (ncclSuccess != wrap_ibv_free_device_list(devices)) { return; };
+      if (nIbDevs && (ncclSuccess != wrap_ibv_free_device_list(devices))) { return; };
     }
 
     char* env = getenv("NCCL_IB_TIMEOUT");
