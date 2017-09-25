@@ -179,7 +179,7 @@ ncclResult_t pncclReduceScatter(const void* sendbuff, void* recvbuff,
  * Assumes recvcount is equal to nranks*sendcount, which means that recvbuff
  * should have a size of at least nranks*sendcount elements.
  *
- * In-place operations will happen if sendbuff == recvbuff + rank * recvcount.
+ * In-place operations will happen if sendbuff == recvbuff + rank * sendcount.
  */
 ncclResult_t  ncclAllGather(const void* sendbuff, void* recvbuff, size_t sendcount,
     ncclDataType_t datatype, ncclComm_t comm, cudaStream_t stream);
