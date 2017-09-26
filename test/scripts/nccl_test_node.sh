@@ -77,7 +77,7 @@ else
   if [ "$gpumodel" == "dgx1" ]; then
     $SHDIR/multinode_perf_graphs.sh dgx1 2 16 8 8
   elif [ "$gpumodel" == "P100" ]; then
-    NCCL_IB_HCA=mlx5_0 $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
+    $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
   else
     echo "No multi-node test on $gpumodel"
   fi
