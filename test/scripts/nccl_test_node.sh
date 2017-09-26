@@ -37,16 +37,22 @@ export LD_LIBRARY_PATH=$MPI_HOME/lib:$LD_LIBRARY_PATH
 if [ "$DEBDIR" == "" ] && [ "$INSTALL" != "1" ]; then
   make -j src.build
   DEBDIR=$BLDDIR
+  export LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH
 fi
 
-if [ "$mode" != "mpi" ] && [ "$mode" != "multinode" ]; then
+if [ "$mode" == "dlfw" ] && [ "$gpumodel" == "P100" ]; then
+  $SHDIR/mxnet.sh $gpumodel
+  $SHDIR/caffe2.sh $gpumodel
+  $SHDIR/tensorflow.sh $gpumodel
+  $SHDIR/pytorch.sh $gpumodel
+  $SHDIR/cntk.sh $gpumodel
+elif [ "$mode" != "mpi" ] && [ "$mode" != "multinode" ]; then
   # test (single process)
   make -j test.clean
   if [ "$INSTALL" == "1" ]; then
     make -j test.build
   else
     make -j test.build NCCLDIR=${DEBDIR}
-    export LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH
   fi
   cd $BLDDIR
   if [ "$mode" == "" ]; then
@@ -65,7 +71,6 @@ else
     make -j test.build MPI=1
   else
     make -j test.build MPI=1 NCCLDIR=${DEBDIR}
-    export LD_LIBRARY_PATH=$DEBDIR/lib:$LD_LIBRARY_PATH
   fi
   cd $BLDDIR
   if [ "$mode" == "mpi" ]; then

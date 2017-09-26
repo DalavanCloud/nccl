@@ -7,7 +7,7 @@ output="$resdir/cntk.txt"
 BENCH_DIR=/home/nightly/install/cntk_tests
 
 for opt in "" "-no-nccl"; do
-  echo -e "\nCNTK$opt : " | tee -a $output
+  echo -n "CNTK$opt : " | tee -a $output
 
   # Environment Variables
   export CNTK_DIR=/home/nightly/install/cntk$opt
@@ -16,6 +16,6 @@ for opt in "" "-no-nccl"; do
 
   NCCL_DISABLE_CHECKS=1 NCCL_DEBUG=WARN salloc -p $gpumodel -n 8 \
     $BENCH_DIR/resnet50_cntk.sh | \
-    tee /dev/stderr | awk '/^ Epoch/ {if (lines++ > 50) sum += $NF} END {print "average = " sum/(lines-1)}' | \
-    grep "average = " | tee -a $output
+    tee /dev/stderr | awk '/^ Epoch/ {if (lines++ > 50) sum += $NF} END {print sum/(lines-1)}' | \
+    tee -a $output
 done
