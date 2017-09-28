@@ -26,6 +26,7 @@ else
 fi
 
 # MPI Env
+export MPI_HOME
 export PATH=$MPI_HOME/bin:$PATH
 if [ "$( which mpirun )" == "" ]; then
   echo "Cannot find MPI, please specify path using MPI_HOME=/path/to/MPI"
