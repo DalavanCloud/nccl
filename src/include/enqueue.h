@@ -34,28 +34,7 @@ ncclResult_t enqueue(const void* sendbuff,
                      ncclComm_t comm,
                      cudaStream_t stream)
 {
-  if (stream != comm->prevStream) { // sync required for calls in different streams
-    comm->prevStream = stream;
-    CUDACHECK(cudaStreamWaitEvent(stream, comm->doneEvent, 0));
-  }
-
-  // print CRC checksum of input
-  if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)sendbuff, count*sizeof(T), comm->rank, stream);
-  }
-
-  ncclResult_t ret;
-  ret = ColFunc<T, Op>::entry(sendbuff, recvbuff, count, root, comm, stream);
-
-  // print CRC checksum of output
-  if (ncclPrintCRCs) {
-    printCRCDev((unsigned char*)recvbuff, count*sizeof(T), comm->rank, stream);
-  }
-  
-  // Always have to record done event because we don't know what stream next
-  // collective will be in.
-  CUDACHECK(cudaEventRecord(comm->doneEvent, stream));
-  return ret;
+  return ColFunc<T, Op>::entry(sendbuff, recvbuff, count, root, comm, stream);
 }
 
 
@@ -123,20 +102,6 @@ ncclResult_t enqueue(const void* sendbuff,
 
 typedef ncclResult_t(*ncclFunc_t)(const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream);
-
-struct asyncThreadArgs {
-  // Ret must be the first argument
-  ncclResult_t ret;
-  ncclFunc_t func;
-  const void* sendbuff;
-  void* recvbuff;
-  size_t count;
-  ncclDataType_t type;
-  ncclRedOp_t op;
-  int root;
-  ncclComm_t comm;
-  cudaStream_t stream;
-};
 
 ncclResult_t ncclEnqueueCheck(ncclFunc_t func, const char* primName, const void* sendbuff, 
     void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root,

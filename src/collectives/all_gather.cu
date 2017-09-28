@@ -180,10 +180,9 @@ ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
-    KernelArgs<T> args;
-    ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
-    LAUNCH_KERNEL(AllGatherKernel, comm->nThreads, UNROLL, FUNC, T, args, stream);
+    NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
+    ArgsSetup(sendbuff, recvbuff, 0, count, comm);
+    SAVE_KERNEL(AllGatherKernel, comm, UNROLL, FUNC, T, stream);
   }
 
   return ncclSuccess;

@@ -890,7 +890,7 @@ int main(int argc, char* argv[]) {
   for (int i=0; i<nGpus*nThreads; i++) {
     CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
     AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, expectedHost+i, (size_t)maxBytes, nProcs*nThreads*nGpus, sameExpected);
-    CUDACHECK(cudaStreamCreate(streams+i));
+    CUDACHECK(cudaStreamCreateWithFlags(streams+i, cudaStreamNonBlocking));
   }
 
   if (procSharedBytes > 0) { 

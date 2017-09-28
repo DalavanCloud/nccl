@@ -94,13 +94,19 @@ static void StartProxy(int type, int substeps, int nsteps, int opCount, struct n
   }
 }
 
-ncclResult_t transportStartProxies(int substeps, int subchunks, int nsteps_per_round, int nblocks_per_round, size_t size, int pattern, struct ncclComm* comm) {
-  int nrings = LIMIT_NRINGS(size, comm->nRings);
+ncclResult_t transportSaveProxies(int substeps, int subchunks, int nstepsPerRound, int nblocksPerRound, size_t size, int pattern, struct ncclComm* comm) {
+  struct ncclProxyParams params = { substeps, subchunks, nstepsPerRound, nblocksPerRound, size, pattern };
+  memcpy(&comm->proxyParams, &params, sizeof(params));
+  return ncclSuccess;
+}
+
+ncclResult_t transportStartProxies(struct ncclProxyParams* p, struct ncclComm* comm) {
+  int nrings = LIMIT_NRINGS(p->size, comm->nRings);
   for (int r=0; r<nrings; r++) {
-    int nrounds = (int)(DIVUP(size, nrings * nblocks_per_round * (comm->rings[r].buffSize/subchunks)));
-    int nsteps = nsteps_per_round * nrounds * substeps;
-    StartProxy(0, substeps*subchunks, nsteps, comm->opCount, comm->rings+r, pattern, comm->nRanks);
-    StartProxy(1, substeps*subchunks, nsteps, comm->opCount, comm->rings+r, pattern, comm->nRanks);
+    int nrounds = (int)(DIVUP(p->size, nrings * p->nblocksPerRound * (comm->rings[r].buffSize/p->subchunks)));
+    int nsteps = p->nstepsPerRound * nrounds * p->substeps;
+    StartProxy(0, p->substeps*p->subchunks, nsteps, comm->opCount, comm->rings+r, p->pattern, comm->nRanks);
+    StartProxy(1, p->substeps*p->subchunks, nsteps, comm->opCount, comm->rings+r, p->pattern, comm->nRanks);
   }
   return ncclSuccess;
 }

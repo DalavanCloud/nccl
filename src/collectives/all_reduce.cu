@@ -213,10 +213,9 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportStartProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm));
-    KernelArgs<T> args;
-    ArgsSetup(&args, sendbuff, recvbuff, 0, count, comm);
-    LAUNCH_KERNEL(AllReduceKernel, comm->nThreads, UNROLL, FUNC, T, args, stream);
+    NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm));
+    ArgsSetup(sendbuff, recvbuff, 0, count, comm);
+    SAVE_KERNEL(AllReduceKernel, comm, UNROLL, FUNC, T, stream);
   }
 
   return ncclSuccess;

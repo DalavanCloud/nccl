@@ -57,57 +57,38 @@ static ncclResult_t ArgsCheck(const void* sendbuff, const void* recvbuff, size_t
   return ncclSuccess;
 }
 
-// Kernel launch
 template<typename T>
-struct KernelArgs {
-  // general parameters
-  int root;
-  size_t N;
-
-  // local and remote input, output, and buffer
-  const T * __restrict__ ThisInput;
-  T * __restrict__ ThisOutput;
-
-  struct ncclComm* comm;
-  int nRings;
-  int opCount;
-};
-
-template<typename T>
-void ArgsSetup(KernelArgs<T> *args, const void* sendbuff, void* recvbuff,
+void ArgsSetup(const T* sendbuff, T* recvbuff,
 		const int root, const size_t count, ncclComm *comm) {
+  struct KernelArgs<void>* args = &comm->args;
   args->root = root;
   args->N = count;
-  args->ThisInput = (const T*)sendbuff;
-  args->ThisOutput = (T*)recvbuff;
+  args->ThisInput = sendbuff;
+  args->ThisOutput = recvbuff;
   args->comm = comm->devComm;
-  args->nRings = LIMIT_NRINGS(count*sizeof(T), comm->nRings);
   args->opCount = comm->opCount;
   comm->opCount++;
 }
 
-#define LAUNCH_KERNEL(K, threads, UNROLL, FUNC, T, \
-		args, stream) do { \
-  dim3 grid(args.nRings, 1, 1); \
-  dim3 block(threads+1, 1, 1); \
-  void* argptrs[] = {&args}; \
+#define SAVE_KERNEL(K, comm, UNROLL, FUNC, T, stream) do { \
+  int nRings = comm->args.nRings = LIMIT_NRINGS(count*sizeof(T), comm->nRings); \
+  dim3 grid(nRings, 1, 1); \
+  dim3 block(comm->nThreads+1, 1, 1); \
+  void* f; \
   /* Generate code for the 3 possible sizes */ \
-  if (threads == 128) { \
-    CUDACHECK(cudaLaunchKernel( \
-          (void*)K<128, UNROLL, FUNC, T>, \
-          grid, block, argptrs, 0, stream)); \
-  } else if (threads == 256) { \
-    CUDACHECK(cudaLaunchKernel( \
-          (void*)K<256, UNROLL, FUNC, T>, \
-          grid, block, argptrs, 0, stream)); \
-  } else if (threads == 512) { \
-    CUDACHECK(cudaLaunchKernel( \
-          (void*)K<512, UNROLL, FUNC, T>, \
-          grid, block, argptrs, 0, stream)); \
+  if (comm->nThreads == 128) { \
+    f=(void*)K<128, UNROLL, FUNC, T>; \
+  } else if (comm->nThreads == 256) { \
+    f=(void*)K<256, UNROLL, FUNC, T>; \
+  } else if (comm->nThreads == 512) { \
+    f=(void*)K<512, UNROLL, FUNC, T>; \
   } else { \
-    WARN("Error : forbidden number of threads %d", threads); \
+    WARN("Error : forbidden number of threads %d", comm->nThreads); \
     return ncclInternalError; \
   } \
+  comm->userStream = stream; \
+  struct cudaLaunchParams params = { f, grid, block, &comm->argsptr, 0, comm->ncclStream }; \
+  memcpy(comm->intraParams+comm->intraRank, &params, sizeof(params)); \
 } while (0)
 
 #endif

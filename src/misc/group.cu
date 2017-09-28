@@ -25,7 +25,6 @@ ncclResult_t ncclAsyncErrCheck(ncclResult_t ret) {
 }
 
 struct ncclInitArgs {
-  // Ret must be the first argument
   ncclInitFunc_t func;
   int cudaDev;
   ncclComm_t* newcomm;
@@ -34,23 +33,9 @@ struct ncclInitArgs {
   int myrank; 
 };
 struct ncclCollArgs {
-  // Ret must be the first argument
-  ncclCollFunc_t func;
-  const void* sendbuff;
-  void* recvbuff;
-  size_t count;
-  ncclDataType_t type;
-  ncclRedOp_t op;
-  int root;
   ncclComm_t comm;
-  cudaStream_t stream;
 };
 
-enum ncclAsyncMode {
-  ASYNC_MODE_UNKNOWN = 0,
-  ASYNC_MODE_SEQ = 1,
-  ASYNC_MODE_THREAD = 2,
-};
 enum ncclAsyncFuncType {
   ASYNC_FUNC_INVALID = 0,
   ASYNC_FUNC_INIT = 1,
@@ -59,7 +44,6 @@ enum ncclAsyncFuncType {
 struct ncclAsyncArgs {
   ncclResult_t ret;
   enum ncclAsyncFuncType funcType;
-  enum ncclAsyncMode mode;
   union {
     ncclCollArgs coll;
     ncclInitArgs init;
@@ -82,16 +66,8 @@ ncclResult_t ncclSetDevice(int cudaDev) {
 
 void* ncclAsyncThreadMain(void* args_) {
   struct ncclAsyncArgs* args = (struct ncclAsyncArgs*)args_;
-  if (args->funcType == ASYNC_FUNC_INIT) {
-    CHECK(ncclSetDevice(args->init.cudaDev));
-    CHECK(args->init.func(args->init.newcomm, args->init.ndev, args->init.commId, args->init.myrank));
-  } else { // Coll
-    assert(args->funcType == ASYNC_FUNC_COLL);
-    CHECK(ncclSetDevice(args->coll.comm->cudaDev));
-    CHECK(ncclCpuBarrierCheckin(args->coll.comm));
-    CHECK(ncclCpuBarrierWait(args->coll.comm));
-    CHECK(args->coll.func(args->coll.sendbuff, args->coll.recvbuff, args->coll.count, args->coll.type, args->coll.op, args->coll.root, args->coll.comm, args->coll.stream));
-  }
+  CHECK(ncclSetDevice(args->init.cudaDev));
+  CHECK(args->init.func(args->init.newcomm, args->init.ndev, args->init.commId, args->init.myrank));
   return args;
 }
 
@@ -110,40 +86,15 @@ ncclResult_t ncclAsyncInit(ncclInitFunc_t func, int cudaDev, ncclComm_t* newcomm
   memcpy(&args->init.commId, &commId, sizeof(commId));
   args->init.myrank = myrank;
   // We need to use threads for Init
-  args->mode = ASYNC_MODE_THREAD;
   pthread_create(ncclGroupThreads+index, NULL, ncclAsyncThreadMain, args);
   return ncclSuccess;
 }
 
-ncclResult_t ncclAsyncColl(ncclCollFunc_t func, const void* sendbuff, void* recvbuff, size_t count, 
-    ncclDataType_t type, ncclRedOp_t op, int root, ncclComm_t comm, cudaStream_t stream) {
+ncclResult_t ncclAsyncColl(ncclComm_t comm) {
   int index = ncclGroupIndex++;
   struct ncclAsyncArgs* args = ncclGroupArgs+index;
   args->funcType = ASYNC_FUNC_COLL;
-  args->coll.func = func;
-  args->coll.sendbuff = sendbuff;
-  args->coll.recvbuff = recvbuff;
-  args->coll.count = count;
-  args->coll.type = type;
-  args->coll.op = op;
-  args->coll.root = root;
   args->coll.comm = comm;
-  args->coll.stream = stream;
-  static enum ncclAsyncMode mode = ASYNC_MODE_UNKNOWN;
-  if (mode == ASYNC_MODE_UNKNOWN) {
-    char* str = getenv("NCCL_ASYNC_MODE");
-    if (str && (strcmp(str, "THREAD") == 0)) {
-      //INFO("Async mode : Thread");
-      mode = ASYNC_MODE_THREAD;
-    } else {
-      //INFO("Async mode : Sequential");
-      mode = ASYNC_MODE_SEQ;
-    }
-  }
-  args->mode = mode;
-  if (mode == ASYNC_MODE_THREAD) {
-    pthread_create(ncclGroupThreads+index, NULL, ncclAsyncThreadMain, args);
-  }
   return ncclSuccess;
 }
 
@@ -165,7 +116,7 @@ ncclResult_t ncclGroupEnd() {
 
   for (int i=0; i<ncclGroupIndex; i++) {
     struct ncclAsyncArgs* args = ncclGroupArgs+i;
-    if (args->mode == ASYNC_MODE_SEQ) {
+    if (args->funcType == ASYNC_FUNC_COLL) {
       NCCLCHECK(ncclCpuBarrierCheckin(args->coll.comm));
     }
   }
@@ -175,16 +126,13 @@ ncclResult_t ncclGroupEnd() {
     for (int i=0; i<ncclGroupIndex; i++) {
       struct ncclAsyncArgs* args = ncclGroupArgs+i;
       if (doneArray[i] == 1) continue;
-      if (args->mode == ASYNC_MODE_THREAD) {
+      if (args->funcType == ASYNC_FUNC_INIT) {
         int err = pthread_tryjoin_np(ncclGroupThreads[i], NULL);
         if (err == EBUSY) continue;
         if (err != 0) return ncclSystemError;
-      } else { // ASYNC_MODE_SEQ
-        // Only for Collectives
-        assert(args->funcType == ASYNC_FUNC_COLL);
+      } else { // ASYNC_FUNC_COLL
         CUDACHECK(cudaSetDevice(args->coll.comm->cudaDev));
         NCCLCHECK(ncclCpuBarrierWait(args->coll.comm));
-        args->ret = args->coll.func(args->coll.sendbuff, args->coll.recvbuff, args->coll.count, args->coll.type, args->coll.op, args->coll.root, args->coll.comm, args->coll.stream);
       }
       if (args->ret != ncclSuccess) { ret = args->ret; goto end; }
       doneArray[i] = 1;
@@ -198,5 +146,3 @@ end:
   ncclGroupMode = false;
   return ret;
 }
-
-

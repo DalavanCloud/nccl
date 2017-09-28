@@ -131,6 +131,8 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
   cudaGetDevice(&comm->cudaDev);
   comm->doneEvent = doneEvent;
 
+  comm->argsptr = &comm->args;
+
   *comret = comm;
   return ncclSuccess;
 }
@@ -322,6 +324,59 @@ static ncclResult_t buildRings(int nrings, int* rings, int rank, int nranks, int
   return ncclSuccess;
 }
 
+void* waitForNonNullPtr(void* p) {
+  volatile void** ptr = (volatile void**) p;
+  while (*ptr == NULL) sched_yield();
+  return (void*)*ptr;
+}
+
+// Allocate/Set Intra Structures and set CG options
+ncclResult_t ncclCommSetIntra(struct ncclComm* comm, int rank, int ranks, struct ncclComm* comm0) {
+  comm->intraRank = rank;
+  comm->intraRanks = ranks;
+  comm->intraPhase = 0;
+
+  // Alloc shared structures
+  if (comm == comm0) {
+    int* bar = (int*)malloc(2*sizeof(int));
+    bar[0] = bar[1] = 0;
+    comm->intraBarrier = bar;
+    comm->intraParams = (struct cudaLaunchParams*)malloc(sizeof(struct cudaLaunchParams)*comm->intraRanks);
+    comm->intraCudaDevs = (int*)malloc(sizeof(int)*comm->intraRanks);
+    int* CGMode = (int*)malloc(sizeof(int));
+    *CGMode = 0x11;
+    comm->intraCGMode = CGMode;
+  } else {
+    comm->intraBarrier = (int*)waitForNonNullPtr(&comm0->intraBarrier);
+    comm->intraParams = (struct cudaLaunchParams*)waitForNonNullPtr(&comm0->intraParams);
+    comm->intraCudaDevs = (int*)waitForNonNullPtr(&comm0->intraCudaDevs);
+    comm->intraCGMode = (int*)waitForNonNullPtr(&comm0->intraCGMode);
+  }
+  comm->intraCudaDevs[comm->intraRank] = comm->cudaDev;
+
+  // Set CG Mode
+  comm->launchMode = ncclComm::GROUP;
+  char* str = getenv("NCCL_LAUNCH_MODE");
+  if (comm->intraRanks == 1 || (str && strcmp(str, "PARALLEL") == 0)) {
+    comm->launchMode = ncclComm::PARALLEL;
+  }
+  if (comm->launchMode == ncclComm::GROUP) {
+    CUDACHECK(cudaStreamCreateWithFlags(&comm->ncclStream, cudaStreamNonBlocking));
+  }
+
+  int cgMdLaunch = 0;
+#if __CUDACC_VER_MAJOR__ >= 9
+  // Check whether the GPU supports Cooperative Group Multi Device Launch
+  (void) cudaDeviceGetAttribute(&cgMdLaunch, cudaDevAttrCooperativeMultiDeviceLaunch, comm->cudaDev);
+#endif
+
+  // intraCGMode is equal to 1 by default, unless at least one device disables it.
+  if (cgMdLaunch == 0) {
+    *comm->intraCGMode = 0x10;
+  }
+  return ncclSuccess;
+}
+
 static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* commId) {
   int rank = comm->rank;
   int nranks = comm->nRanks;
@@ -397,31 +452,26 @@ static ncclResult_t initTransportsRank(struct ncclComm* comm, ncclUniqueId* comm
   struct rankInfo {
     uint64_t hostHash;
     int pid;
-    int* bar;
+    struct ncclComm* comm;
   } rankInfos[nranks];
   rankInfos[rank].pid = getpid();
   char hostname[1024];
   getHostName(hostname, 1024);
   rankInfos[rank].hostHash=getHostHash(hostname);
-  rankInfos[rank].bar = (int*)malloc(2*sizeof(int));
-  rankInfos[rank].bar[0] = 0;
-  rankInfos[rank].bar[1] = 0;
+  rankInfos[rank].comm = comm;
   NCCLCHECK(bootstrapAllGather(commState, rankInfos, sizeof(struct rankInfo)));
-  comm->intraPhase = 0;
-  comm->intraRanks = 0;
+
+  // Compute intra ranks
+  int intraRank0 = -1, intraRank = -1, intraRanks = 0;
   for (int r=0; r<nranks; r++) {
     if ((rankInfos[r].hostHash == rankInfos[rank].hostHash) && 
         (rankInfos[r].pid == rankInfos[rank].pid)) {
-      if (comm->intraRanks == 0)
-        comm->intraBarrier = rankInfos[r].bar;
-      if (r == rank)
-        comm->intraRank = comm->intraRanks;
-      comm->intraRanks++;
+      if (intraRanks == 0) intraRank0 = r;
+      if (r == rank) intraRank = intraRanks;
+      intraRanks++;
     }
   }
-  if (comm->intraRank != 0 || comm->intraRanks == 0) {
-    free(rankInfos[rank].bar);
-  }
+  NCCLCHECK(ncclCommSetIntra(comm, intraRank, intraRanks, rankInfos[intraRank0].comm));
 
   // Barrier
   bootstrapClose(commState);
@@ -591,10 +641,6 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   for(rank=0; rank<ndev; ++rank)
     comms[rank] = NULL;
 
-  int* intraBarrier = (int*)malloc(2*sizeof(int));
-  intraBarrier[0] = 0;
-  intraBarrier[1] = 0;
-
   for (rank=0; rank<ndev; ++rank) {
     cudaDev = ncclDevList[rank];
     if (cudaSetDevice(cudaDev) != cudaSuccess) {
@@ -611,12 +657,9 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
       WARN("rank %d failed to allocate communicator", rank);
       goto cleanup;
     }
-    comm->intraRank = rank;
-    comm->intraRanks = ndev;
-    comm->intraBarrier = intraBarrier;
-    comm->intraPhase = 0;
-
     comms[rank] = comm;
+
+    NCCLCHECK(ncclCommSetIntra(comm, rank, ndev, comms[0]));
 
     if (affinity_set)
       wrapNvmlDeviceClearCpuAffinity(nvmlDevice); // Ignore errors
@@ -673,6 +716,13 @@ ncclResult_t ncclCommDestroy(ncclComm_t comm) {
 
   if (comm->intraRank == 0) {
     free(comm->intraBarrier);
+    free(comm->intraParams);
+    free(comm->intraCudaDevs);
+    free(comm->intraCGMode);
+  }
+
+  if (comm->launchMode == ncclComm::GROUP) {
+    CUDACHECK(cudaStreamDestroy(comm->ncclStream));
   }
 
   commFree(comm);

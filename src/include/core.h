@@ -13,6 +13,18 @@
 #include <cstdio>
 #include <cuda_runtime.h>
 
+#if __CUDACC_VER_MAJOR__ < 9
+struct cudaLaunchParams
+{
+  void *func;
+  dim3 gridDim;
+  dim3 blockDim;
+  void **args;
+  size_t sharedMem;
+  cudaStream_t stream;
+};
+#endif
+
 #define MAXRINGS 12
 #define DEFAULT_BUFFER_SIZE_BYTES (1UL << 22) /* 4MiB */
 
@@ -78,15 +90,40 @@ struct ncclRing {
   int* devUserRanks;
 };
 
+template<typename T>
+struct KernelArgs {
+  // general parameters
+  int root;
+  size_t N;
+
+  // local and remote input, output, and buffer
+  const T * __restrict__ ThisInput;
+  T * __restrict__ ThisOutput;
+
+  struct ncclComm* comm;
+  int nRings;
+  int opCount;
+};
+
+struct ncclProxyParams {
+  int substeps;
+  int subchunks;
+  int nstepsPerRound;
+  int nblocksPerRound;
+  size_t size;
+  int pattern;
+};
+
 struct ncclComm {
   int rank;    // my rank in the communicator
   int nRanks;  // number of GPUs in communicator
   int cudaDev; // my cuda device index
 
-  enum { PCIE, NVLINK } p2ptype;
-
-  cudaStream_t prevStream; // cache last used stream
-  cudaEvent_t doneEvent; // orders operations in different streams
+  enum { GROUP, PARALLEL } launchMode;
+  cudaStream_t userStream; // User provided stream for the current collective
+  cudaStream_t ncclStream; // Group Mode : nccl stream
+                           // Parallel mode : prev stream
+  cudaEvent_t doneEvent;
 
   // Counter to make sure collectives match (needed for bcast/reduce
   // where syncs are not symmetric).
@@ -105,6 +142,14 @@ struct ncclComm {
   int intraRanks;
   int* intraBarrier;
   int intraPhase;
+
+  // Storage for deferred intra-process launch
+  struct cudaLaunchParams * intraParams;
+  int* intraCudaDevs;
+  int* intraCGMode; // Whether we can use CUDA9 CGMD or not
+  struct KernelArgs<void> args;
+  void* argsptr;
+  struct ncclProxyParams proxyParams;
 };
 
 // Check CUDA calls
