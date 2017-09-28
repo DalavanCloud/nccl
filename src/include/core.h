@@ -139,17 +139,6 @@ struct KernelArgs {
   uint64_t opCount;
 };
 
-struct ncclProxyParams {
-  int substeps;
-  int subchunks;
-  int nstepsPerRound;
-  int nblocksPerRound;
-  size_t size;
-  int pattern;
-  int nRings;
-  int llMode;
-};
-
 struct ncclComm {
   int rank;    // my rank in the communicator
   int nRanks;  // number of GPUs in communicator
@@ -188,7 +177,6 @@ struct ncclComm {
   int* intraCGMode; // Whether we can use CUDA9 CGMD or not
   struct KernelArgs<void> args;
   void* argsptr;
-  struct ncclProxyParams proxyParams;
 };
 
 #define DIVUP(x, y) \

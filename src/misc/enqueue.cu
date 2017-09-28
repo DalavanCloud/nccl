@@ -28,6 +28,7 @@ ncclResult_t ncclLaunchCooperativeKernelMultiDevice(struct cudaLaunchParams *par
 }
 
 ncclResult_t ncclCpuBarrierCheckin(ncclComm_t comm) {
+  if (comm->nRanks == 1) return ncclSuccess;
   if (comm->launchMode == ncclComm::GROUP) {
     // Enqueue stream dependency
     CUDACHECK(cudaEventRecord(comm->doneEvent, comm->userStream));
@@ -60,6 +61,7 @@ ncclResult_t ncclCpuBarrierCheckin(ncclComm_t comm) {
   return ncclSuccess;
 }
 ncclResult_t ncclCpuBarrierWait(ncclComm_t comm) {
+  if (comm->nRanks == 1) return ncclSuccess;
   // We can't print the CG mode before the first barrier happened.
   if (comm->rank == 0 && *comm->intraCGMode & 0x10) {
     *comm->intraCGMode ^= 0x10;
@@ -77,7 +79,7 @@ ncclResult_t ncclCpuBarrierWait(ncclComm_t comm) {
     CUDACHECK(cudaEventRecord(comm->doneEvent, comm->userStream));
     comm->ncclStream = comm->userStream;
   }
-  NCCLCHECK(transportStartProxies(&comm->proxyParams, comm));
+  NCCLCHECK(transportStartProxies(comm));
   return ncclSuccess;
 }
 

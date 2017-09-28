@@ -26,6 +26,7 @@
 #include <cuda_runtime.h>
 #include <string.h>
 #include <errno.h>
+#include <assert.h>
 
 DebugLevel ncclDebugLevel;
 pthread_mutex_t ncclDebugOutputLock;
@@ -350,7 +351,8 @@ ncclResult_t ncclCommSetIntra(struct ncclComm* comm, int rank, int ranks, struct
   comm->intraPhase = 0;
 
   // Alloc shared structures
-  if (comm == comm0) {
+  if (rank == 0) {
+    assert(comm == comm0);
     int* bar = (int*)malloc(2*sizeof(int));
     bar[0] = bar[1] = 0;
     comm->intraBarrier = bar;
@@ -367,6 +369,8 @@ ncclResult_t ncclCommSetIntra(struct ncclComm* comm, int rank, int ranks, struct
   }
   comm->intraCudaDevs[comm->intraRank] = comm->cudaDev;
 
+  int cgMdLaunch = 0;
+
   // Set CG Mode
   comm->launchMode = ncclComm::GROUP;
   char* str = getenv("NCCL_LAUNCH_MODE");
@@ -375,15 +379,13 @@ ncclResult_t ncclCommSetIntra(struct ncclComm* comm, int rank, int ranks, struct
   }
   if (comm->launchMode == ncclComm::GROUP) {
     CUDACHECK(cudaStreamCreateWithFlags(&comm->ncclStream, cudaStreamNonBlocking));
+#if __CUDACC_VER_MAJOR__ >= 9
+    // Check whether the GPU supports Cooperative Group Multi Device Launch
+    (void) cudaDeviceGetAttribute(&cgMdLaunch, cudaDevAttrCooperativeMultiDeviceLaunch, comm->cudaDev);
+#endif
   }
 
-  int cgMdLaunch = 0;
-#if __CUDACC_VER_MAJOR__ >= 9
-  // Check whether the GPU supports Cooperative Group Multi Device Launch
-  (void) cudaDeviceGetAttribute(&cgMdLaunch, cudaDevAttrCooperativeMultiDeviceLaunch, comm->cudaDev);
-#endif
-
-  // intraCGMode is equal to 1 by default, unless at least one device disables it.
+  // Disable cgMdLaunch if any rank does not support it
   if (cgMdLaunch == 0) {
     *comm->intraCGMode = 0x10;
   }

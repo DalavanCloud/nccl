@@ -348,10 +348,10 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
   } else {
     ArgsSetup(sendbuff, recvbuff, 0, count, comm);
     if (count*sizeof(T) <= comm->llThreshold) {
-      NCCLCHECK(transportSaveProxies(1, NUM_LL_CHUNKS, (comm->nRanks)*2-2, comm->nRanks, 2*count*sizeof(T), proxyPatternRing, comm, 1, 1));
+      NCCLCHECK(transportSaveProxies(1, NUM_LL_CHUNKS, (comm->nRanks)*2-2, comm->nRanks, 2*count*sizeof(T), proxyPatternRing, comm, 1));
       SAVE_KERNEL_SMALL(AllReduceKernelSmall, comm, FUNC, T, stream);
     } else {
-      NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm, comm->nRings, 0));
+      NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm, 0));
       SAVE_KERNEL(AllReduceKernel, comm, UNROLL, FUNC, T, stream);
       comm->opCount++;
     }

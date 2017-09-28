@@ -388,8 +388,7 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
   if (llMode == 0) *prevTail = 0;
 
 nextColl:
-  if (llMode == 0) resources->hostMem->opCount = args->opCount+1;
-  else {
+  if (llMode) {
     resources->llStep += args->nsteps;
     // Don't forget to ack otherwise the GPU won't be able to push data.
     *prevHead = resources->llStep;

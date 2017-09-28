@@ -233,10 +233,10 @@ ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const size_t co
   } else {
     ArgsSetup(sendbuff, recvbuff, root, count, comm);
     if (count*sizeof(T) <= comm->llThreshold) {
-      NCCLCHECK(transportSaveProxies(1, NUM_LL_CHUNKS, 1, 1, 2*count*sizeof(T), proxyPatternFrom(root), comm, 1, 1));
+      NCCLCHECK(transportSaveProxies(1, NUM_LL_CHUNKS, 1, 1, 2*count*sizeof(T), proxyPatternFrom(root), comm, 1));
       SAVE_KERNEL_SMALL(BroadcastKernelSmall, comm, FUNC, T, stream);
     } else {
-      NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm, comm->nRings, 0));
+      NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm, 0));
       SAVE_KERNEL(BroadcastKernel, comm, UNROLL, FUNC, T, stream);
       comm->opCount++;
     }

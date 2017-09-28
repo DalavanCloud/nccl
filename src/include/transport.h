@@ -84,8 +84,8 @@ static int proxyPatternTo(int root) { return -1-root; }
 static enum proxyMode proxyPatternMode(int pattern) { return (pattern == 0) ? proxyRing : ((pattern > 0) ? proxyFrom : proxyTo); }
 static int proxyPatternRoot(int pattern) { return (pattern > 0) ? pattern-1 : -pattern-1; }
 
-ncclResult_t transportSaveProxies(int substeps, int subchunks, int nstepsPerRound, int nblocksPerRound, size_t size, int pattern, struct ncclComm* comm, int nRings, int llMode);
-ncclResult_t transportStartProxies(struct ncclProxyParams* p, struct ncclComm* comm);
+ncclResult_t transportSaveProxies(int substeps, int subchunks, int nstepsPerRound, int nblocksPerRound, size_t size, int pattern, struct ncclComm* comm, int llMode);
+ncclResult_t transportStartProxies(struct ncclComm* comm);
 
 #include <unistd.h>
 
