@@ -144,6 +144,84 @@ __global__ void BroadcastKernel(const KernelArgs<T> args) {
   }
 }
 
+#include "ll_kernel.h"
+
+#define NEXT_STEP_LL \
+  boffset += llSliceSize; \
+  if (boffset == llBuffSize) boffset = 0; \
+  flag++; \
+  step++;
+
+template<int THREADS, class FUNC, typename T>
+__global__ void BroadcastKernelSmall(const KernelArgs<T> args) {
+  const int tid = threadIdx.x;
+  const int bid = blockIdx.x;
+  struct ncclComm* comm = args.comm;
+  struct ncclRing* ring = comm->rings+bid;
+  volatile uint64_t * recvHeadPtr = ring->recv.conn.llHead;
+  volatile uint64_t * sendHeadPtr = ring->send.conn.llHead;
+  volatile int * sizesFifo = ring->send.conn.llFifo;
+  uint64_t sendHead = sendHeadPtr[0];
+  const int rank = comm->rank;
+  const int nextRank = ring->devUserRanks[1];
+  const int root = args.root;
+
+  typedef LLPrimitives<THREADS, T, FUNC> LL;
+
+  const ssize_t size = args.N;
+  const int llBuffSize = LL_BUFF_SIZE / (2*sizeof(uint64_t));
+  const int llSliceSize = llBuffSize / NUM_LL_CHUNKS;
+  const int sliceSize = llSliceSize * sizeof(uint64_t) / sizeof(T);
+
+  uint64_t step = ring->send.conn.llStep;
+  uint32_t flag = step + 1;
+  int boffset = llSliceSize * STEP_TO_SLOT(step);
+
+  // Compute pointers
+  const T * __restrict__ thisInput = args.ThisInput;
+  T * __restrict__ thisOutput = args.ThisOutput;
+  union ncclLLFifoLine * prevInput = (union ncclLLFifoLine *)ring->recv.conn.llBuff;
+  union ncclLLFifoLine * nextOutput = (union ncclLLFifoLine *)ring->send.conn.llBuff;
+
+  for (ssize_t offset = 0; offset < size; offset += sliceSize) {
+    int chunkSize = min(sliceSize, size-offset);
+    ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
+    int maxOffset = min(chunkSize, size-offset);
+    if (rank == root) {
+      WAIT_NEXT;
+      LL::ReduceCopy(
+          thisInput + offset,
+          nextOutput + boffset,
+          maxOffset, flag);
+      POST_SIZE;
+      NEXT_STEP_LL;
+    } else if (nextRank == root) {
+      LL::ReduceCopy(
+          prevInput + boffset,
+          thisOutput + offset,
+          maxOffset, flag);
+      NEXT_STEP_LL;
+      ACK_PREV;
+    } else {
+      WAIT_NEXT;
+      LL::ReduceCopy(
+          prevInput + boffset,
+          thisOutput + offset,
+          nextOutput + boffset,
+          maxOffset, flag, flag);
+      POST_SIZE;
+      NEXT_STEP_LL;
+      ACK_PREV;
+    }
+  }
+
+  // We need everyone to acknowledge data even if they didn't receive anything
+  // so that the next collective can start right away.
+  ACK_PREV;
+
+  FIFO_CLEANING_AND_SAVE_STEP(flag);
+}
+
 #define UNROLL 8
 
 template<class FUNC, typename T>
@@ -153,10 +231,15 @@ ncclResult_t RingBroadcast(const void* sendbuff, void* recvbuff, const size_t co
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm));
     ArgsSetup(sendbuff, recvbuff, root, count, comm);
-    SAVE_KERNEL(BroadcastKernel, comm, UNROLL, FUNC, T, stream);
-    comm->opCount++;
+    if (count*sizeof(T) <= comm->llThreshold) {
+      NCCLCHECK(transportSaveProxies(1, NUM_LL_CHUNKS, 1, 1, 2*count*sizeof(T), proxyPatternFrom(root), comm, 1, 1));
+      SAVE_KERNEL_SMALL(BroadcastKernelSmall, comm, FUNC, T, stream);
+    } else {
+      NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, 1, 1, count*sizeof(T), proxyPatternFrom(root), comm, comm->nRings, 0));
+      SAVE_KERNEL(BroadcastKernel, comm, UNROLL, FUNC, T, stream);
+      comm->opCount++;
+    }
   }
 
   return ncclSuccess;

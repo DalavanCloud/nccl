@@ -59,6 +59,13 @@ void initNet() {
   }
 }
 
+int ncclLLThreshold;
+void initLl() {
+  char* str = getenv("NCCL_LL_THRESHOLD");
+  ncclLLThreshold = (str && atoi(str) >= 0) ? atoi(str) : NCCL_LL_THRESHOLD;
+  INFO("Using NCCL Low-latency algorithm for sizes below %d", ncclLLThreshold);
+}
+
 pthread_mutex_t initLock = PTHREAD_MUTEX_INITIALIZER;
 static bool initialized = false;
 static ncclResult_t ncclInit() {
@@ -68,6 +75,7 @@ static ncclResult_t ncclInit() {
     initEnv();
     initDebug();
     initNet();
+    initLl();
     initialized = true;
   }
   pthread_mutex_unlock(&initLock);
@@ -130,6 +138,7 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
   comm->nRanks = ndev;
   cudaGetDevice(&comm->cudaDev);
   comm->doneEvent = doneEvent;
+  comm->llThreshold = ncclLLThreshold;
 
   comm->argsptr = &comm->args;
 
@@ -207,12 +216,16 @@ static ncclResult_t setupSendRecv(struct ncclRing* ring) {
   CUDACHECK(cudaMalloc(&mem, size));
   CUDACHECK(cudaMemset(mem, 0, size));
   ring->devMem = mem;
-  ring->recv.conn.buff = (char*)&mem->buff;
+  ring->recv.conn.buff = mem->buff;
+  ring->recv.conn.llBuff = mem->llBuff;
   ring->recv.conn.tail = &mem->tail;
   ring->recv.conn.opCount = &mem->opCount;
   ring->recv.conn.direct = 0;
   ring->send.conn.head = &mem->head;
+  ring->send.conn.llHead = &mem->llHead;
   ring->send.conn.direct = 0;
+  ring->send.conn.llStep = 0;
+  ring->send.conn.llLastCleaning = 0;
   return ncclSuccess;
 }
 

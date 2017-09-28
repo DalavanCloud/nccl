@@ -31,6 +31,8 @@ struct netSendResources {
   int netDev;
   bool cudaSupport;
   struct ncclSendRecvMem* devNetMem;
+  uint64_t llStep;
+  uint64_t llLastCleaning;
 };
 
 struct netRecvResources {
@@ -41,6 +43,8 @@ struct netRecvResources {
   struct ncclSendRecvMem* hostDevMem;
   int netDev;
   bool cudaSupport;
+  uint64_t llStep;
+  uint64_t llLastCleaning;
 };
 
 /* Fill information necessary to exchange between ranks to choose whether or not
@@ -185,9 +189,9 @@ int getDev(int ringId, int nDev, int* scores) {
 /* Determine if we will use this transport for this peer and return connect
  * information for this peer */
 ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct netSendResources* resources = (struct netSendResources*) malloc(sizeof(struct netSendResources));
+  struct netSendResources* resources = (struct netSendResources*) mallocZero(sizeof(struct netSendResources));
   ring->send.transportResources = resources;
-  resources->hostDevMem = NULL; //(struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
+//  resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
   struct netInfo* myInfo = (struct netInfo*)myOpaqueInfo;
   resources->netDev = getDev(ring->id, myInfo->ndev, myInfo->scores);
@@ -212,9 +216,9 @@ ncclResult_t netSendSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo
 }
 
 ncclResult_t netRecvSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, struct ncclConnect* connectInfo, struct ncclRing* ring) {
-  struct netRecvResources* resources = (struct netRecvResources*) malloc(sizeof(struct netRecvResources));
+  struct netRecvResources* resources = (struct netRecvResources*) mallocZero(sizeof(struct netRecvResources));
   ring->recv.transportResources = resources;
-  resources->hostDevMem = NULL; //(struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
+//  resources->hostDevMem = (struct ncclSendRecvMem*)gdptr(ring->devMem, ring->buffSize);
 
   struct netInfo* myInfo = (struct netInfo*)myOpaqueInfo;
   resources->netDev = getDev(ring->id, myInfo->ndev, myInfo->scores);
@@ -241,15 +245,21 @@ ncclResult_t netSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
 
   if (resources->cudaSupport) {
     send->conn.buff = resources->devNetMem->buff;
+    // We don't use devMem for llMode because the CPU has to read the data
+    send->conn.llBuff = resources->devHostMem->llBuff;
   } else {
     send->conn.buff = resources->devHostMem->buff;
+    send->conn.llBuff = resources->devHostMem->llBuff;
   }
   send->conn.tail = &resources->devHostMem->tail;
   send->conn.opCount = &resources->devHostMem->opCount;
   send->conn.fifo = resources->devHostMem->sizesFifo;
+  send->conn.llFifo = resources->devHostMem->llSizesFifo;
 
-  if (resources->hostDevMem == NULL)
+  if (resources->hostDevMem == NULL) {
     send->conn.head = &resources->devHostMem->head;
+    send->conn.llHead = &resources->devHostMem->llHead;
+  }
 
   // Connect to remote peer
   struct netConnectInfo* info = (struct netConnectInfo*)connectInfo;
@@ -263,9 +273,12 @@ ncclResult_t netRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   struct netRecvResources* resources = (struct netRecvResources*)recv->transportResources;
 
   recv->conn.head = &resources->devHostMem->head;
+  recv->conn.llHead = &resources->devHostMem->llHead;
 
-  if (resources->cudaSupport == false)
+  if (resources->cudaSupport == false) {
     recv->conn.buff = resources->devHostMem->buff;
+    recv->conn.llBuff = resources->devHostMem->llBuff;
+  }
 
   if (resources->hostDevMem == NULL) {
     recv->conn.tail = &resources->devHostMem->tail;
@@ -301,25 +314,56 @@ ncclResult_t netRecvFree(void* transportResources) {
 ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
   struct netSendResources* resources = (struct netSendResources*) (ring->send.transportResources);
+  const int llMode = args->llMode;
+
   volatile uint64_t* prevTail = &resources->hostMem->tail;
-  uint64_t* prevHead = resources->hostDevMem ? &resources->hostDevMem->head : &resources->hostMem->head;
-  char* localBuff = resources->cudaSupport ? resources->devNetMem->buff : resources->hostMem->buff;
+  struct ncclSendRecvMem* prevMem = resources->hostDevMem ? resources->hostDevMem : resources->hostMem;
+  uint64_t* prevHead = llMode ? &prevMem->llHead : &prevMem->head;
+  struct ncclSendRecvMem* localMem = resources->cudaSupport ? resources->devNetMem : resources->hostMem;
+  char* localBuff = llMode ? resources->hostMem->llBuff : localMem->buff;
   int ptrType = resources->cudaSupport ? NCCL_PTR_CUDA : NCCL_PTR_HOST;
-  int* sizesFifo = resources->hostMem->sizesFifo;
-  int buffSize = ring->buffSize;
+  volatile int* sizesFifo = llMode ? resources->hostMem->llSizesFifo : resources->hostMem->sizesFifo;
+  int buffSize = llMode ? LL_BUFF_SIZE : ring->buffSize;
   int sliceSize = buffSize / args->substeps;
 
-  // Update in case we skipped some collectives
-  resources->hostMem->opCount = args->opCount;
+  assert(args->substeps <= SIZES_FIFO_SIZE);
 
-  uint64_t head = 0ULL;
-  uint64_t tail = 0ULL;
+  uint64_t head = llMode ? resources->llStep : 0ULL;
+  uint64_t tail = llMode ? resources->llStep : 0ULL;
+  uint64_t end = head + args->nsteps;
 
   int idle = 0;
   void* requests[args->substeps];
-  while (head < args->nsteps) {
+
+  if (!args->needProxy) goto nextColl;
+
+  // Update in case we skipped some collectives
+  if (llMode == 0) resources->hostMem->opCount = args->opCount;
+
+  while (head < end) {
     idle++;
-    while (tail < *prevTail) {
+    if (llMode) {
+      if (tail < end && tail < head + args->substeps) {
+        int slot = tail%args->substeps;
+        int size = sizesFifo[slot];
+        if (size != 0) {
+          if (size == -1) size = 0;
+          uint32_t flag = tail + 1;
+          int nFifoLines = DIVUP(size, sizeof(union ncclLLFifoLine));
+          size = nFifoLines * sizeof(union ncclLLFifoLine);
+          union ncclLLFifoLine* lines = (union ncclLLFifoLine*)(localBuff+slot*sliceSize);
+          for (int i=0; i<nFifoLines; i++) {
+            volatile uint32_t *f1 = &lines[i].flag1;
+            volatile uint32_t *f2 = &lines[i].flag2;
+            while (f1[0] != flag || f2[0] != flag);
+          }
+          NCCLCHECK(ncclNetIsend(resources->netSendComm, lines, size, ptrType, requests+slot));
+          sizesFifo[slot] = size;
+          tail++;
+          idle = 0;
+        }
+      }
+    } else while (tail < *prevTail) {
       // Send through network
       int slot = tail%args->substeps;
       NCCLCHECK(ncclNetIsend(resources->netSendComm, localBuff+slot*sliceSize, sizesFifo[slot], ptrType, requests+slot));
@@ -331,6 +375,7 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
       int slot = head%args->substeps;
       NCCLCHECK(ncclNetTest(requests[slot], &done, NULL));
       if (done) {
+        if (llMode) sizesFifo[slot] = 0;
         head++;
         *prevHead = head;
         idle = 0;
@@ -340,35 +385,57 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
   }
 
   // Reset
-  *prevTail = 0ULL;
-  resources->hostMem->opCount = args->opCount+1;
+  if (llMode == 0) *prevTail = 0;
+
+nextColl:
+  if (llMode == 0) resources->hostMem->opCount = args->opCount+1;
+  else {
+    resources->llStep += args->nsteps;
+    // Don't forget to ack otherwise the GPU won't be able to push data.
+    *prevHead = resources->llStep;
+    if (resources->llStep > resources->llLastCleaning + LL_CLEAN_FREQ) {
+      memset(localBuff, 0, LL_BUFF_SIZE);
+      resources->llStep += NUM_LL_CHUNKS;
+      *prevHead = resources->llStep;
+      resources->llLastCleaning = resources->llStep;
+    }
+  }
   return ncclSuccess;
 }
 
 ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
   struct ncclRing* ring = args->ring;
   struct netRecvResources* resources = (struct netRecvResources*) (ring->recv.transportResources);
+  int llMode = args->llMode;
 
-  uint64_t* nextOpCount = resources->hostDevMem ? &resources->hostDevMem->opCount : &resources->hostMem->opCount;
-  transportProxyWait([=] { return *nextOpCount >= args->opCount; });
-
-  volatile uint64_t* nextHead = &resources->hostMem->head;
-  char* localBuff = resources->cudaSupport ? ring->devMem->buff : resources->hostMem->buff;
+  volatile uint64_t* nextHead = llMode ? &resources->hostMem->llHead : &resources->hostMem->head;
+  struct ncclSendRecvMem* localMem = resources->cudaSupport ? ring->devMem : resources->hostMem;
+  char* localBuff = llMode ? localMem->llBuff : localMem->buff;
   char* nextBuff = (resources->cudaSupport == false && resources->hostDevMem) ? resources->hostDevMem->buff : NULL;
   int ptrType = resources->cudaSupport ? NCCL_PTR_CUDA : NCCL_PTR_HOST;
   uint64_t* nextTail = resources->hostDevMem ? &resources->hostDevMem->tail : &resources->hostMem->tail;
 
-  int buffSize = ring->buffSize;
+  int buffSize = llMode ? LL_BUFF_SIZE : ring->buffSize;
   int sliceSize = buffSize / args->substeps;
 
-  uint64_t head = 0ULL;
-  uint64_t tail = 0ULL;
+  uint64_t head = llMode ? resources->llStep : 0ULL;
+  uint64_t tail = llMode ? resources->llStep : 0ULL;
+  uint64_t end = head + args->nsteps;
 
   int idle = 0;
   void* requests[args->substeps];
-  while (*nextHead < args->nsteps) {
+
+  if (!args->needProxy) goto nextColl;
+
+  if (llMode == 0) {
+    // Waiting for next opCount is only needed before writing nextTail.
+    uint64_t* nextOpCount = resources->hostDevMem ? &resources->hostDevMem->opCount : &resources->hostMem->opCount;
+    transportProxyWait([=] { return *nextOpCount >= args->opCount; });
+  }
+
+  while (head < end) {
     idle++;
-    if ((*nextHead + args->substeps > tail) && (tail < args->nsteps)) {
+    while ((tail < head + args->substeps) && (tail < *nextHead + args->substeps) && (tail < end)) {
       int slot = tail%args->substeps;
       NCCLCHECK(ncclNetIrecv(resources->netRecvComm, localBuff+slot*sliceSize, sliceSize, ptrType, requests+slot));
       tail++;
@@ -382,8 +449,10 @@ ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
       if (done) {
         if (nextBuff) memcpy(nextBuff+slot*sliceSize, localBuff+slot*sliceSize, size);
         head++;
-        if (ptrType == NCCL_PTR_CUDA) ncclNetFlush(resources->netRecvComm, localBuff+slot*sliceSize, size);
-        *nextTail = head;
+        if (llMode == 0) {
+          if (ptrType == NCCL_PTR_CUDA) ncclNetFlush(resources->netRecvComm, localBuff+slot*sliceSize, size);
+          *nextTail = head;
+        }
       }
       idle = 0;
     }
@@ -391,9 +460,20 @@ ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
   }
 
   // Wait for last ack and reset
-  transportProxyWait([=] { return *nextHead == head; });
-  *nextHead = 0ULL;
+  if (llMode == 0) {
+    transportProxyWait([=] { return *nextHead == head; });
+    *nextHead = 0;
+  }
 
+nextColl:
+  if (llMode) {
+    resources->llStep += args->nsteps;
+    if (resources->llStep > resources->llLastCleaning + LL_CLEAN_FREQ) {
+      resources->llStep += NUM_LL_CHUNKS;
+      while (*nextHead < resources->llStep);
+      resources->llLastCleaning = resources->llStep;
+    }
+  }
   return ncclSuccess;
 }
 

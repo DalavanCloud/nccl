@@ -27,13 +27,30 @@ struct cudaLaunchParams
 
 #define MAXRINGS 12
 #define DEFAULT_BUFFER_SIZE_BYTES (1UL << 22) /* 4MiB */
+#define NCCL_LL_THRESHOLD 16384
 
 #define DEFAULT_SINGLE_RING_THRESHOLD (1UL << 17) /* 128KiB - but 256KiB for Volta */
 
 extern size_t ncclSingleRingThreshold;
 #define LIMIT_NRINGS(SIZE, NRINGS) ((SIZE) <= ncclSingleRingThreshold ? 1 : (NRINGS))
 
+union ncclLLFifoLine {
+  /* Flags have to be *after* data, because otherwise, an incomplete receive
+     from the network may receive the flag but not the data.
+     Note this is assuming that either we receive contiguous chunks of data
+     (sockets) or data is written with an atomicity of 8 bytes (IB/RDMA). */
+  struct {
+    uint32_t data1;
+    uint32_t flag1;
+    uint32_t data2;
+    uint32_t flag2;
+  };
+  uint64_t v[2];
+  int4 i4;
+};
+
 struct ncclConnInfo {
+  // Regular comm mechanism
   char *buff;         // Local for recv, remote for send
   uint64_t *tail;     // Local for recv, remote for send
   uint64_t *head;     // Local for send, remote for recv
@@ -43,6 +60,13 @@ struct ncclConnInfo {
   void **ptrExchange; // Pointer exchange for direct communication
 
   int *fifo;          // Size fifo for proxy
+
+  // Low latency mechanism
+  char *llBuff;       // Local for recv, remote for send
+  uint64_t *llHead;   // Local for send, remote for recv
+  int *llFifo;        // LL Size fifo for proxy
+  uint64_t llStep;    // Keep where we are
+  uint64_t llLastCleaning;
 };
 
 struct ncclConnector {
@@ -56,6 +80,12 @@ struct ncclConnector {
 #define PAGE_SIZE 4096
 #define SIZES_FIFO_SIZE 32
 
+#define LL_NTHREADS 64
+#define NUM_LL_CHUNKS 8
+#define NUM_LINES_PER_THREAD 2
+#define LL_BUFF_SIZE (NUM_LINES_PER_THREAD*LL_NTHREADS*NUM_LL_CHUNKS*sizeof(union ncclLLFifoLine)) // 16K
+#define LL_CLEAN_FREQ 0x10000000
+
 struct ncclSendRecvMem {
   union {
     struct {
@@ -68,9 +98,12 @@ struct ncclSendRecvMem {
       uint64_t opCount;
       char pad4[CACHE_LINE_SIZE-sizeof(uint64_t)];
       int sizesFifo[SIZES_FIFO_SIZE];
+      int llSizesFifo[SIZES_FIFO_SIZE];
+      uint64_t llHead;
     };
     char pad5[PAGE_SIZE];
   };
+  char llBuff[LL_BUFF_SIZE];
   char buff[1]; // Actually larger than that
 };
 
@@ -113,6 +146,8 @@ struct ncclProxyParams {
   int nblocksPerRound;
   size_t size;
   int pattern;
+  int nRings;
+  int llMode;
 };
 
 struct ncclComm {
@@ -135,6 +170,9 @@ struct ncclComm {
   struct ncclRing rings[MAXRINGS];
   int nThreads;
   
+  // Low-latency algorithm threshold
+  int llThreshold;
+
   // Device copy of the communicator
   struct ncclComm *devComm;
 

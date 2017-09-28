@@ -438,6 +438,7 @@ ncclResult_t p2pSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   struct ncclSendRecvMem* remDevMem;
   NCCLCHECK(p2pConnect(connectInfo, send, &remDevMem, &send->transportResources));
   send->conn.buff = remDevMem->buff;
+  send->conn.llBuff = remDevMem->llBuff;
   send->conn.tail = &remDevMem->tail;
   send->conn.opCount = &remDevMem->opCount;
   // send->conn->head should have been set to devMem already
@@ -451,6 +452,7 @@ ncclResult_t p2pRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   // recv->conn->tail should have been set to devMem already
   // recv->conn->opCount should have been set to devMem already
   recv->conn.head = &remDevMem->head;
+  recv->conn.llHead = &remDevMem->llHead;
   return ncclSuccess;
 }
 

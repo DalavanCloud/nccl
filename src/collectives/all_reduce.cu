@@ -204,6 +204,139 @@ __global__ void AllReduceKernel(const KernelArgs<T> args) {
   }
 }
 
+#include "ll_kernel.h"
+
+#define NEXT_STEP_LL \
+  poffset = noffset; \
+  pflag = nflag; \
+  noffset += llSliceSize; \
+  if (noffset == llBuffSize) { noffset = 0; } \
+  nflag++; \
+  step++;
+
+template<int THREADS, class FUNC, typename T>
+__global__ void AllReduceKernelSmall(const KernelArgs<T> args) {
+  const int tid = threadIdx.x;
+  const int bid = blockIdx.x;
+  struct ncclComm* comm = args.comm;
+  struct ncclRing* ring = comm->rings+bid;
+  volatile uint64_t * recvHeadPtr = ring->recv.conn.llHead;
+  volatile uint64_t * sendHeadPtr = ring->send.conn.llHead;
+  volatile int * sizesFifo = ring->send.conn.llFifo;
+  uint64_t sendHead = sendHeadPtr[0];
+
+  typedef LLPrimitives<THREADS, T, FUNC> LL;
+
+  const ssize_t size = args.N;
+  //const int rank = comm->rank;
+  const int nranks = comm->nRanks;
+  const int llBuffSize = LL_BUFF_SIZE / (2*sizeof(uint64_t));
+  const int llSliceSize = llBuffSize / NUM_LL_CHUNKS;
+  const int sliceSize = llSliceSize * sizeof(uint64_t) / sizeof(T);
+
+  uint64_t step = ring->send.conn.llStep;
+  uint32_t pflag, nflag = step + 1;
+  int poffset, noffset = llSliceSize * STEP_TO_SLOT(step);
+
+  // Compute pointers
+  const T * __restrict__ thisInput = args.ThisInput;
+  T * __restrict__ thisOutput = args.ThisOutput;
+  union ncclLLFifoLine * prevInput = (union ncclLLFifoLine *)ring->recv.conn.llBuff;
+  union ncclLLFifoLine * nextOutput = (union ncclLLFifoLine *)ring->send.conn.llBuff;
+
+  for (ssize_t chunkOffset = 0; chunkOffset < size; chunkOffset += nranks*sliceSize) {
+    int chunkSize = min(sliceSize, DIVUP(size-chunkOffset,nranks));
+    ALIGN_SIZE(chunkSize, THREADS*sizeof(uint64_t)/sizeof(T));
+
+    /////////////// begin AllReduce steps ///////////////
+    ssize_t offset;
+    int maxOffset;
+    int slice;
+
+    // step 0: push data to next GPU
+    slice = ring->devUserRanks[nranks-1];
+    offset = chunkOffset + slice * chunkSize;
+    maxOffset = min(chunkSize, size-offset);
+
+    WAIT_NEXT;
+    LL::ReduceCopy(
+        thisInput  + offset,
+        nextOutput + noffset,
+        maxOffset, nflag);
+    POST_SIZE;
+
+    NEXT_STEP_LL;
+
+    // k-2 steps: reduce and copy to next GPU
+    for (int j=2; j<nranks; ++j) {
+      slice = ring->devUserRanks[nranks-j];
+      offset = chunkOffset + slice * chunkSize;
+      maxOffset = min(chunkSize, size-offset);
+
+      WAIT_NEXT;
+      LL::ReduceCopy(
+          thisInput  + offset,
+          prevInput  + poffset,
+          nextOutput + noffset,
+          maxOffset, pflag, nflag);
+      POST_SIZE;
+      ACK_PREV;
+
+      NEXT_STEP_LL;
+    }
+
+    // step k-1: reduce this buffer and data, which will produce the final
+    // result that we store in this data and push to the next GPU
+    slice = ring->devUserRanks[0];
+    offset = chunkOffset + slice * chunkSize;
+    maxOffset = min(chunkSize, size-offset);
+
+    WAIT_NEXT;
+    LL::ReduceCopy(
+        thisInput  + offset,
+        prevInput  + poffset,
+        thisOutput + offset,
+        nextOutput + noffset,
+        maxOffset, pflag, nflag);
+    POST_SIZE;
+    ACK_PREV;
+
+    NEXT_STEP_LL;
+
+    // k-2 steps: copy to next GPU
+    for (int j=1; j<nranks-1; ++j) {
+      slice = ring->devUserRanks[nranks - j];
+      offset = chunkOffset + slice * chunkSize;
+      maxOffset = min(chunkSize, size-offset);
+
+      WAIT_NEXT;
+      LL::ReduceCopy(
+          prevInput + poffset,
+          thisOutput + offset,
+          nextOutput + noffset,
+          maxOffset, pflag, nflag);
+      POST_SIZE;
+      ACK_PREV;
+
+      NEXT_STEP_LL;
+    }
+
+    // Make final copy from buffer to dest.
+    slice = ring->devUserRanks[1];
+    offset = chunkOffset + slice * chunkSize;
+    maxOffset = min(chunkSize, size-offset);
+
+    // Here we need to copy from buffer to this output.
+    LL::ReduceCopy(
+        prevInput + poffset,
+        thisOutput + offset,
+        maxOffset, pflag);
+    ACK_PREV;
+  }
+
+  FIFO_CLEANING_AND_SAVE_STEP(nflag);
+}
+
 #define UNROLL 8
 
 template<class FUNC, typename T>
@@ -213,10 +346,15 @@ ncclResult_t RingAllReduce(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm));
     ArgsSetup(sendbuff, recvbuff, 0, count, comm);
-    SAVE_KERNEL(AllReduceKernel, comm, UNROLL, FUNC, T, stream);
-    comm->opCount++;
+    if (count*sizeof(T) <= comm->llThreshold) {
+      NCCLCHECK(transportSaveProxies(1, NUM_LL_CHUNKS, (comm->nRanks)*2-2, comm->nRanks, 2*count*sizeof(T), proxyPatternRing, comm, 1, 1));
+      SAVE_KERNEL_SMALL(AllReduceKernelSmall, comm, FUNC, T, stream);
+    } else {
+      NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, (comm->nRanks)*2-2, comm->nRanks, count*sizeof(T), proxyPatternRing, comm, comm->nRings, 0));
+      SAVE_KERNEL(AllReduceKernel, comm, UNROLL, FUNC, T, stream);
+      comm->opCount++;
+    }
   }
 
   return ncclSuccess;

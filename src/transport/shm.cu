@@ -215,9 +215,12 @@ ncclResult_t shmSendConnect(struct ncclConnect* connectInfo, struct ncclConnecto
 
   send->transportResources = resources;
   send->conn.buff = resources->devRemHostMem->buff;
+  send->conn.llBuff = resources->devRemHostMem->llBuff;
   send->conn.tail = &resources->devRemHostMem->tail;
   send->conn.opCount = &resources->devRemHostMem->opCount;
+
   send->conn.head = &resources->devHostMem->head;
+  send->conn.llHead = &resources->devHostMem->llHead;
   return ncclSuccess;
 }
 
@@ -232,7 +235,10 @@ ncclResult_t shmRecvConnect(struct ncclConnect* connectInfo, struct ncclConnecto
   NCCLCHECK(shmOpen(shmName, resources->remShmSize, (void**)&resources->remHostMem, (void**)&resources->devRemHostMem, 0));
   NCCLCHECK(shmUnlink(shmName));
   recv->conn.head = &resources->devRemHostMem->head;
+  recv->conn.llHead = &resources->devRemHostMem->llHead;
+
   recv->conn.buff = resources->devHostMem->buff;
+  recv->conn.llBuff = resources->devHostMem->llBuff;
   recv->conn.tail = &resources->devHostMem->tail;
   recv->conn.opCount = &resources->devHostMem->opCount;
   return ncclSuccess;

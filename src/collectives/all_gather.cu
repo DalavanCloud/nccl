@@ -171,6 +171,104 @@ __global__ void AllGatherKernel(const KernelArgs<T> args) {
   }
 }
 
+#include "ll_kernel.h"
+
+#define NEXT_STEP_LL \
+  poffset = noffset; \
+  pflag = nflag; \
+  noffset += llSliceSize; \
+  if (noffset == llBuffSize) { noffset = 0; } \
+  nflag++; \
+  step++;
+
+template<int THREADS, class FUNC, typename T>
+__global__ void AllGatherKernelSmall(const KernelArgs<T> args) {
+  const int tid = threadIdx.x;
+  const int bid = blockIdx.x;
+  struct ncclComm* comm = args.comm;
+  struct ncclRing* ring = comm->rings+bid;
+  volatile uint64_t * recvHeadPtr = ring->recv.conn.llHead;
+  volatile uint64_t * sendHeadPtr = ring->send.conn.llHead;
+  volatile int * sizesFifo = ring->send.conn.llFifo;
+  uint64_t sendHead = sendHeadPtr[0];
+
+  typedef LLPrimitives<THREADS, T, FUNC> LL;
+
+  const ssize_t size = args.N;
+  //const int rank = comm->rank;
+  const int nranks = comm->nRanks;
+  const int llBuffSize = LL_BUFF_SIZE / (2*sizeof(uint64_t));
+  const int llSliceSize = llBuffSize / NUM_LL_CHUNKS;
+  const int sliceSize = llSliceSize * sizeof(uint64_t) / sizeof(T);
+
+  uint64_t step = ring->send.conn.llStep;
+  uint32_t pflag, nflag = step + 1;
+  int poffset, noffset = llSliceSize * STEP_TO_SLOT(step);
+
+  // Compute pointers
+  const T * __restrict__ thisInput = args.ThisInput;
+  T * __restrict__ thisOutput = args.ThisOutput;
+  union ncclLLFifoLine * prevInput = (union ncclLLFifoLine *)ring->recv.conn.llBuff;
+  union ncclLLFifoLine * nextOutput = (union ncclLLFifoLine *)ring->send.conn.llBuff;
+
+  for (ssize_t chunkOffset = 0; chunkOffset < size; chunkOffset += sliceSize) {
+    /////////////// begin AllGather steps ///////////////
+    ssize_t offset;
+    int maxOffset = min(sliceSize, size-chunkOffset);
+    int rankDest;
+
+    // step 0: push data to next GPU
+    rankDest = ring->devUserRanks[0];
+    offset = chunkOffset + rankDest * size;
+
+    WAIT_NEXT;
+    if (thisInput + chunkOffset == thisOutput + offset) { // In place
+      LL::ReduceCopy(
+          thisInput  + chunkOffset,
+          nextOutput + noffset,
+          maxOffset, nflag);
+    } else {
+      LL::ReduceCopy(
+          thisInput  + chunkOffset,
+          thisOutput + offset,
+          nextOutput + noffset,
+          maxOffset, nflag);
+    }
+    POST_SIZE;
+
+    NEXT_STEP_LL;
+
+    // k-2 steps: copy to next GPU
+    for (int j=1; j<nranks-1; ++j) {
+      rankDest = ring->devUserRanks[nranks-j];
+      offset = chunkOffset + rankDest * size;
+
+      WAIT_NEXT;
+      LL::ReduceCopy(
+          prevInput  + poffset,
+          thisOutput + offset,
+          nextOutput + noffset,
+          maxOffset, pflag, nflag);
+      POST_SIZE;
+      ACK_PREV;
+
+      NEXT_STEP_LL;
+    }
+
+    // step k-1: final store
+    rankDest = ring->devUserRanks[1];
+    offset = chunkOffset + rankDest * size;
+
+    LL::ReduceCopy(
+        prevInput  + poffset,
+        thisOutput + offset,
+        maxOffset, pflag);
+    ACK_PREV;
+  }
+
+  FIFO_CLEANING_AND_SAVE_STEP(nflag);
+}
+
 #define UNROLL 8
 
 template<class FUNC, typename T>
@@ -180,10 +278,15 @@ ncclResult_t RingAllGather(const void* sendbuff, void* recvbuff,
     if (sendbuff != recvbuff)
       CUDACHECK(cudaMemcpyAsync(recvbuff, sendbuff, count*sizeof(T), cudaMemcpyDeviceToDevice, stream));
   } else {
-    NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm));
     ArgsSetup(sendbuff, recvbuff, 0, count, comm);
-    SAVE_KERNEL(AllGatherKernel, comm, UNROLL, FUNC, T, stream);
-    comm->opCount++;
+    if (count*sizeof(T)*comm->nRanks <= comm->llThreshold) {
+      NCCLCHECK(transportSaveProxies(1, NUM_LL_CHUNKS, comm->nRanks-1, 1, 2*count*sizeof(T), proxyPatternRing, comm, 1, 1));
+      SAVE_KERNEL_SMALL(AllGatherKernelSmall, comm, FUNC, T, stream);
+    } else {
+      NCCLCHECK(transportSaveProxies(NUM_SUBSTEPS, NUM_BUFCHUNKS, comm->nRanks-1, 1, count*sizeof(T), proxyPatternRing, comm, comm->nRings, 0));
+      SAVE_KERNEL(AllGatherKernel, comm, UNROLL, FUNC, T, stream);
+      comm->opCount++;
+    }
   }
 
   return ncclSuccess;

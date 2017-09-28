@@ -81,32 +81,35 @@ static bool NeedProxy(int type, int pattern, struct ncclRing* ring, int nranks) 
   return (root != rank);
 }
 
-static void StartProxy(int type, int substeps, int nsteps, int opCount, struct ncclRing* ring, int pattern, int nranks) {
+static void StartProxy(int type, int substeps, int nsteps, uint64_t opCount, struct ncclRing* ring, int pattern, int nranks, int llMode) {
   struct ncclConnector* connector = (type == 0) ? &ring->recv : &ring->send;
   struct transportProxyInfo* info = connector->proxyInfo;
-  if (info && NeedProxy(type, pattern, ring, nranks)) {
+  if (info) {
     struct ncclProxyArgs args;
     args.ring = ring;
     args.substeps = substeps;
     args.nsteps = nsteps;
     args.opCount = opCount;
+    args.llMode = llMode;
+    args.needProxy = NeedProxy(type, pattern, ring, nranks);
     FifoPushArgs(info, &args);
   }
 }
 
-ncclResult_t transportSaveProxies(int substeps, int subchunks, int nstepsPerRound, int nblocksPerRound, size_t size, int pattern, struct ncclComm* comm) {
-  struct ncclProxyParams params = { substeps, subchunks, nstepsPerRound, nblocksPerRound, size, pattern };
+ncclResult_t transportSaveProxies(int substeps, int subchunks, int nstepsPerRound, int nblocksPerRound, size_t size, int pattern, struct ncclComm* comm, int nRings, int llMode) {
+  struct ncclProxyParams params = { substeps, subchunks, nstepsPerRound, nblocksPerRound, size, pattern, nRings, llMode };
   memcpy(&comm->proxyParams, &params, sizeof(params));
   return ncclSuccess;
 }
 
 ncclResult_t transportStartProxies(struct ncclProxyParams* p, struct ncclComm* comm) {
-  int nrings = LIMIT_NRINGS(p->size, comm->nRings);
+  int nrings = LIMIT_NRINGS(p->size, p->nRings);
   for (int r=0; r<nrings; r++) {
-    int nrounds = (int)(DIVUP(p->size, nrings * p->nblocksPerRound * (comm->rings[r].buffSize/p->subchunks)));
+    int buffSize = p->llMode ? LL_BUFF_SIZE : comm->rings[r].buffSize;
+    int nrounds = (int)(DIVUP(p->size, nrings * p->nblocksPerRound * (buffSize/p->subchunks)));
     int nsteps = p->nstepsPerRound * nrounds * p->substeps;
-    StartProxy(0, p->substeps*p->subchunks, nsteps, comm->opCount, comm->rings+r, p->pattern, comm->nRanks);
-    StartProxy(1, p->substeps*p->subchunks, nsteps, comm->opCount, comm->rings+r, p->pattern, comm->nRanks);
+    StartProxy(0, p->substeps*p->subchunks, nsteps, comm->opCount, comm->rings+r, p->pattern, comm->nRanks, p->llMode);
+    StartProxy(1, p->substeps*p->subchunks, nsteps, comm->opCount, comm->rings+r, p->pattern, comm->nRanks, p->llMode);
   }
   return ncclSuccess;
 }

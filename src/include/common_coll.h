@@ -90,4 +90,14 @@ void ArgsSetup(const T* sendbuff, T* recvbuff,
   memcpy(comm->intraParams+comm->intraRank, &params, sizeof(params)); \
 } while (0)
 
+#define SAVE_KERNEL_SMALL(K, comm, FUNC, T, stream) do { \
+  dim3 grid(1, 1, 1); \
+  dim3 block(LL_NTHREADS, 1, 1); \
+  static_assert(LL_NTHREADS*sizeof(union ncclLLFifoLine)*NUM_LL_CHUNKS <= LL_BUFF_SIZE, "LL_BUFF_SIZE is too low."); \
+  comm->userStream = stream; \
+  void* f = (void*)K<LL_NTHREADS, FUNC, T>; \
+  struct cudaLaunchParams params = { f, grid, block, &comm->argsptr, 0, comm->ncclStream }; \
+  memcpy(comm->intraParams+comm->intraRank, &params, sizeof(params)); \
+} while (0)
+
 #endif
