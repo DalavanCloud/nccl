@@ -105,6 +105,19 @@ if [ "$mode" == "mpi" ] || [ "$mode" == "combo" ]; then
     return 0
   fi
 fi
+
+if [ "$mode" == "mpi_latency" ] || [ "$mode" == "combo" ]; then
+  echo "Running test/perf/${op}_perf on $ngpus GPUs [MPI] ..."
+  resdir="results_mpi_latency"
+  path=$resdir/$gpumodel
+  mkdir -p $path
+  result=$path/$op.$ngpus
+  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 32 -e 1K -f 2 -w 20 -n 1000 2>&1 | tee $result.out
+  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 2K -e 64K -f 2 -w 20 -n 500 2>&1 | tee -a $result.out
+  if [ "$mode" != "combo" ]; then
+    return 0
+  fi
+fi
 }
 
 perf_ngpu_loop() {
