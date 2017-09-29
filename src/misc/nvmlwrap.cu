@@ -225,8 +225,9 @@ ncclResult_t wrapNvmlDeviceGetNvLinkRemotePciInfo(nvmlDevice_t device, unsigned 
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkRemotePciInfo(device, link, pci);
   if (ret != NVML_SUCCESS) {
-    INFO("nvmlDeviceGetNvLinkRemotePciInfo() failed: %s ",
-      nvmlInternalErrorString(ret));
+    if (ret != NVML_ERROR_NOT_SUPPORTED)
+      INFO("nvmlDeviceGetNvLinkRemotePciInfo() failed: %s ",
+        nvmlInternalErrorString(ret));
     return ncclSystemError;
   }
   return ncclSuccess;
@@ -240,8 +241,9 @@ ncclResult_t wrapNvmlDeviceGetNvLinkCapability(nvmlDevice_t device, unsigned int
   }
   nvmlReturn_t ret = nvmlInternalDeviceGetNvLinkCapability(device, link, capability, capResult);
   if (ret != NVML_SUCCESS) {
-    INFO("nvmlDeviceGetNvLinkCapability() failed: %s ",
-      nvmlInternalErrorString(ret));
+    if (ret != NVML_ERROR_NOT_SUPPORTED)
+      INFO("nvmlDeviceGetNvLinkCapability() failed: %s ",
+        nvmlInternalErrorString(ret));
     return ncclSystemError;
   }
   return ncclSuccess;
