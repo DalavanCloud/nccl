@@ -42,6 +42,7 @@ if [ "$DEBDIR" == "" ] && [ "$INSTALL" != "1" ]; then
 fi
 
 if [ "$mode" == "dlfw" ] && [ "$gpumodel" == "P100" ]; then
+  cd $BLDDIR
   $SHDIR/mxnet.sh $gpumodel
   $SHDIR/caffe2.sh $gpumodel
   $SHDIR/tensorflow.sh $gpumodel
@@ -49,6 +50,7 @@ if [ "$mode" == "dlfw" ] && [ "$gpumodel" == "P100" ]; then
   $SHDIR/cntk.sh $gpumodel
 elif [ "$mode" != "mpi" ] && [ "$mode" != "multinode" ]; then
   # test (single process)
+  cd $NCCLROOT
   make -j test.clean
   if [ "$INSTALL" == "1" ]; then
     make -j test.build
@@ -56,14 +58,7 @@ elif [ "$mode" != "mpi" ] && [ "$mode" != "multinode" ]; then
     make -j test.build NCCLDIR=${DEBDIR}
   fi
   cd $BLDDIR
-  if [ "$mode" == "" ]; then
-    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu
-    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu reorder
-    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu all
-    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu latency
-  else
-    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu $mode
-  fi
+  $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu $mode
 else
   # test (multi processes)
   cd $NCCLROOT
@@ -80,12 +75,14 @@ else
   fi
 
   # multinode test
-  if [ "$gpumodel" == "dgx1" ]; then
-    $SHDIR/multinode_perf_graphs.sh dgx1 2 16 8 8
-  elif [ "$gpumodel" == "P100" ]; then
-    $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
-  else
-    echo "No multi-node test on $gpumodel"
+  if [ "$mode" == "multinode" ]; then
+    if [ "$gpumodel" == "dgx1" ]; then
+      $SHDIR/multinode_perf_graphs.sh dgx1 2 16 8 8
+    elif [ "$gpumodel" == "P100" ]; then
+      $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
+    else
+      echo "No multi-node test on $gpumodel"
+    fi
   fi
 fi
 
