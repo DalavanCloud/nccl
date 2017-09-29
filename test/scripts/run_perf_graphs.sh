@@ -98,10 +98,10 @@ if [ "$mode" == "mpi" ] || [ "$mode" == "combo" ]; then
   path=$resdir/$gpumodel
   mkdir -p $path
   result=$path/$op.$ngpus
-  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000 -e 1960000 -i 40000 -w 20 -n 20 2>&1 | tee $result.out
+  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -x NCCL_LAUNCH_MODE -np $ngpus test/perf/${op}_perf -b 40000 -e 1960000 -i 40000 -w 20 -n 20 2>&1 | tee $result.out
   if [ "$mode" != "combo" ]; then
-    $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 2000000 -e 38000000 -i 2000000  -w 20 -n 5 2>&1 | tee -a $result.out
-    $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 40000000 -e 400000000 -i 40000000 -w 5 -n 1 2>&1 | tee -a $result.out
+    $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -x NCCL_LAUNCH_MODE -np $ngpus test/perf/${op}_perf -b 2000000 -e 38000000 -i 2000000  -w 20 -n 5 2>&1 | tee -a $result.out
+    $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -x NCCL_LAUNCH_MODE -np $ngpus test/perf/${op}_perf -b 40000000 -e 400000000 -i 40000000 -w 5 -n 1 2>&1 | tee -a $result.out
     return 0
   fi
 fi
@@ -112,8 +112,8 @@ if [ "$mode" == "mpi_latency" ] || [ "$mode" == "combo" ]; then
   path=$resdir/$gpumodel
   mkdir -p $path
   result=$path/$op.$ngpus
-  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 32 -e 1K -f 2 -w 20 -n 1000 2>&1 | tee $result.out
-  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -np $ngpus test/perf/${op}_perf -b 2K -e 64K -f 2 -w 20 -n 500 2>&1 | tee -a $result.out
+  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -x NCCL_LAUNCH_MODE -np $ngpus test/perf/${op}_perf -b 32 -e 1K -f 2 -w 20 -n 1000 2>&1 | tee $result.out
+  $salloc_cmd mpirun $mpi_hosts -x NCCL_DEBUG -x NCCL_LAUNCH_MODE -np $ngpus test/perf/${op}_perf -b 2K -e 64K -f 2 -w 20 -n 500 2>&1 | tee -a $result.out
   if [ "$mode" != "combo" ]; then
     return 0
   fi

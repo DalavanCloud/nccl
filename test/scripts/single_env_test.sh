@@ -52,3 +52,4 @@ test_env $gpumodel $maxgpu NCCL_RINGS $rings
 test_env $gpumodel $maxgpu NCCL_SHM_DISABLE 0 1
 test_env $gpumodel $maxgpu NCCL_NTHREADS 128 256 512
 test_env $gpumodel $maxgpu NCCL_BUFFSIZE 1048576 4194304 8388608
+test_env $gpumodel $maxgpu NCCL_LAUNCH_MODE GROUP PARALLEL
