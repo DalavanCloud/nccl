@@ -243,6 +243,7 @@ struct ncclIbRequest {
   struct ncclIbMr * ibMr;
   int done;
   int size;
+  int free;
 };
 
 struct ncclIbListenComm {
@@ -257,7 +258,7 @@ struct ncclIbReqs {
 struct ncclIbSendFifo {
   uint64_t addr;
   uint32_t rkey;
-  int ready;
+  uint32_t ready;
 };
 
 struct ncclIbSendComm {
@@ -268,7 +269,7 @@ struct ncclIbSendComm {
   struct ncclIbReqs reqs;
   struct ncclIbSendFifo fifo[MAX_REQUESTS];
   struct ibv_mr* fifoMr;
-  int fifoHead;
+  uint32_t fifoHead;
 };
 
 struct ncclIbGpuFlush {
@@ -280,10 +281,10 @@ struct ncclIbGpuFlush {
 };
 
 struct ncclIbRemFifo {
-  uint32_t rkey;
   uint64_t addr;
-  int tail;
-  struct ncclIbSendFifo elem;
+  uint32_t rkey;
+  uint32_t tail;
+  struct ncclIbSendFifo elems[MAX_REQUESTS];
   struct ibv_mr* mr;
   struct ibv_sge sge;
 };
@@ -464,8 +465,7 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
   // Retain remote fifo info and prepare my RDMA ops
   rComm->remFifo.rkey = remQpInfo.fifoRkey;
   rComm->remFifo.addr = remQpInfo.fifoAddr;
-  NCCLCHECK(wrap_ibv_reg_mr(&rComm->remFifo.mr, rComm->verbs.pd, &rComm->remFifo.elem, sizeof(struct ncclIbSendFifo), IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ));
-  rComm->remFifo.sge.addr = (uint64_t)&rComm->remFifo.elem;
+  NCCLCHECK(wrap_ibv_reg_mr(&rComm->remFifo.mr, rComm->verbs.pd, &rComm->remFifo.elems, sizeof(struct ncclIbSendFifo)*MAX_REQUESTS, IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ));
   rComm->remFifo.sge.length = sizeof(struct ncclIbSendFifo);
   rComm->remFifo.sge.lkey = rComm->remFifo.mr->lkey;
 
@@ -521,6 +521,7 @@ ncclResult_t ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbRequest** re
       r->ibMr = NULL;
       r->done = 0;
       r->size = -1;
+      r->free = 0;
       *req = r;
       return ncclSuccess;
     }
@@ -633,7 +634,7 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 
   // Wait for receiver to have posted the recv
   volatile struct ncclIbSendFifo* slot = comm->fifo + (comm->fifoHead%MAX_REQUESTS);
-  volatile int * readyPtr = &slot->ready;
+  volatile uint32_t * readyPtr = &slot->ready;
   while (*readyPtr == 0) sched_yield(); /*XXX:if commented, ibv_post_send in ncclIbPostFifo should also be commented*/
 #ifdef USE_RDMA_WRITE
   wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
@@ -656,13 +657,16 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   struct ncclIbRequest* req;
   NCCLCHECK(ncclIbGetRequest(&comm->reqs, &req));
   req->verbs = &comm->verbs;
+  req->free = 1; // Not a user req ; free as soon as it is complete.
   wr.wr_id = (uint64_t)req;
 
-  comm->remFifo.elem.addr = addr;
-  comm->remFifo.elem.rkey = rkey;
-  comm->remFifo.elem.ready = 1;
+  struct ncclIbSendFifo* localElem = comm->remFifo.elems + (comm->remFifo.tail % MAX_REQUESTS);
+  localElem->addr = addr;
+  localElem->rkey = rkey;
+  localElem->ready = 1;
   wr.wr.rdma.remote_addr = comm->remFifo.addr + (comm->remFifo.tail % MAX_REQUESTS) * sizeof(struct ncclIbSendFifo);
   wr.wr.rdma.rkey = comm->remFifo.rkey;
+  comm->remFifo.sge.addr = (uint64_t)localElem;
   wr.sg_list = &comm->remFifo.sge;
   wr.num_sge = 1;
   wr.opcode = IBV_WR_RDMA_WRITE;
@@ -671,12 +675,7 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   struct ibv_send_wr* bad_wr;
   NCCLCHECK(wrap_ibv_post_send(comm->qp, &wr, &bad_wr));
   comm->remFifo.tail++;
-  
-  int done = 0;
-  while (done == 0) {
-    NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
-  }
-  
+
   return ncclSuccess;
 }
 
@@ -773,6 +772,10 @@ int ncclIbTest(void* request, int* done, int* size) {
           if (doneReq->ibMr->refcnt < 0) WARN("doneReq %p MR %p refcount now %d", doneReq, doneReq->ibMr, doneReq->ibMr->refcnt);
         }
         doneReq->done = 1;
+        if (doneReq->free == 1) {
+          // This is an internal (FIFO post) req. Free it immediately.
+          doneReq->used = 0;
+        }
       }  
     }
   }
