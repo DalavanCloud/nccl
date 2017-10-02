@@ -232,7 +232,6 @@ struct ncclIbVerbs {
   struct ibv_pd* pd;
   struct ibv_comp_channel* cc;
   struct ibv_cq* cq;
-  int numRequests;
   struct ncclIbMr mrPool[MAX_REQUESTS];
   int mrRotation;
 };
@@ -252,7 +251,6 @@ struct ncclIbListenComm {
 };
 
 struct ncclIbReqs {
-  int nreqs;
   struct ncclIbRequest* requests;
 };
 
@@ -510,10 +508,9 @@ int ncclIbAccept(void* listenComm, void** recvComm) {
 }
 
 ncclResult_t ncclIbGetRequest(struct ncclIbReqs* reqs, struct ncclIbRequest** req) {
-  if (reqs->nreqs == 0) {
+  if (reqs->requests == NULL) {
     reqs->requests = (struct ncclIbRequest*)malloc(MAX_REQUESTS*sizeof(struct ncclIbRequest));
     memset(reqs->requests, 0, MAX_REQUESTS*sizeof(struct ncclIbRequest));
-    reqs->nreqs = MAX_REQUESTS;
   }
   for (int i=0; i<MAX_REQUESTS; i++) {
     struct ncclIbRequest* r = reqs->requests+i;
@@ -634,14 +631,6 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
   wr.opcode = IBV_WR_SEND;
   wr.send_flags = IBV_SEND_SIGNALED;
 
-  // Wait for WR to be available in the Send Queue
-  while (comm->verbs.numRequests == MAX_REQUESTS) { 
-     int done = 0;
-     /* This request is not even posted, but that should make the CQ progress */
-     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
-     if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
-  }
-
   // Wait for receiver to have posted the recv
   volatile struct ncclIbSendFifo* slot = comm->fifo + (comm->fifoHead%MAX_REQUESTS);
   volatile int * readyPtr = &slot->ready;
@@ -657,7 +646,6 @@ int ncclIbIsend(void* sendComm, void* data, int size, int type, void** request) 
 
   struct ibv_send_wr* bad_wr;
   NCCLCHECK(wrap_ibv_post_send(comm->qp, &wr, &bad_wr));
-  comm->verbs.numRequests++;
   *request = req;
   return 0;
 }
@@ -680,17 +668,8 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, uint32_t rkey, uint64_t
   wr.opcode = IBV_WR_RDMA_WRITE;
   wr.send_flags = IBV_SEND_SIGNALED;
 
-  // Wait for WR to be available in the RQ
-  while (comm->verbs.numRequests == MAX_REQUESTS) { 
-     int done = 0;
-     /* This request is not even posted, but that should make the CQ progress */
-     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
-     if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
-  }
-
   struct ibv_send_wr* bad_wr;
   NCCLCHECK(wrap_ibv_post_send(comm->qp, &wr, &bad_wr));
-  comm->verbs.numRequests++;
   comm->remFifo.tail++;
   
   int done = 0;
@@ -727,17 +706,8 @@ int ncclIbIrecv(void* recvComm, void* data, int size, int type, void** request) 
     wr.num_sge = 1;
   }
 
-  // Wait for WR to be available in the RQ
-  while (comm->verbs.numRequests == MAX_REQUESTS) { 
-     int done = 0;
-     /* This request is not even posted, but that should make the CQ progress */
-     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
-     if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
-  }
-
   struct ibv_recv_wr* bad_wr;
   NCCLCHECK(wrap_ibv_post_recv(comm->qp, &wr, &bad_wr));
-  comm->verbs.numRequests++;
   *request = req;
 
   // Post to FIFO to notify sender
@@ -765,17 +735,8 @@ int ncclIbFlush(void* recvComm, void* data, int size) {
   wr.opcode = IBV_WR_RDMA_READ;
   wr.send_flags = IBV_SEND_SIGNALED;
 
-  // Wait for WR to be available in the RQ
-  while (comm->verbs.numRequests == MAX_REQUESTS) { 
-     int done;
-     /* make the CQ progress */
-     NCCLCHECK((ncclResult_t)ncclIbTest(req, &done, NULL));
-     if (comm->verbs.numRequests == MAX_REQUESTS) sched_yield();
-  }
-
   struct ibv_send_wr* bad_wr;
   NCCLCHECK(wrap_ibv_post_send(comm->gpuFlush.qp, &wr, &bad_wr));
-  comm->verbs.numRequests++;
 
   int done = 0;
   while (done == 0) {
@@ -797,7 +758,6 @@ int ncclIbTest(void* request, int* done, int* size) {
         WARN("NET/IB : Got completion with error %d, opcode %d, vendor err %d", wc.status, wc.opcode, wc.vendor_err);
         return 1;
       }
-      r->verbs->numRequests--;
 
       struct ncclIbRequest* doneReq = (struct ncclIbRequest*)wc.wr_id;
       if (doneReq) {
