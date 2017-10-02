@@ -48,7 +48,31 @@ if [ "$mode" == "dlfw" ] && [ "$gpumodel" == "P100" ]; then
   $SHDIR/tensorflow.sh $gpumodel
   $SHDIR/pytorch.sh $gpumodel
   $SHDIR/cntk.sh $gpumodel
-elif [ "$mode" != "mpi" ] && [ "$mode" != "multinode" ]; then
+elif [[ "$mode" == *"mpi"* ]] || [[ "$mode" == *"multinode"* ]]; then
+  # test (multi processes)
+  cd $NCCLROOT
+  make -j test.clean
+  if [ "$INSTALL" == "1" ]; then
+    make -j test.build MPI=1
+  else
+    make -j test.build MPI=1 NCCLDIR=${DEBDIR}
+  fi
+  cd $BLDDIR
+  if [[ "$mode" == *"mpi"* ]]; then
+    echo "Testing $mode..."
+    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu $mode
+  fi
+  # multinode test
+  if [[ "$mode" == *"multinode"* ]]; then
+    if [ "$gpumodel" == "dgx1" ]; then
+      $SHDIR/multinode_perf_graphs.sh dgx1 2 16 8 8
+    elif [ "$gpumodel" == "P100" ]; then
+      $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
+    else
+      echo "No multi-node test on $gpumodel"
+    fi
+  fi
+else
   # test (single process)
   cd $NCCLROOT
   make -j test.clean
@@ -59,31 +83,6 @@ elif [ "$mode" != "mpi" ] && [ "$mode" != "multinode" ]; then
   fi
   cd $BLDDIR
   $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu $mode
-else
-  # test (multi processes)
-  cd $NCCLROOT
-  make -j test.clean
-  if [ "$INSTALL" == "1" ]; then
-    make -j test.build MPI=1
-  else
-    make -j test.build MPI=1 NCCLDIR=${DEBDIR}
-  fi
-  cd $BLDDIR
-  if [ "$mode" == "mpi" ]; then
-    echo "Testing MPI..."
-    $SHDIR/run_perf_graphs.sh $gpumodel $maxgpu mpi
-  fi
-
-  # multinode test
-  if [ "$mode" == "multinode" ]; then
-    if [ "$gpumodel" == "dgx1" ]; then
-      $SHDIR/multinode_perf_graphs.sh dgx1 2 16 8 8
-    elif [ "$gpumodel" == "P100" ]; then
-      $SHDIR/multinode_perf_graphs.sh gpu-verbs 2 16 8 8
-    else
-      echo "No multi-node test on $gpumodel"
-    fi
-  fi
 fi
 
 echo "NCCL_Complete" > state

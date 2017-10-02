@@ -45,20 +45,17 @@ if [ "$mode" == "all" ] || [ "$mode" == "combo" ]; then
   path=$resdir/$gpumodel
   mkdir -p $path/pow2
   mkdir -p $path/npow2
-  if [ "$mode" == "combo" ]; then
-    otypes="sum"
-  else
-    otypes="sum max min prod"
-  fi
   for dtype in float double half int8 int32 int64 uint8 uint32 uint64 ; do
-    for otype in $otypes ; do
-      echo "Running test/perf/${op}_perf on $ngpus GPUs [$dtype x $otype] ..."
-      result=$op.$ngpus.$dtype.$otype
-      if [ "$mode" != "combo" ]; then
-        $srun_cmd test/perf/${op}_perf -t $ngpus -p 1 -d $dtype -o $otype -b 64 -e 4194304 -f 256 -w 1 -n 5 2>&1 | tee $path/pow2/$result.out
-      fi
-      $srun_cmd test/perf/${op}_perf -t $ngpus -p 1 -d $dtype -o $otype -b 63 -e 4357647 -f 263 -w 1 -n 5 2>&1 | tee $path/npow2/$result.out
-    done
+    echo "Running test/perf/${op}_perf on $ngpus GPUs [$dtype] ..."
+    result=$op.$ngpus.$dtype.sum
+    $srun_cmd test/perf/${op}_perf -t $ngpus -p 1 -d $dtype -o sum -b 64 -e 4194304 -f 256 -w 1 -n 5 2>&1 | tee $path/pow2/$result.out
+    $srun_cmd test/perf/${op}_perf -t $ngpus -p 1 -d $dtype -o sum -b 63 -e 4357647 -f 263 -w 1 -n 5 2>&1 | tee $path/npow2/$result.out
+  done
+  for otype in sum max min prod ; do
+    echo "Running test/perf/${op}_perf on $ngpus GPUs [$otype] ..."
+    result=$op.$ngpus.float.$otype
+    $srun_cmd test/perf/${op}_perf -t $ngpus -p 1 -d float -o $otype -b 64 -e 4194304 -f 256 -w 1 -n 5 2>&1 | tee $path/pow2/$result.out
+    $srun_cmd test/perf/${op}_perf -t $ngpus -p 1 -d float -o $otype -b 63 -e 4357647 -f 263 -w 1 -n 5 2>&1 | tee $path/npow2/$result.out
   done
   if [ "$mode" != "combo" ]; then
     return 0
