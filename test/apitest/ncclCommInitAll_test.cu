@@ -40,29 +40,6 @@ TEST_F(ncclCommInitAll_test, ndev_0) {
 TEST_F(ncclCommInitAll_test, ndev_negative) {
     ASSERT_EQ(ncclInvalidArgument, ncclCommInitAll(comms, -1, devList));
 };
-// TODO: fix this
-TEST_F(ncclCommInitAll_test, DISABLED_ndev_toomany) {
-    int ndev = 100;
-    ncclComm_t* pcomms = (ncclComm_t*)calloc(ndev, sizeof(ncclComm_t));
-    EXPECT_EQ(ncclInvalidArgument, ncclCommInitAll(pcomms, ndev, NULL));
-    if (NULL != pcomms) {
-        for (int i = 0; i < ndev; ++i) {
-            ncclCommDestroy(pcomms[i]);
-            pcomms[i] = NULL;
-        }
-        free(pcomms);
-        pcomms = NULL;
-    }
-};
-#if 1 // useless?
-TEST_F(ncclCommInitAll_test, ndev_toomany_and_devList_allZero) {
-    int ndev = 100;
-    comms = (ncclComm_t*)calloc(ndev, sizeof(ncclComm_t));
-    devList = (int*)calloc(ndev, sizeof(int));
-    ASSERT_EQ(ncclInvalidArgument,
-              ncclCommInitAll(comms, ndev, devList));
-};
-#endif
 // 3.
 TEST_F(ncclCommInitAll_test, devList_null) {
     ASSERT_EQ(ncclSuccess, ncclCommInitAll(comms, nVis, NULL));

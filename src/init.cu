@@ -635,7 +635,7 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   NCCLCHECK(PtrCheck(comms, "CommInitAll", "comms"));
   int devcount=0;
   cudaGetDeviceCount(&devcount);
-  if (ndev < 1 || ndev > devcount) {
+  if (ndev < 1) {
     WARN("Invalid device count requested : %d", ndev);
     return ncclInvalidArgument;
   }
