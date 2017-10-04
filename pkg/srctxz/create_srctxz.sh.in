@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# To run from $BUILDDIR/
+
+cd ..
+NCCLDIR=`basename $PWD`
+
+cd ..
+NCCL_MAJOR=${nccl:Major}
+NCCL_MINOR=${nccl:Minor}
+NCCL_PATCH=${nccl:Patch}
+
+NCCLNAME="nccl-src_${NCCL_MAJOR}.${NCCL_MINOR}.${NCCL_PATCH}"
+
+tar --exclude fortran \
+    --exclude test \
+    --exclude doc \
+    --exclude build \
+    --exclude ".git*" \
+    --exclude share \
+    --exclude ompi \
+    --exclude pkg/srctxz \
+    --transform "s/^$NCCLDIR/$NCCLNAME/" -Jcf $NCCLNAME.txz --owner=0 --group=0 $NCCLDIR

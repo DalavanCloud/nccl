@@ -1,39 +1,37 @@
 #### PACKAGING ####
-include ../makefiles/common.mk
-include ../makefiles/version.mk
-BUILDDIR ?= $(abspath ../build)
-DEBIANDIR  := $(BUILDDIR)/debian
+include ../../makefiles/common.mk
+include ../../makefiles/version.mk
+BUILDDIR ?= $(abspath ../../build)
+DEBPREPDIR := $(BUILDDIR)/debian
+PKGDIR  := $(BUILDDIR)/pkg/deb/
 
 DEBGEN_IN  := $(wildcard *.in)
 DEBGEN     := $(DEBGEN_IN:.in=)
 DEBFILES   := compat copyright libnccl-dev.install libnccl-dev.docs libnccl2.docs rules $(DEBGEN)
-DEBTARGETS := $(patsubst %, $(DEBIANDIR)/%, $(DEBFILES))
+DEBTARGETS := $(patsubst %, $(DEBPREPDIR)/%, $(DEBFILES))
 
 PKG_REVISION   ?= 3
 PKG_TIMESTAMP  := $(shell date -R)
-PKG_ARCH       ?= amd64
+ARCH           := $(shell uname -m)
+PKG_ARCH       ?= $(shell uname -m | sed -e "s/x86_64/amd64/g" | sed -e "s/ppc64le/ppc64el/g")
 PKG_MULTIARCH  ?= $(shell gcc -print-multiarch)
 
-build : $(DEBTARGETS)
+prep : $(DEBTARGETS)
+	make -C ../.. lic BUILDDIR=$(BUILDDIR)
 
-deb : build
+build : prep
+	make -C ../.. src.build BUILDDIR=$(BUILDDIR)
 	@printf "Building Debian package\n"
 	(cd $(BUILDDIR); debuild -eLD_LIBRARY_PATH -uc -us -d -b)
-	mkdir -p $(BUILDDIR)/deb/
-	mv $(BUILDDIR)/../libnccl*.deb $(BUILDDIR)/deb/
-
-txz : build
-	@printf "Building tar.xz package\n"
-	(cd $(BUILDDIR); bash debian/create_txz.sh)
-	mkdir -p $(BUILDDIR)/txz/
-	mv $(BUILDDIR)/../nccl*.txz $(BUILDDIR)/txz/
+	mkdir -p $(PKGDIR)
+	mv $(BUILDDIR)/../libnccl*.deb $(PKGDIR)/
 
 clean:
-	rm -Rf $(DEBIANDIR)
+	rm -Rf $(DEBPREPDIR) $(PKGDIR)
 
-$(DEBIANDIR)/% : %.in
+$(DEBPREPDIR)/% : %.in
 	@printf "Generating %-35s > %s\n" $< $@
-	mkdir -p $(DEBIANDIR)
+	mkdir -p $(DEBPREPDIR)
 	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
 	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
 	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
@@ -45,7 +43,7 @@ $(DEBIANDIR)/% : %.in
 	    -e "s/\$${pkg:MultiArch}/$(PKG_MULTIARCH)/g" \
 	    $< > $@
 
-$(DEBIANDIR)/% : %
-	@printf "Grabbing  %-35s > %s\n" $< $@
-	mkdir -p $(DEBIANDIR)
+$(DEBPREPDIR)/% : %
+	@printf "Grabbing   %-35s > %s\n" $< $@
+	mkdir -p $(DEBPREPDIR)
 	cp -f $< $@
