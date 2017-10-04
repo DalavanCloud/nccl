@@ -11,7 +11,8 @@ DEBTARGETS := $(patsubst %, $(DEBIANDIR)/%, $(DEBFILES))
 
 PKG_REVISION   ?= 1
 PKG_TIMESTAMP  := $(shell date -R)
-PKG_ARCH       ?= amd64
+ARCH           := $(shell uname -m)
+PKG_ARCH       ?= $(shell uname -m | sed -e "s/x86_64/amd64/g" | sed -e "s/ppc64le/ppc64el/g")
 PKG_MULTIARCH  ?= $(shell gcc -print-multiarch)
 
 build : $(DEBTARGETS)
