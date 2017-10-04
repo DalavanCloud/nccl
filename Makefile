@@ -8,26 +8,23 @@
 default : src.build
 BUILDDIR ?= $(abspath ./build)
 ABSBUILDDIR := $(abspath $(BUILDDIR))
-TARGETS := src test fortran debian doc
-all:   ${TARGETS:%=%.build}
+TARGETS := src test pkg
 clean: ${TARGETS:%=%.clean}
-fortran.build test.build: src.build
-%.build:
-	${MAKE} -C $* build BUILDDIR=${ABSBUILDDIR}
-
-%.clean:
-	${MAKE} -C $* clean
-
+test.build: src.build
 LICENSE_FILES := NCCL-SLA.txt COPYRIGHT.txt
 LICENSE_TARGETS := $(LICENSE_FILES:%=$(BUILDDIR)/%)
 lic: $(LICENSE_TARGETS)
 
 ${BUILDDIR}/%.txt: %.txt
+	@printf "Copying    %-35s > %s\n" $< $@
 	mkdir -p ${BUILDDIR}
 	cp $< $@
 
-deb: src.build lic
-	${MAKE} -C debian deb
+src.%:
+	${MAKE} -C src $* BUILDDIR=${ABSBUILDDIR}
 
-txz: src.build lic
-	${MAKE} -C debian txz
+test.%:
+	${MAKE} -C test $* BUILDDIR=${ABSBUILDDIR}
+
+pkg.%:
+	${MAKE} -C pkg $* BUILDDIR=${ABSBUILDDIR}
