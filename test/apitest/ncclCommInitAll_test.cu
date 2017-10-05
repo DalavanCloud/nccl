@@ -40,6 +40,13 @@ TEST_F(ncclCommInitAll_test, ndev_0) {
 TEST_F(ncclCommInitAll_test, ndev_negative) {
     ASSERT_EQ(ncclInvalidArgument, ncclCommInitAll(comms, -1, devList));
 };
+TEST_F(ncclCommInitAll_test, ndev_toomany_and_devList_allZero) {
+    nVis = 100;
+    comms = (ncclComm_t*)calloc(nVis, sizeof(ncclComm_t));
+    devList = (int*)calloc(nVis, sizeof(int));
+    ASSERT_EQ(ncclSuccess,
+              ncclCommInitAll(comms, nVis, devList));
+};
 // 3.
 TEST_F(ncclCommInitAll_test, devList_null) {
     ASSERT_EQ(ncclSuccess, ncclCommInitAll(comms, nVis, NULL));
