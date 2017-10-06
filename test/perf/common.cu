@@ -460,6 +460,11 @@ void startColl(struct threadArgs_t* args, ncclDataType_t type, ncclRedOp_t op, i
 
   if (swap_args) {
       args = (struct threadArgs_t*)args->proc_args + (args->thread + thread_offset)%args->nThreads;
+      if (args->nGpus == 1) {
+        int cudaDev;
+        NCCLCHECK(ncclCommCuDevice(args->comms[0], &cudaDev));
+        CUDACHECK(cudaSetDevice(cudaDev));
+      }
   }
 
   if (args->nGpus == 1) {
