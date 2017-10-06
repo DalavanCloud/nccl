@@ -1,0 +1,40 @@
+MXNet
+
+# Environment
+
+export LD_LIBRARY_PATH=<NCCL_BUILD_PATH>:$LD_LIBRARY_PATH
+
+# Compile
+
+cp make/config.mk . && \
+    echo "USE_CUDA=1" >> config.mk && \
+    echo "USE_CUDNN=1" >> config.mk && \
+    echo "CUDA_ARCH :=" \
+         "-gencode arch=compute_35,code=sm_35" \
+         "-gencode arch=compute_52,code=sm_52" \
+         "-gencode arch=compute_60,code=sm_60" \
+         "-gencode arch=compute_61,code=sm_61" >> config.mk && \
+    echo "USE_CUDA_PATH=/usr/local/cuda" >> config.mk && \
+    echo "USE_NCCL=1" >> config.mk
+
+make -j
+
+# Run 
+
+w/o NCCL:
+python <dir-with-mxnet>/example/image-classification/train_imagenet.py --gpu 0,1,2,3,4,5,6,7 --batch-size 1024 --num-epochs 1 --disp-batches 100 --network resnet-v1 --num-layers 50 --dtype float16 --benchmark 1
+
+With NCCL allreduce: 
+python <dir-with-mxnet>/example/image-classification/train_imagenet.py --gpu 0,1,2,3,4,5,6,7 --batch-size 1024 --num-epochs 1 --disp-batches 100 --network resnet-v1 --num-layers 50 --dtype float16 --benchmark 1 --kv-store nccl_allreduce
+
+With NCCL reduce-scatter and all-gather (which should be worse than allreduce path): 
+python <dir-with-mxnet>/example/image-classification/train_imagenet.py --gpu 0,1,2,3,4,5,6,7 --batch-size 1024 --num-epochs 1 --disp-batches 100 --network resnet-v1 --num-layers 50 --dtype float16 --benchmark 1 --kv-store nccl
+
+* You may play with the --batch-size parameter (it is the global batch size, so each GPU gets ⅛ of it), the lines shown assume 128 per GPU, which is large (I think we could fit 192 per GPU, but did not test that). To decrease latency tolerance try with lower batch size 
+
+* To do test with real data you need to do this (this line assumes that data is in /data, on lokis in dbcluster change /data to /raid/dldata): 
+python <dir-with-mxnet>/example/image-classification/train_imagenet.py --gpu 0,1,2,3,4,5,6,7 --batch-size 1024 --num-epochs 1 --data-train /data/imagenet/train-480-val-256-recordio/train.rec --data-val /data/imagenet/train-480-val-256-recordio/val.rec --disp-batches 100 --network resnet-v1 --num-layers 50 --data-nthreads 40 --min-random-scale 0.533 --max-random-shear-ratio 0 --max-random-rotate-angle 0 --max-random-h 0 --max-random-l 0 --max-random-s 0 --dtype float16
+
+* for tests without NCCL and add either “--kv-store nccl_allreduce” or “--kv-store nccl” for tests with NCCL 
+
+* If you want less iterations in synthetic case (e.g. for profiling), then modify https://nvdl.githost.io/dgx/mxnet/blob/17.09-devel/example/image-classification/common/data.py#L113 with something less than 1000 (this is iteration count in synthetic case)

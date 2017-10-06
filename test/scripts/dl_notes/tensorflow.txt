@@ -1,0 +1,29 @@
+TensorFlow
+
+# Environment
+
+export LD_LIBRARY_PATH=<NCCL_BUILD_DIR>:$LD_LIBRARY_PATH
+
+# Compile
+
+$ bazel build --config=opt --config=cuda //tensorflow/tools/pip_package:build_pip_package 
+
+$ bazel-bin/tensorflow/tools/pip_package/build_pip_package /tmp/folder/of/your/choice
+
+$ python -m pip install /tmp/folder/of/your/choice/<tensorflow wheel file> --user
+
+$ python -m pip install --upgrade /tmp/folder/of/your/choice/<tensorflow wheel file> --user
+
+Please make sure you use the “--user” option. Python packages will be installed under $HOME/.local/
+
+# RUN
+
+cd /home/nightly/install/tf_benchmarks/scripts/tf_cnn_benchmarks
+
+With NCCL: 
+srun -p P100 -c 8  python tf_cnn_benchmarks.py --local_parameter_device=gpu --num_gpus=8 --batch_size=128 --model=resnet50 --variable_update=replicated --use_nccl=True
+
+w/o NCCL:
+srun -p P100 -c 8  python tf_cnn_benchmarks.py --local_parameter_device=gpu --num_gpus=8 --batch_size=128 --model=resnet50 --variable_update=replicated --use_nccl=False
+
+(Note if you don’t set --use_nccl to False, TensorFlow will use NCCL by default)

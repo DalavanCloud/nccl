@@ -1,0 +1,55 @@
+CNTK
+
+Note: this is no command option to enable or disable NCCL when running a benchmark with CNTK, the NCCL feature is either built in or excluded from CNTK during compilation (see below). Hence, two versions of CNTK are compiled under /home/nightly/install. Directory "cntk" contains the version compiled with NCCL, and directory "cntk-no-nccl" contains the version without NCCL. 
+
+# Environment
+source /home/nightly/install/cuda.sh
+source /home/nightly/install/ompi_setenv.sh openmpi
+export PATH=/home/nightly/install/cntk/build/release/bin:/home/nightly/install/anaconda3/bin:$PATH
+export LD_LIBRARY_PATH=/home/nightly/install/libzip-1.1.2/lib:$LD_LIBRARY_PATH
+source activate cntk-py27
+
+If there is no “cntk-py27” environment or it does not po, you can create one by :
+$ conda env create --file [CNTK clone root]/Scripts/install/linux/conda-linux-cntk-py27-environment.yml
+
+# Compile
+cd [CNTK clone root]
+mkdir build/release -p
+mkdir build/gpu/release -p
+cd build/gpu && ln -s ../release release && cd ..
+cd build/release
+export LD_LIBRARY_PATH=$PWD/lib:$LD_LIBRARY_PATH
+
+../../configure \
+--cuda=yes \
+--gdr=yes \
+--with-cuda=/usr/local/cuda \
+--with-gdk-include=/usr/local/cuda/include \
+--with-gdk-nvml-lib=/usr/local/cuda/lib64/stubs \
+--with-mkl=/home/nightly/install/CNTKCustomMKL \
+--with-protobuf=/home/nightly/install/protobuf-3.1.0 \
+--with-cub=/home/nightly/install/cub.master \
+--with-mpi=/opt/mpi/openmpi \
+--with-boost=/home/nightly/install/boost_1_60_0 \
+--with-swig=/home/nightly/install/swig-3.0.10 \
+--with-py27-path=/home/nightly/install/anaconda3/envs/cntk-py27 \
+--with-opencv=/home/nightly/install/opencv-3.1.0 \
+--with-libzip=/home/nightly/install/libzip-1.1.2 \
+--with-nccl=/home/nightly/install/nccl.master/build 
+2>&1 | tee config.log
+
+To build without NCCL, delete the —with-nccl line and delete the nccl line in Config.make
+
+make -j 2 all 2>&1 | tee make.log
+
+# Set up python env
+cd [CNTK clone root]
+export PYTHONPATH=$PWD/bindings/python:$PYTHONPATH
+cd [CNTK clone root]/bindings/python
+export LD_LIBRARY_PATH=$PWD/cntk/libs:$LD_LIBRARY_PATH
+
+# Run
+cd /home/nightly/install/cntk_tests
+salloc -p P100 -n 8 ./resnet50_cntk.sh
+
+A log file will be generated.

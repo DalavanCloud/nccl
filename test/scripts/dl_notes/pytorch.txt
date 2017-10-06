@@ -1,0 +1,33 @@
+Pytorch
+
+# Environment
+
+$ export PATH=/home/nightly/install/conda/envs/pytorch-py35/bin:$PATH
+
+(pytorch only supports python 3.5 and does not provide good support to python 2.7)
+
+# Compile
+
+In pytorch/pytorch, do:
+
+$ python setup.py install --user
+
+In pytorch/vision, do:
+
+$ python setup.py install --user
+
+# Run
+
+In pytorch/examples/imagenet, do:
+
+$ pip install --user -r requirements.txt
+
+You will see packages generated in ~/.local/lib/python3.5/site-packages
+
+To run resnet50, run:
+
+$ python main.py -a resnet50 /data/imagenet
+
+1) It will use all available GPUs unless otherwise specified by CUDA_VISIBLE_DEVICES
+2) It will only output batch time, to get "image/sec", divide batch size (default 256) by batch time
+3) For more options, see README into that folder
