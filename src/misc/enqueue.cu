@@ -50,7 +50,7 @@ ncclResult_t ncclCpuBarrierCheckin(ncclComm_t comm) {
     if (val+1 == comm->intraRanks) {
       if (comm->launchMode == ncclComm::GROUP) {
         // I'm the last. Launch all operations.
-        ncclLaunchCooperativeKernelMultiDevice(comm->intraParams, comm->intraCudaDevs, comm->intraRanks, *comm->intraCGMode);
+        NCCLCHECK(ncclLaunchCooperativeKernelMultiDevice(comm->intraParams, comm->intraCudaDevs, comm->intraRanks, *comm->intraCGMode));
       }
       // Reset the barrier.
       comm->intraBarrier[comm->intraPhase^1] = 0;
