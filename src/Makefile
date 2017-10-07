@@ -23,6 +23,7 @@ LIBTARGET  := $(LIBNAME:%=%.$(NCCL_MAJOR).$(NCCL_MINOR).$(NCCL_PATCH))
 STATICLIBTARGET := $(STATICLIBNAME)
 LIBOBJ     := $(LIBSRCFILES:%.cu=$(OBJDIR)/%.o)
 DEPFILES   := $(LIBOBJ:%.o=%.d)
+LDFLAGS    := -L${CUDA_LIB} -lcudart_static -lrt
 
 ##### rules
 build : lib staticlib
@@ -42,11 +43,10 @@ nccl.h : nccl.h.in
 	    -e "s/\$${nccl:Suffix}/$(NCCL_SUFFIX)/g" \
 	    $< > $@
 
-#$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ) -libverbs
 $(LIBDIR)/$(LIBTARGET):
 	@printf "Linking    %-35s > %s\n" $(LIBTARGET) $@
 	mkdir -p $(LIBDIR)
-	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LDFLAGS) $(LIBOBJ)
+	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LIBOBJ) $(LDFLAGS)
 	ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
 	ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
 
