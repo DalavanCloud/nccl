@@ -1,0 +1,30 @@
+Caffe2
+
+Note:
+If you need to pull updates from nvdl.githost.io/caffe2, please remember to merge with our local branch call 'nccl'. The nccl branch contains modifications needed to run resnet50 with NCCL.
+
+# Environment Variables
+1. CUDA
+$ source /home/nightly/install/cuda.sh
+
+2. Caffe2 envs
+$ export CAFFE2_ROOT=<CAFFE2_ROOT_DIR, e.g. /home/nightly/install/caffe2>
+$ export PYTHONPATH=$PYTHONPATH:$CAFFE2_ROOT/build
+$ export LD_LIBRARY_PATH=<NCCL_BUILD_DIR>:$LD_LIBRARY_PATH
+or 
+$ source caffe2_env.sh
+(under the root folder of Caffe2, you can modify it per your need)
+
+# Compile
+
+$ make
+
+# Run
+
+$ cd build/caffe2/python/examples
+
+Without NCCL:
+$ srun -p P100 -c 8 python resnet50_trainer.py --num_gpus 8 --train_data /mnt/linuxqa/nightly/dldata/imagenet/train-lmdb-256x256
+
+With NCCL:
+$ srun -p P100 -c 8 python resnet50_trainer.py --num_gpus 8 --train_data /mnt/linuxqa/nightly/dldata/imagenet/train-lmdb-256x256 --use_nccl
