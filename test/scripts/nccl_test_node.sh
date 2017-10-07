@@ -45,9 +45,9 @@ if [ "$mode" == "dlfw" ] && [ "$gpumodel" == "P100" ]; then
   cd $BLDDIR
   $SHDIR/mxnet.sh $gpumodel
   $SHDIR/caffe2.sh $gpumodel
-  $SHDIR/tensorflow.sh $gpumodel
-  $SHDIR/pytorch.sh $gpumodel
-  $SHDIR/cntk.sh $gpumodel
+  #$SHDIR/tensorflow.sh $gpumodel
+  #$SHDIR/pytorch.sh $gpumodel
+  #$SHDIR/cntk.sh $gpumodel
 elif [[ "$mode" == *"mpi"* ]] || [[ "$mode" == *"multinode"* ]]; then
   # test (multi processes)
   cd $NCCLROOT
