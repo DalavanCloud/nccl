@@ -12,6 +12,8 @@ BUILDDIR ?= $(abspath ../build)
 ABSBUILDDIR := $(abspath $(BUILDDIR))
 TARGETS := debian txz
 all:   ${TARGETS:%=%.build}
+prep:  ${TARGETS:%=%.prep}
+build: ${TARGETS:%=%.build}
 clean: ${TARGETS:%=%.clean}
 
 %.prep:
