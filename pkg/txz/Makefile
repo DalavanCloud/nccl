@@ -9,7 +9,6 @@ TXZGEN_IN  := $(wildcard *.in)
 TXZGEN     := $(TXZGEN_IN:.in=)
 TXZTARGETS := $(patsubst %, $(TXZPREPDIR)/%, $(TXZGEN))
 
-PKG_REVISION   ?= 3
 PKG_ARCH       := $(shell uname -m)
 
 prep: $(TXZTARGETS)
