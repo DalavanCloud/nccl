@@ -68,7 +68,6 @@ struct ncclSocketRequest {
 };
 
 struct ncclSocketReqs {
-  int nreqs;
   struct ncclSocketRequest* requests;
 };
 
@@ -79,7 +78,6 @@ struct ncclSocketComm {
 
 struct ncclSocketComm* ncclSocketNewComm() {
   struct ncclSocketComm* comm = (struct ncclSocketComm*)malloc(sizeof(struct ncclSocketComm));
-  comm->reqs.nreqs = 0;
   comm->reqs.requests = NULL;
   comm->fd = -1;
   return comm;
@@ -118,10 +116,9 @@ int ncclSocketAccept(void* listenComm, void** recvComm) {
 #define MAX_REQUESTS 128
 
 ncclResult_t ncclSocketGetRequest(struct ncclSocketReqs* reqs, struct ncclSocketRequest** req) {
-  if (reqs->nreqs == 0) {
+  if (reqs->requests == NULL) {
     reqs->requests = (struct ncclSocketRequest*)malloc(MAX_REQUESTS*sizeof(struct ncclSocketRequest));
     memset(reqs->requests, 0, MAX_REQUESTS*sizeof(struct ncclSocketRequest));
-    reqs->nreqs = MAX_REQUESTS;
   }
   for (int i=0; i<MAX_REQUESTS; i++) {
     struct ncclSocketRequest* r = reqs->requests+i;
