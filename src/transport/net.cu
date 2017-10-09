@@ -434,7 +434,7 @@ ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
 
   while (head < end) {
     idle++;
-    while ((tail < head + args->substeps) && (tail < *nextHead + args->substeps) && (tail < end)) {
+    if ((tail < head + args->substeps) && (tail < *nextHead + args->substeps) && (tail < end)) {
       int slot = tail%args->substeps;
       NCCLCHECK(ncclNetIrecv(resources->netRecvComm, localBuff+slot*sliceSize, sliceSize, ptrType, requests+slot));
       tail++;
