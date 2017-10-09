@@ -1,9 +1,9 @@
 ##### version
 NCCL_MAJOR   := 2
 NCCL_MINOR   := 1
-NCCL_PATCH   := 0
+NCCL_PATCH   := 1
 NCCL_SUFFIX  :=
-PKG_REVISION := 2
+PKG_REVISION := 1
 CUDA_VERSION ?= $(shell ls $(CUDA_LIB)/libcudart.so.* | head -1 | rev | cut -d "." -f -2 | rev)
 CUDA_MAJOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 1)
 CUDA_MINOR = $(shell echo $(CUDA_VERSION) | cut -d "." -f 2)
