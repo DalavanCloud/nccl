@@ -510,16 +510,20 @@ ncclResult_t ncclCommInitRankSync(ncclComm_t* newcomm, int ndev, ncclUniqueId co
   nvmlDevice_t nvmlDevice;
   CUDACHECK(cudaGetDevice(&cudaDev));
   bool affinity_set = SetCpuAffinity(cudaDev, &nvmlDevice);
+  ncclResult_t res;
 
-  NCCLCHECK(commAlloc(newcomm, ndev, myrank));
-  NCCLCHECK(initTransportsRank(*newcomm, &commId));
-  NCCLCHECK(devCommSetup(*newcomm));
+  NCCLCHECKGOTO(commAlloc(newcomm, ndev, myrank), res, cleanup);
+  NCCLCHECKGOTO(initTransportsRank(*newcomm, &commId), res, cleanup);
+  NCCLCHECKGOTO(devCommSetup(*newcomm), res, cleanup);
 
   if (affinity_set)
     wrapNvmlDeviceClearCpuAffinity(nvmlDevice); // Ignore errors
 
-  NCCLCHECK(wrapNvmlShutdown());
+  NCCLCHECKGOTO(wrapNvmlShutdown(), res, cleanup);
   return ncclSuccess;
+cleanup:
+  *newcomm = NULL;
+  return res;
 }
 
 NCCL_API(ncclResult_t, ncclCommInitRank, ncclComm_t* newcomm, int ndev, ncclUniqueId commId, int myrank);
@@ -633,8 +637,6 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   showVersion();
 
   NCCLCHECK(PtrCheck(comms, "CommInitAll", "comms"));
-  int devcount=0;
-  cudaGetDeviceCount(&devcount);
   if (ndev < 1) {
     WARN("Invalid device count requested : %d", ndev);
     return ncclInvalidArgument;
@@ -658,45 +660,26 @@ ncclResult_t ncclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
 
   for (rank=0; rank<ndev; ++rank) {
     cudaDev = ncclDevList[rank];
-    if (cudaSetDevice(cudaDev) != cudaSuccess) {
-      WARN("rank %d failed to set cuda device %d", rank, cudaDev);
-      res = ncclUnhandledCudaError;
-      goto cleanup;
-    }
+    CUDACHECKGOTO(cudaSetDevice(cudaDev), res, cleanup);
 
     // Set CPU affinity
     affinity_set = SetCpuAffinity(cudaDev, &nvmlDevice);
 
-    res = commAlloc(&comm, ndev, rank);
-    if (res != ncclSuccess) {
-      WARN("rank %d failed to allocate communicator", rank);
-      goto cleanup;
-    }
+    NCCLCHECKGOTO(commAlloc(&comm, ndev, rank), res, cleanup);
     comms[rank] = comm;
 
-    NCCLCHECK(ncclCommSetIntra(comm, rank, ndev, comms[0]));
+    NCCLCHECKGOTO(ncclCommSetIntra(comm, rank, ndev, comms[0]), res, cleanup);
 
     if (affinity_set)
       wrapNvmlDeviceClearCpuAffinity(nvmlDevice); // Ignore errors
   }
 
-  res = initTransportsAll(comms, ncclDevList, ndev);
-  if (res != ncclSuccess) {
-    WARN("failed to init transports");
-    goto cleanup;
-  }
+  NCCLCHECKGOTO(initTransportsAll(comms, ncclDevList, ndev), res, cleanup);
 
   for(rank=0; rank<ndev; ++rank) {
     cudaDev = ncclDevList[rank];
-    if (cudaSetDevice(cudaDev) != cudaSuccess) {
-      WARN("rank %d failed to set cuda device %d", rank, cudaDev);
-      res = ncclUnhandledCudaError;
-      goto cleanup;
-    }
-    res = devCommSetup(comms[rank]);
-    if (res != ncclSuccess) {
-      WARN("rank %d failed to copy dcomm", rank);
-    }
+    CUDACHECKGOTO(cudaSetDevice(cudaDev), res, cleanup);
+    NCCLCHECKGOTO(devCommSetup(comms[rank]), res, cleanup);
   }
 
   res = ncclSuccess;

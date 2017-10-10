@@ -188,8 +188,17 @@ struct ncclComm {
 #define CUDACHECK(cmd) do {                                 \
     cudaError_t e = cmd;                                    \
     if( e != cudaSuccess ) {                                \
-        WARN("Cuda failure '%s'", cudaGetErrorString(e)); \
+        WARN("Cuda failure '%s'", cudaGetErrorString(e));   \
         return ncclUnhandledCudaError;                      \
+    }                                                       \
+} while(false)
+
+#define CUDACHECKGOTO(cmd, res, label) do {                 \
+    cudaError_t e = cmd;                                    \
+    if( e != cudaSuccess ) {                                \
+        WARN("Cuda failure '%s'", cudaGetErrorString(e));   \
+        res = ncclUnhandledCudaError;                       \
+        goto label;                                         \
     }                                                       \
 } while(false)
 
@@ -221,6 +230,15 @@ struct ncclComm {
     /* Print the back trace*/ \
     INFO("%s:%d -> %d", __FILE__, __LINE__, res); \
     return res; \
+  } \
+} while (0);
+
+#define NCCLCHECKGOTO(call, res, label) do { \
+  res = call; \
+  if (res != ncclSuccess) { \
+    /* Print the back trace*/ \
+    INFO("%s:%d -> %d", __FILE__, __LINE__, res); \
+    goto label; \
   } \
 } while (0);
 
