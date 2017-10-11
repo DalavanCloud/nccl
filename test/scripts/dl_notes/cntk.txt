@@ -42,6 +42,8 @@ To build without NCCL, delete the —with-nccl line and delete the nccl line in 
 
 make -j 2 all 2>&1 | tee make.log
 
+#Time to build - 
+
 # Set up python env
 cd [CNTK clone root]
 export PYTHONPATH=$PWD/bindings/python:$PYTHONPATH
@@ -51,5 +53,5 @@ export LD_LIBRARY_PATH=$PWD/cntk/libs:$LD_LIBRARY_PATH
 # Run
 cd /home/nightly/install/cntk_tests
 salloc -p P100 -n 8 ./resnet50_cntk.sh
-
 A log file will be generated.
+#Time to run on eris t039 8x P100 PCIE 512000 samples with cuda 9 + cudnn 7 - 10 mins
