@@ -41,13 +41,10 @@ ncclResult_t wrapNvmlSymbols(void) {
   void* tmp;
   void** cast;
 
-  nvmlhandle=dlopen("libnvidia-ml.so", RTLD_NOW);
+  nvmlhandle=dlopen("libnvidia-ml.so.1", RTLD_NOW);
   if (!nvmlhandle) {
-    nvmlhandle=dlopen("libnvidia-ml.so.1", RTLD_NOW);
-    if (!nvmlhandle) {
-      WARN("Failed to open libnvidia-ml.so[.1]");
-      goto teardown;
-    }
+    WARN("Failed to open libnvidia-ml.so.1");
+    goto teardown;
   }
 
   #define LOAD_SYM(handle, symbol, funcptr) do {         \
