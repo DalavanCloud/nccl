@@ -19,6 +19,8 @@ $ source caffe2_env.sh
 
 $ make
 
+#Time to build - 25 mins with -j 8 on eris)
+
 # Run
 
 $ cd build/caffe2/python/examples
@@ -28,3 +30,5 @@ $ srun -p P100 -c 8 python resnet50_trainer.py --num_gpus 8 --train_data /mnt/li
 
 With NCCL:
 $ srun -p P100 -c 8 python resnet50_trainer.py --num_gpus 8 --train_data /mnt/linuxqa/nightly/dldata/imagenet/train-lmdb-256x256 --use_nccl
+
+
