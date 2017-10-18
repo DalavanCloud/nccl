@@ -105,20 +105,20 @@ int main(int argc, char* argv[])
 
   //initializing NCCL, group API is required around ncclCommInitRank as it is 
   //called across multiple GPUs in each thread/process
-  ncclGroupStart();
+  NCCLCHECK(ncclGroupStart());
   for (int i=0; i<nDev; i++) {
      CUDACHECK(cudaSetDevice(localRank*nDev + i));
      NCCLCHECK(ncclCommInitRank(comms+i, nRanks*nDev, id, myRank*nDev + i));
   }
-  ncclGroupEnd();
+  NCCLCHECK(ncclGroupEnd());
 
   //calling NCCL communication API. Group API is required when using 
   //multiple devices per thread/process
-  ncclGroupStart();
+  NCCLCHECK(ncclGroupStart());
   for (int i=0; i<nDev; i++)
      NCCLCHECK(ncclAllReduce((const void*)sendbuff[i], (void*)recvbuff[i], size, ncclFloat, ncclSum,
            comms[i], s[i]));
-  ncclGroupEnd();
+  NCCLCHECK(ncclGroupEnd());
 
   //synchrozing on CUDA stream to complete NCCL communication
   for (int i=0; i<nDev; i++)
