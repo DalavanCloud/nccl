@@ -86,6 +86,7 @@ ncclResult_t ncclCpuBarrierWait(ncclComm_t comm) {
 ncclResult_t ncclEnqueueCheck(ncclFunc_t func, const char* primName, const void* sendbuff, 
     void* recvbuff, size_t count, ncclDataType_t type, ncclRedOp_t op, int root,
     ncclComm_t comm, cudaStream_t stream) {
+  if (comm == NULL) return ncclInvalidArgument;
   // Launch asynchronously if needed
   if (ncclAsyncMode()) {
     if (ncclChecks) {
