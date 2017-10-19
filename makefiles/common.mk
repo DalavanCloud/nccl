@@ -43,7 +43,7 @@ NVLDFLAGS   += ${GCOV_FLAGS:%=-Xcompiler %}
 
 ifeq ($(DEBUG), 0)
 NVCUFLAGS += -O3
-CXXFLAGS  += -O3
+CXXFLAGS  += -O3 -g
 else
 NVCUFLAGS += -O0 -G -g
 CXXFLAGS  += -O0 -g -ggdb3
