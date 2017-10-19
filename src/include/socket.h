@@ -133,7 +133,7 @@ static ncclResult_t createListenSocket(int *fd, union socketAddress *localAddr) 
   /* Create socket and bind it to a port */
   int sockfd = socket(family, SOCK_STREAM, 0);
   if (sockfd == -1) {
-    WARN("Socket creation failed");
+    WARN("Socket creation failed : %s", strerror(errno));
     return ncclSystemError;
   }
 
@@ -163,7 +163,7 @@ static ncclResult_t connectAddress(union socketAddress* remoteAddr, union socket
   /* Connect to a hostname / port */
   *fd = socket(family, SOCK_STREAM, 0);
   if (*fd == -1) {
-    WARN("Socket creation failed");
+    WARN("Socket creation failed : %s", strerror(errno));
     return ncclSystemError;
   }
 

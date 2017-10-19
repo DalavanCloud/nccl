@@ -130,7 +130,7 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
 
   struct ncclComm* comm = (struct ncclComm*)malloc(sizeof(struct ncclComm));
   if (comm == NULL) {
-    WARN("comm allocation failed");
+    WARN("comm allocation failed : %s", strerror(errno));
     return ncclSystemError;
   }
   memset(comm, 0, sizeof(struct ncclComm));
