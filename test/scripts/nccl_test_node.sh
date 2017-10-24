@@ -43,7 +43,7 @@ fi
 
 if [ "$mode" == "dlfw" ] && [ "$gpumodel" == "P100" ]; then
   cd $BLDDIR
-  $SHDIR/mxnet.sh $gpumodel
+  #$SHDIR/mxnet.sh $gpumodel
   #$SHDIR/caffe2.sh $gpumodel
   #$SHDIR/tensorflow.sh $gpumodel
   #$SHDIR/pytorch.sh $gpumodel
