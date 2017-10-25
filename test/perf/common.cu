@@ -31,6 +31,7 @@ static int ncclroot = 0;
 static int swap_args = 0;
 static int parallel_init = 0;
 static int blocking_coll = 0;
+static int streamnull = 0;
 
 double parsesize(char *value) {
     long long int units;
@@ -747,16 +748,17 @@ int main(int argc, char* argv[]) {
     {"swap_comms", required_argument, 0, 's'},
     {"parallel_init", required_argument, 0, 'p'},
     {"check", required_argument, 0, 'c'},
-    {"blocking", required_argument, 0, 'z'},
     {"op", required_argument, 0, 'o'},
     {"datatype", required_argument, 0, 'd'},
     {"root", required_argument, 0, 'r'},
+    {"blocking", required_argument, 0, 'z'},
+    {"stream_null", required_argument, 0, 'y'},
     {"help", no_argument, 0, 'h'}
  };
 
  while(1) {
       int c;
-      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:w:s:p:c:o:d:r:z:h", longopts, &longindex);
+      c = getopt_long(argc, argv, "t:g:b:e:i:f:n:w:s:p:c:o:d:r:z:y:h", longopts, &longindex);
 
       if (c == -1)
          break;
@@ -807,43 +809,48 @@ int main(int argc, char* argv[]) {
 	 case 'z':
 	     blocking_coll = strtol(optarg, NULL, 0);
 	     break;
+         case 'y':
+             streamnull = strtol(optarg, NULL, 0);
+             break;
          case 'h':
 	         printf("USAGE: ./test \n\t" 
-	 	 "[-t,--nthreads <num threads>] \n\t "
-		 "[-g,--ngpus <gpus per thread>] \n\t "
-		 "[-b,--minbytes <min size in bytes>] \n\t "
-		 "[-e,--maxbytes <max size in bytes>] \n\t "
-	         "[-i,--stepbytes <increment size>] \n\t "
-		 "[-f,--stepfactor <increment factor>] \n\t "
-		 "[-n,--iters <iteration count>] \n\t "
-		 "[-w,--warmup_iters <warmup iteration count>] \n\t" 
-		 "[-s,--swap_args <0/1>] \n\t "
-		 "[-p,--parallel_init <0/1>] \n\t "
-		 "[-c,--check <0/1>] \n\t "
-		 "[-o,--op <sum/prod/min/max/all>] \n\t "
-		 "[-d,--datatype <nccltype/all>] \n\t "
-		 "[-r,--root <root>] \n\t "
-		 "[-z,--blocking <0/1>] \n\t "
+		 "[-t,--nthreads <num threads>] \n\t"
+		 "[-g,--ngpus <gpus per thread>] \n\t"
+		 "[-b,--minbytes <min size in bytes>] \n\t"
+		 "[-e,--maxbytes <max size in bytes>] \n\t"
+	         "[-i,--stepbytes <increment size>] \n\t"
+		 "[-f,--stepfactor <increment factor>] \n\t"
+		 "[-n,--iters <iteration count>] \n\t"
+		 "[-w,--warmup_iters <warmup iteration count>] \n\t"
+		 "[-s,--swap_args <0/1>] \n\t"
+		 "[-p,--parallel_init <0/1>] \n\t"
+		 "[-c,--check <0/1>] \n\t"
+		 "[-o,--op <sum/prod/min/max/all>] \n\t"
+		 "[-d,--datatype <nccltype/all>] \n\t"
+		 "[-r,--root <root>] \n\t"
+		 "[-z,--blocking <0/1>] \n\t"
+		 "[-y,--stream_null <0/1>] \n\t"
 		 "[-h,--help]\n");
 	         return 0;
 	 default: 
 	         printf("invalid option \n");
 	         printf("USAGE: ./test \n\t" 
-	 	 "[-t,--nthreads <num threads>] \n\t "
-		 "[-g,--ngpus <gpus per thread>] \n\t "
-		 "[-b,--minbytes <min size in bytes>] \n\t "
-		 "[-e,--maxbytes <max size in bytes>] \n\t "
-	         "[-i,--stepbytes <increment size>] \n\t "
-		 "[-f,--stepfactor <increment factor>] \n\t "
-		 "[-n,--iters <iteration count>] \n\t "
-		 "[-w,--warmup_iters <warmup iteration count>] \n\t" 
-		 "[-s,--swap_args <0/1>] \n\t "
-		 "[-p,--parallel_init <0/1>] \n\t "
-		 "[-c,--check <0/1>] \n\t "
-		 "[-o,--op <sum/prod/min/max/all>] \n\t "
-		 "[-d,--datatype <nccltype/all>] \n\t "
-		 "[-r,--root <root>] \n\t "
-		 "[-z,--blocking <0/1>] \n\t "
+		 "[-t,--nthreads <num threads>] \n\t"
+		 "[-g,--ngpus <gpus per thread>] \n\t"
+		 "[-b,--minbytes <min size in bytes>] \n\t"
+		 "[-e,--maxbytes <max size in bytes>] \n\t"
+	         "[-i,--stepbytes <increment size>] \n\t"
+		 "[-f,--stepfactor <increment factor>] \n\t"
+		 "[-n,--iters <iteration count>] \n\t"
+		 "[-w,--warmup_iters <warmup iteration count>] \n\t"
+		 "[-s,--swap_args <0/1>] \n\t"
+		 "[-p,--parallel_init <0/1>] \n\t"
+		 "[-c,--check <0/1>] \n\t"
+		 "[-o,--op <sum/prod/min/max/all>] \n\t"
+		 "[-d,--datatype <nccltype/all>] \n\t"
+		 "[-r,--root <root>] \n\t"
+		 "[-z,--blocking <0/1>] \n\t"
+		 "[-y,--stream_null <0/1>] \n\t"
 		 "[-h,--help]\n");
 	         return 0;
       }
@@ -895,7 +902,10 @@ int main(int argc, char* argv[]) {
   for (int i=0; i<nGpus*nThreads; i++) {
     CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
     AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, expectedHost+i, (size_t)maxBytes, nProcs*nThreads*nGpus, sameExpected);
-    CUDACHECK(cudaStreamCreateWithFlags(streams+i, cudaStreamNonBlocking));
+    if (streamnull)
+      streams[i] = NULL;
+    else
+      CUDACHECK(cudaStreamCreateWithFlags(streams+i, cudaStreamNonBlocking));
   }
 
   if (procSharedBytes > 0) { 

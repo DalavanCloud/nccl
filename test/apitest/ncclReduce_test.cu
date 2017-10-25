@@ -70,6 +70,19 @@ TYPED_TEST(ncclReduce_test, pinned_mem) {
         }
     }
 };
+TYPED_TEST(ncclReduce_test, stream_null) {
+    ASSERT_EQ(ncclSuccess, ncclGroupStart());
+    for (int i = 0; i < this->nVis; ++i) {
+        ASSERT_EQ(ncclSuccess,
+                  ncclReduce(
+                      this->sendbuffs[i], this->recvbuffs[i],
+                      std::min(this->N, 1024 * 1024),
+                      this->DataType(), ncclSum, 0,
+                      this->comms[i], NULL))
+            << ", " << "i" << i << ", " << std::endl;
+    }
+    ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+};
 // sendbuff
 TYPED_TEST(ncclReduce_test, sendbuf_null) {
     int i = 0, root = 0;

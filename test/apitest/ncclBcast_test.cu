@@ -54,6 +54,18 @@ TYPED_TEST(ncclBcast_test, pinned_mem) {
         ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
+TYPED_TEST(ncclBcast_test, stream_null) {
+    ASSERT_EQ(ncclSuccess, ncclGroupStart());
+    for (int i = 0; i < this->nVis; ++i) {
+        ASSERT_EQ(ncclSuccess,
+                  ncclBcast(
+                      this->sendbuffs[i],
+                      std::min(this->N, 1024 * 1024), this->DataType(),
+                      0, this->comms[i], NULL))
+            << ", " << "i" << i << ", " << std::endl;
+    }
+    ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+};
 // sendbuff
 TYPED_TEST(ncclBcast_test, sendbuf_null) {
     int i = 0, root = 0;

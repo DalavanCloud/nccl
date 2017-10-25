@@ -57,6 +57,18 @@ TYPED_TEST(ncclReduceScatter_test, pinned_mem) {
         ASSERT_EQ(ncclSuccess, ncclGroupEnd());
     }
 };
+TYPED_TEST(ncclReduceScatter_test, stream_null) {
+    ASSERT_EQ(ncclSuccess, ncclGroupStart());
+    for (int i = 0; i < this->nVis; ++i) {
+        ASSERT_EQ(ncclSuccess,
+                  ncclReduceScatter(
+                      this->sendbuffs[i], this->recvbuffs[i],
+                      std::min(this->N/this->nVis, 1024 * 1024), this->DataType(), ncclSum,
+                      this->comms[i], NULL))
+            << ", " << "i" << i << ", " << std::endl;
+    }
+    ASSERT_EQ(ncclSuccess, ncclGroupEnd());
+};
 // sendbuff
 TYPED_TEST(ncclReduceScatter_test, sendbuf_null) {
     int i = 0;

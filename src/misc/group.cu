@@ -117,6 +117,8 @@ ncclResult_t ncclGroupEnd() {
   for (int i=0; i<ncclGroupIndex; i++) {
     struct ncclAsyncArgs* args = ncclGroupArgs+i;
     if (args->funcType == ASYNC_FUNC_COLL) {
+      if (args->coll.comm->userStream == NULL)
+        CUDACHECK(cudaSetDevice(args->coll.comm->cudaDev));
       NCCLCHECK(ncclCpuBarrierCheckin(args->coll.comm));
     }
   }
