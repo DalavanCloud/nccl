@@ -223,7 +223,7 @@ static inline int findConnect(int nranks, int* ranks) {
 int p2pComputeRingsNvLink(int* values, int nranks, int* rings, int nrings, int* prev, int* next, int oversubscribe, int* nthreads) {
   if (nrings == 0) return 0;
   if (nrings > MAXRINGS) {
-    WARN("Max rings reached, limiting to %d\n", MAXRINGS);
+    WARN("Max rings reached, limiting to %d", MAXRINGS);
     nrings = MAXRINGS;
   }
   // Find existing constraints / connections
@@ -389,8 +389,8 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
       if (err == cudaErrorPeerAccessAlreadyEnabled) {
         cudaGetLastError();
       } else if (err != cudaSuccess) {
-        WARN("failed to peer with device %d: %s",
-            peerInfo->cudaDev, cudaGetErrorString(err));
+        WARN("failed to peer with device %d: %d %s",
+             peerInfo->cudaDev, err, cudaGetErrorString(err));
         return ncclInternalError;
       }
       INFO("%d -> %d via P2P/direct pointer", myInfo->rank, peerInfo->rank);
@@ -398,8 +398,10 @@ ncclResult_t p2pSetup(ncclTinfo_t* myOpaqueInfo, ncclTinfo_t* peerOpaqueInfo, st
   } else {
     info.direct = 0;
     // Map IPC and enable P2P access
-    if (cudaIpcGetMemHandle(&info.devIpc, (void*)ring->devMem) != cudaSuccess) {
-      WARN("rank %d failed to get CUDA IPC handle to device %d", myInfo->rank, peerInfo->cudaDev);
+    cudaError_t err = cudaIpcGetMemHandle(&info.devIpc, (void*)ring->devMem);
+    if (err != cudaSuccess) {
+      WARN("rank %d failed to get CUDA IPC handle to device %d : %d %s",
+           myInfo->rank, peerInfo->cudaDev, err, cudaGetErrorString(err));
       return ncclInternalError;
     }
     INFO("%d -> %d via P2P/IPC", myInfo->rank, peerInfo->rank);
@@ -425,8 +427,8 @@ static ncclResult_t p2pConnect(struct ncclConnect* connectInfo, struct ncclConne
     *ipcPtrSave = remPtr;
     *remDevMem = (struct ncclSendRecvMem*)remPtr;
     if (err != cudaSuccess) {
-      WARN("failed to open CUDA IPC handle : %s",
-          cudaGetErrorString(err));
+      WARN("failed to open CUDA IPC handle : %d %s",
+           err, cudaGetErrorString(err));
       return ncclUnhandledCudaError;
     }
   }
