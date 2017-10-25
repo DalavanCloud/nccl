@@ -6,6 +6,8 @@ maxgpu=$2
 
 mode=$3
 
+opt=$4
+
 # get dir of test scripts
 SHDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $SHDIR/../../
@@ -43,11 +45,14 @@ fi
 
 if [ "$mode" == "dlfw" ] && [ "$gpumodel" == "P100" ]; then
   cd $BLDDIR
-  #$SHDIR/mxnet.sh $gpumodel
-  #$SHDIR/caffe2.sh $gpumodel
-  #$SHDIR/tensorflow.sh $gpumodel
-  #$SHDIR/pytorch.sh $gpumodel
-  #$SHDIR/cntk.sh $gpumodel
+  if [ "$opt" == "PARALLEL" ]; then
+    echo "dlfw GROUP/PARALLEL $opt"
+    #$SHDIR/caffe2.sh $gpumodel
+    #$SHDIR/tensorflow.sh $gpumodel
+  fi
+  #$SHDIR/cntk.sh $gpumodel $mode
+  #$SHDIR/mxnet.sh $gpumodel $mode
+  #$SHDIR/pytorch.sh $gpumodel $mode
 elif [[ "$mode" == *"mpi"* ]] || [[ "$mode" == *"multinode"* ]]; then
   # test (multi processes)
   cd $NCCLROOT
