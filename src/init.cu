@@ -135,6 +135,7 @@ static ncclResult_t commAlloc(ncclComm_t* comret, int ndev, int rank) {
   }
   memset(comm, 0, sizeof(struct ncclComm));
 
+  TRACE("comm %p rank %d nranks %d", comm, rank, ndev);
   comm->rank = rank;
   comm->nRanks = ndev;
   cudaGetDevice(&comm->cudaDev);
